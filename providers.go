@@ -64,48 +64,37 @@ type providerSet struct {
 type providerKey struct {
 	key   string // the value of --provider and of the provider config key
 	alias string // a short form of key that --provider also accepts
-	name  string // the display name in the provider list
 	// optional marks a provider that registers only when it is configured.
 	// The log names each optional provider that is not configured.
 	optional bool
 }
 
 // providerKeys lists the providers that --provider accepts, in help order.
-// The flag help, the flag check, the provider names and the log of skipped
-// providers all come from this table. The local provider is not a
-// --provider value.
+// The flag help, the flag check, and the log of skipped providers read this
+// table. UI labels come from playlist.Provider.Name(). The local provider is
+// not a --provider value.
 var providerKeys = []providerKey{
-	{key: "cliamp", name: "cliamp radio"},
-	{key: "radio", name: "Radio"},
-	{key: "podcast", name: "Podcasts"},
-	{key: "navidrome", name: "Navidrome", optional: true},
-	{key: "telegram", name: "Telegram", optional: true},
-	{key: "lyrion", name: "Lyrion", optional: true},
-	{key: "plex", name: "Plex", optional: true},
-	{key: "jellyfin", name: "Jellyfin", optional: true},
-	{key: "emby", name: "Emby", optional: true},
-	{key: "spotify", name: "Spotify", optional: true},
-	{key: "qobuz", name: "Qobuz", optional: true},
-	{key: "tidal", name: "Tidal", optional: true},
-	{key: "bandcamp", name: "Bandcamp", optional: true},
-	{key: "soundcloud", name: "SoundCloud", optional: true},
-	{key: "mixcloud", name: "Mixcloud", optional: true},
-	{key: "netease", name: "NetEase", optional: true},
-	{key: "yandex", name: "Yandex Music", optional: true},
-	{key: "audiobookshelf", alias: "abs", name: "Audiobookshelf", optional: true},
-	{key: "yt", name: "YouTube (All)"},
-	{key: "youtube", name: "YouTube"},
-	{key: "ytmusic", name: "YouTube Music"},
-}
-
-// providerName returns the display name of the provider key.
-func providerName(key string) string {
-	for _, pk := range providerKeys {
-		if pk.key == key {
-			return pk.name
-		}
-	}
-	return key
+	{key: "cliamp"},
+	{key: "radio"},
+	{key: "podcast"},
+	{key: "navidrome", optional: true},
+	{key: "telegram", optional: true},
+	{key: "lyrion", optional: true},
+	{key: "plex", optional: true},
+	{key: "jellyfin", optional: true},
+	{key: "emby", optional: true},
+	{key: "spotify", optional: true},
+	{key: "qobuz", optional: true},
+	{key: "tidal", optional: true},
+	{key: "bandcamp", optional: true},
+	{key: "soundcloud", optional: true},
+	{key: "mixcloud", optional: true},
+	{key: "netease", optional: true},
+	{key: "yandex", optional: true},
+	{key: "audiobookshelf", alias: "abs", optional: true},
+	{key: "yt"},
+	{key: "youtube"},
+	{key: "ytmusic"},
 }
 
 // providerFlagUsage returns the help text of --provider.
@@ -159,15 +148,15 @@ func buildProviders(cfg config.Config, interactive bool) *providerSet {
 	}
 
 	add := func(key string, p playlist.Provider) {
-		s.entries = append(s.entries, provider.Entry{Key: key, Name: providerName(key), Provider: p})
+		s.entries = append(s.entries, provider.Entry{Key: key, Name: p.Name(), Provider: p})
 	}
 	// The cliamp radio channels come first: they are the view cliamp opens on.
 	add("cliamp", radio.NewChannels())
 	add("radio", radioProv)
 	if s.local != nil {
-		s.entries = append(s.entries, provider.Entry{Key: "local", Name: "Local", Provider: s.local})
+		s.entries = append(s.entries, provider.Entry{Key: "local", Name: s.local.Name(), Provider: s.local})
 	} else {
-		logProviderSkipped("Local", "local", "config directory unavailable")
+		logProviderSkipped("local", "config directory unavailable")
 	}
 	add("podcast", podcast.New(cfg.Podcast.Country))
 
@@ -313,9 +302,9 @@ func youTubeEntries(cfg config.Config, interactive bool) []provider.Entry {
 		all, video, music = p.All, p.Video, p.Music
 	}
 	return []provider.Entry{
-		{Key: "yt", Name: providerName("yt"), Provider: all},
-		{Key: "youtube", Name: providerName("youtube"), Provider: video},
-		{Key: "ytmusic", Name: providerName("ytmusic"), Provider: music},
+		{Key: "yt", Name: all.Name(), Provider: all},
+		{Key: "youtube", Name: video.Name(), Provider: video},
+		{Key: "ytmusic", Name: music.Name(), Provider: music},
 	}
 }
 
@@ -538,15 +527,15 @@ func logProviderRegistered(name, key string) {
 
 // logProviderSkipped records why a provider did not register. It writes to
 // the log file only, so it never disturbs the TUI. See issue #406.
-func logProviderSkipped(name, key, reason string) {
-	applog.Info("provider skipped: name=%s key=%s reason=%s", name, key, reason)
+func logProviderSkipped(key, reason string) {
+	applog.Info("provider skipped: key=%s reason=%s", key, reason)
 }
 
 // logYouTubeSkipped records the skip reason for all three YouTube providers
 // (All, video, music), since they register or skip as one group.
 func logYouTubeSkipped(reason string) {
 	for _, key := range []string{"yt", "youtube", "ytmusic"} {
-		logProviderSkipped(providerName(key), key, reason)
+		logProviderSkipped(key, reason)
 	}
 }
 
@@ -637,7 +626,7 @@ func logProviderWiring(providers []provider.Entry) {
 	}
 	for _, pk := range providerKeys {
 		if pk.optional && !registered[pk.key] {
-			logProviderSkipped(pk.name, pk.key, "not configured")
+			logProviderSkipped(pk.key, "not configured")
 		}
 	}
 }

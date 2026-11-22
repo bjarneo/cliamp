@@ -8,7 +8,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/bjarneo/cliamp/playlist"
-	"github.com/bjarneo/cliamp/provider"
 )
 
 func TestPlaylistStateMarkersStayVisibleWithoutColor(t *testing.T) {
@@ -30,8 +29,8 @@ func TestPlaylistStateMarkersStayVisibleWithoutColor(t *testing.T) {
 	}
 
 	plain := ansi.Strip(m.renderPlaylist())
-	if !strings.Contains(plain, ">▶Q"+favHeart) {
-		t.Fatalf("playlist markers = %q, want cursor, playback, queue, and favorite columns", plain)
+	if !strings.Contains(plain, ">▶N"+favHeart) {
+		t.Fatalf("playlist markers = %q, want cursor, playback, play next, and favorite columns", plain)
 	}
 	if !strings.Contains(plain, "!") {
 		t.Fatalf("playlist markers = %q, want unavailable marker", plain)
@@ -73,22 +72,5 @@ func TestNonSeekableStreamUsesLiveTime(t *testing.T) {
 
 	if plain := ansi.Strip(m.renderTimeStatus()); !strings.Contains(plain, "01:05 / LIVE") {
 		t.Fatalf("stream time = %q, want elapsed LIVE time", plain)
-	}
-}
-
-func TestProviderIndicatorProgressivelyShowsNeighbors(t *testing.T) {
-	m := Model{
-		providers:   []provider.Entry{{Name: "Radio"}, {Name: "Spotify"}, {Name: "Local"}},
-		provPillIdx: 1,
-	}
-
-	m.layout.panelWidth = 80
-	if plain := ansi.Strip(m.renderProviderPill()); !strings.Contains(plain, "SRC [Spotify] 2/3") || strings.Contains(plain, "Radio") {
-		t.Fatalf("compact source indicator = %q, want current provider only", plain)
-	}
-
-	m.layout.panelWidth = 120
-	if plain := ansi.Strip(m.renderProviderPill()); !strings.Contains(plain, "[Radio]") || !strings.Contains(plain, "[Local]") {
-		t.Fatalf("wide source indicator = %q, want neighboring providers", plain)
 	}
 }

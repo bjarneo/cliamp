@@ -59,6 +59,10 @@ func (m *Model) handleSpeedKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.focus = m.previousMainFocus(focusSpeed)
 	case "space":
 		return m.togglePlayPause()
+	case "o", "p":
+		if m.browsePaneKeys(msg.String()) {
+			return nil
+		}
 	}
 	return nil
 }
@@ -113,6 +117,9 @@ func (m *Model) providerRowsFromScroll(scroll, cursor int) int {
 	}
 
 	for i := scroll; i <= cursor && i < total; i++ {
+		if m.showingLocalProvider() && !m.provSearch.active {
+			rows += localProviderBlankLinesBefore(m.provPane.lists, i, scroll)
+		}
 		header := headerAt(i)
 		if header != "" && header != prevHeader {
 			rows++ // section header row
@@ -298,8 +305,36 @@ func (m *Model) handleGlobalKey(msg tea.KeyPressMsg) (cmd tea.Cmd, ok bool) {
 			m.openKeymap()
 			return nil, true
 		}
+	case "?":
+		if !m.keymap.visible {
+			if _, ok := m.topOverlay(); ok {
+				return nil, false
+			}
+			if m.fullVis {
+				m.exitFullVisualizer()
+			}
+			m.openKeymap()
+			return nil, true
+		}
 	}
 	return nil, false
+}
+
+// browsePaneKeys opens the file browser or the local playlist manager from any
+// main-screen focus (playlist, source pill, playback controls, provider pane).
+func (m *Model) browsePaneKeys(key string) bool {
+	switch key {
+	case "o":
+		m.openFileBrowser()
+		return true
+	case "p":
+		if m.localProvider != nil {
+			m.openPlaylistManager()
+		}
+		return true
+	default:
+		return false
+	}
 }
 
 // handleProviderPaneKey processes a key press while the provider pane has
@@ -336,9 +371,9 @@ func (m *Model) handleProviderPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.loadLatestFromProviderList()
 	case "a":
 		return m.appendShowFromProviderList()
-	case "p":
-		if m.localProvider != nil {
-			m.openPlaylistManager()
+	case "o", "p":
+		if m.browsePaneKeys(msg.String()) {
+			return nil
 		}
 	case "up", "k":
 		m.providerMoveUp()
@@ -394,9 +429,10 @@ func (m *Model) handleProviderPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.refreshActiveProvider(false)
 	case "f":
 		return m.toggleProviderFavorite()
-	case "o":
-		m.openFileBrowser()
 	case "N":
+		if m.tryOpenLocalFileBrowser() {
+			return nil
+		}
 		// Provider-pane browsing must stay scoped to the provider being
 		// viewed. Falling back to another registered browser can otherwise
 		// send (for example) Spotify's pane into Mixcloud.
@@ -449,6 +485,10 @@ func (m *Model) handleProvPillKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.focus = m.previousMainFocus(focusProvPill)
 	case "space":
 		return m.togglePlayPause()
+	case "o", "p":
+		if m.browsePaneKeys(msg.String()) {
+			return nil
+		}
 	}
 	return nil
 }
@@ -535,9 +575,13 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "esc", "backspace", "b":
 		if m.focus == focusPlaylist {
 			// Keep current expanded/collapsed height mode when switching focus.
-			m.focus = focusProvider
-			// The Local source has no provider pane list; show its manager.
-			m.ensureLocalManager()
+			if m.tryRestoreLocalFileBrowserFromQueue() {
+				return nil
+			}
+			if m.provider != nil {
+				m.noteProviderPaneVisit()
+				m.focus = focusProvider
+			}
 		} else {
 			m.focus = m.previousMainFocus(m.focus)
 		}
@@ -682,14 +726,14 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 
 	case "e":
-		if m.simplified || m.layout.tier == layoutMinimal {
+		if m.simplified {
 			break
 		}
 		m.cycleEQPreset()
 		m.scheduleEQSave()
 
 	case "alt+e":
-		if m.simplified || m.layout.tier == layoutMinimal {
+		if m.simplified {
 			break
 		}
 		m.previousEQPreset()
@@ -746,9 +790,9 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "ctrl+j":
 		m.openJumpMode()
-	case "p":
-		if m.localProvider != nil {
-			m.openPlaylistManager()
+	case "o", "p":
+		if m.browsePaneKeys(key) {
+			return nil
 		}
 
 	case "t":
@@ -760,13 +804,13 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 			return m.retryLyrics()
 		}
 
-	case "o":
-		m.openFileBrowser()
-
 	case "u":
 		m.urlInput = urlInputState{active: true}
 
 	case "N":
+		if m.tryOpenLocalFileBrowser() {
+			return nil
+		}
 		if cmd, ok := m.openSelectedTrackArtistBrowser(); ok {
 			return cmd
 		}
@@ -835,9 +879,6 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "[":
 		m.changeSpeed(-0.25)
-
-	case "?":
-		m.openKeymap()
 
 	default:
 		if m.luaMgr != nil {
@@ -935,9 +976,6 @@ func (m *Model) handleFullVisualizerKey(msg tea.KeyPressMsg) tea.Cmd {
 		// Hide the episode name so the full-screen visualizer can be put on a
 		// shared screen without naming what is playing.
 		m.hideTrackInfo = !m.hideTrackInfo
-	case "?":
-		m.exitFullVisualizer()
-		m.openKeymap()
 
 	default:
 		// Plugin bindings are global: a pomodoro or sleep-timer key is about
@@ -1019,7 +1057,8 @@ func (m *Model) handleJumpKey(msg tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-// toggleExpandedView toggles the UI between default and expanded height.
+// toggleExpandedView toggles the UI between the default frame size and the
+// full terminal height and width.
 func (m *Model) toggleExpandedView() {
 	m.heightExpanded = !m.heightExpanded
 	m.applyHeightMode()

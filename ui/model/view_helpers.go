@@ -118,6 +118,38 @@ func formatPlaylistDuration(secs int) string {
 	return fmt.Sprintf("%ds", secs)
 }
 
+// formatPodcastEpisodeDate renders podcast.published (YYYY-MM-DD) as a short
+// label: "15 Nov" in the current calendar year, or "15 Nov 25" otherwise.
+func formatPodcastEpisodeDate(published string, now time.Time) string {
+	if published == "" {
+		return ""
+	}
+	t, err := time.ParseInLocation("2006-01-02", published, time.Local)
+	if err != nil {
+		return ""
+	}
+	month := t.Format("Jan")
+	if t.Year() == now.Year() {
+		return fmt.Sprintf("%d %s", t.Day(), month)
+	}
+	return fmt.Sprintf("%d %s %02d", t.Day(), month, t.Year()%100)
+}
+
+// podcastEpisodeRowTail is the right-aligned podcast episode suffix:
+// "15 Nov · 5:22", or just one part when the other is missing.
+func podcastEpisodeRowTail(t playlist.Track, now time.Time) string {
+	date := formatPodcastEpisodeDate(t.Meta(provider.MetaPodcastPublished), now)
+	dur := formatTrackTime(t.DurationSecs)
+	switch {
+	case date != "" && dur != "":
+		return date + " · " + dur
+	case date != "":
+		return date
+	default:
+		return dur
+	}
+}
+
 // formatTrackRow renders a track list row of the form
 //
 //	"01. Title · Album         3:42"

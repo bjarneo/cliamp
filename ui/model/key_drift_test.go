@@ -323,9 +323,9 @@ func TestShortcutKeysFollowsTheShortcutHelpers(t *testing.T) {
 		want  []string
 	}{
 		{name: "quick switch takes N", calls: []string{"editText", "quickSwitchProvider"},
-			want: []string{"S", "N", "P", "J", "E", "B", "Y", "C", "X", "M", "Q", "T", "K", "U", "L", "R", "O"}},
+			want: []string{"S", "N", "P", "J", "E", "B", "Y", "C", "X", "M", "Q", "T", "K", "U", "L", "R", "I", "O"}},
 		{name: "shortcut leaves N", calls: []string{"providerShortcut"},
-			want: []string{"S", "P", "J", "E", "B", "Y", "C", "X", "M", "Q", "T", "K", "U", "L", "R", "O"}},
+			want: []string{"S", "P", "J", "E", "B", "Y", "C", "X", "M", "Q", "T", "K", "U", "L", "R", "I", "O"}},
 		{name: "other calls take none", calls: []string{"editText", "switchToProvider"}},
 	}
 	for _, tt := range tests {
@@ -354,7 +354,7 @@ var subKeyHandlers = map[string]commandMode{
 }
 
 // listKeys move the cursor or change the view size the same way in every
-// list. The keymap shows them once, in its player and library section.
+// list. The keymap shows them in its Queue section.
 var listKeys = []string{"up", "down", "k", "j", "pgup", "pgdown", "ctrl+u", "ctrl+d", "home", "end", "g", "G", "ctrl+x"}
 
 // unlistedKeys holds the keys that a handler takes but that commandRegistry
@@ -364,36 +364,36 @@ var listKeys = []string{"up", "down", "k", "j", "pgup", "pgdown", "ctrl+u", "ctr
 // The others are actions with no row yet. When a key gets a registry row,
 // delete it here.
 var unlistedKeys = map[string][]string{
-	"handleDeviceKey":               {"d"},
-	"handleFileBrowserKey":          {"o", "right", "l", "backspace", "left", "h", "~", "."},
-	"handleInfoKey":                 {"i"},
-	"handleKeymapKey":               {"?", "backspace", "h", "l"},
-	"handleLyricsKey":               {"y"},
-	"handleNavAlbumListKey":         {"l", "right", "h", "left", "backspace"},
-	"handleNavArtistListKey":        {"l", "right", "h", "left", "backspace"},
-	"handleChatPickerKey":           {" ", "n", "space"},
-	"handleNavBrowserKey":           {"N", "ctrl+f", "S", "P", "J", "E", "B", "Y", "C", "X", "M", "Q", "T", "K", "U", "L", "O"},
-	"handleNavGenreListKey":         {"l", "right", "h", "left", "backspace"},
-	"handleNavGenreSortKey":         {"l", "right", "h", "left", "backspace"},
-	"handleNavMenuKey":              {"l", "right", "N", "backspace", "b"},
-	"handleNavTrackListKey":         {"ctrl+h", "a", "q", "h", "left", "backspace"},
-	"handleNetSearchResultsKey":     {"ctrl+p", "ctrl+n", "a", "q"},
-	"handlePlMgrDirsKey":            {"y", "Y"},
-	"handlePlMgrFilterKey":          {"backspace"},
-	"handlePlMgrListKey":            {"y", "Y", "/", "l", "right", "r"},
-	"handlePlMgrTracksKey":          {"ctrl+h", "/", "backspace", "h", "left"},
-	"handlePlaylistManagerKey":      {"S", "N", "P", "J", "E", "B", "Y", "C", "X", "M", "Q", "T", "K", "U", "L", "R", "O"},
-	"handlePlaylistPickerKey":       {"backspace"},
-	"handleProvPillKey":             {"left", "h", "right", "l", "space"},
-	"handleProvSearchKey":           {"ctrl+n", "ctrl+p"},
-	"handleProviderPaneKey":         {"y", "Y", "n", "space", "/", "o", "ctrl+j", "ctrl+f", "S", "P", "J", "E", "B", "C", "X", "M", "Q", "T", "K", "U", "L", "R", "O"},
-	"handleQueueKey":                {"A"},
-	"handleSearchKey":               {"ctrl+n", "ctrl+p"},
-	"handleSpeedKey":                {"l", "h", "esc", "backspace"},
-	"handleSearchOverlayResultsKey": {"ctrl+p", "ctrl+n", "a", "q"},
-	"handleSubsKey":                 {"?"},
-	"handleThemeKey":                {"t"},
-	"handleVisPickerKey":            {"ctrl+v"},
+	"handleDeviceKey":                {"d"},
+	"handleFileBrowserKey":           {"o", "right", "l", "backspace", "left", "h", "~", "."},
+	"handleInfoKey":                  {"i"},
+	"handleKeymapKey":                {"backspace", "h", "l"},
+	"handleLyricsKey":                {"y"},
+	"handleNavAlbumListKey":          {"l", "right", "h", "left", "backspace"},
+	"handleNavArtistListKey":         {"l", "right", "h", "left", "backspace"},
+	"handleChatPickerKey":            {" ", "n", "space"},
+	"handleNavBrowserKey":            {"N", "ctrl+f", "S", "P", "J", "E", "B", "Y", "C", "X", "M", "Q", "T", "K", "U", "L", "I", "O"},
+	"handleNavGenreListKey":          {"l", "right", "h", "left", "backspace"},
+	"handleNavGenreSortKey":          {"l", "right", "h", "left", "backspace"},
+	"handleNavMenuKey":               {"l", "right", "N", "backspace", "b"},
+	"handleNavTrackListKey":          {"ctrl+h", "h", "left", "backspace"},
+	"handleNavTrackListFileStyleKey": {"ctrl+h", "h", "left", "backspace"},
+	"handleNetSearchResultsKey":      {"ctrl+p", "ctrl+n", "a", "q"},
+	"handlePlMgrDirsKey":             {"y", "Y"},
+	"handlePlMgrFilterKey":           {"backspace"},
+	"handlePlMgrListKey":             {"y", "Y", "l", "right", "r"},
+	"handlePlMgrTracksKey":           {"ctrl+h", "backspace", "h", "left"},
+	"handlePlaylistManagerKey":       {"S", "N", "P", "J", "E", "B", "Y", "C", "X", "M", "Q", "T", "K", "U", "L", "R", "I", "O"},
+	"handlePlaylistPickerKey":        {"backspace"},
+	"handleProvPillKey":              {"left", "h", "right", "l", "space"},
+	"handleProvSearchKey":            {"ctrl+n", "ctrl+p"},
+	"handleProviderPaneKey":          {"y", "Y", "n", "space", "ctrl+j", "ctrl+f", "S", "P", "J", "E", "B", "C", "X", "M", "Q", "T", "K", "U", "L", "R", "I", "O"},
+	"handleQueueKey":                 {"A"},
+	"handleSearchKey":                {"ctrl+n", "ctrl+p"},
+	"handleSpeedKey":                 {"l", "h"},
+	"handleSearchOverlayResultsKey":  {"ctrl+p", "ctrl+n", "a", "q"},
+	"handleThemeKey":                 {"t"},
+	"handleVisPickerKey":             {"ctrl+v"},
 }
 
 // keyHandlerModes returns the command mode of each handler that an overlay

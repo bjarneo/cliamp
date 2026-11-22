@@ -270,6 +270,26 @@ type playlistPickerState struct {
 	inputErr  string
 }
 
+// fbSortMode is the directory listing order when no search filter is active.
+type fbSortMode uint8
+
+const (
+	fbSortName fbSortMode = iota
+	fbSortNewest
+	fbSortOldest
+)
+
+func (m fbSortMode) label() string {
+	switch m {
+	case fbSortNewest:
+		return "Newest"
+	case fbSortOldest:
+		return "Oldest"
+	default:
+		return ""
+	}
+}
+
 // fileBrowserState holds state for the file browser overlay. The raw rows
 // are the entries.
 type fileBrowserState struct {
@@ -280,7 +300,27 @@ type fileBrowserState struct {
 	selected       map[string]bool
 	err            string
 	targetPlaylist string
+	targetPurpose  fbTargetPurpose
 	confirmReplace bool
+	// resumeLocal is set when this browser was opened for the Local provider
+	// (the page row, N, or o). Playing from it leaves the flag set so Esc
+	// from the queue reopens the same directory. Esc inside the browser clears it.
+	resumeLocal bool
+
+	// index holds every entry below dir, so the filter can match names in
+	// subfolders the way a file manager's search does. It is built once per
+	// directory, in the background, and dropped when the browser moves.
+	index        []fbEntry
+	indexDir     string
+	indexGen     uint64
+	indexLoading bool
+	sortMode     fbSortMode
+}
+
+// usesIndex reports whether the filtered rows come from the recursive index
+// rather than from the current directory's listing.
+func (s *fileBrowserState) usesIndex() bool {
+	return s.filter != "" && len(s.index) > 0
 }
 
 // navBrowserState holds state for the provider browser overlay.
@@ -313,6 +353,7 @@ type navBrowserState struct {
 	directTrackJump bool
 	fromProvList    bool
 	openInPlaylist  bool
+	selected        map[string]bool
 }
 
 // requestState tracks the latest request in each independently asynchronous UI

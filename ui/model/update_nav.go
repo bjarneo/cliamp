@@ -92,8 +92,14 @@ func (m *Model) handleNavTracksLoaded(msg navTracksLoadedMsg) {
 		return
 	}
 	m.navBrowser.tracks = msg.tracks
+	m.navClearTrackSelection()
 	m.setHeaderStateFromTracks(m.navBrowser.tracks)
 	m.navBrowser.cursor = 0
 	m.navBrowser.scroll = 0
 	m.navBrowser.screen = navBrowseScreenTracks
+	if pr, ok := m.navBrowser.prov.(playlist.RefreshablePlaylist); ok &&
+		m.isActiveProvider(m.navBrowser.prov.Name()) &&
+		m.navBrowser.selAlbum.ID != "" && pr.CanRefreshPlaylist(m.navBrowser.selAlbum.ID) {
+		m.activeProviderPlaylistID = m.navBrowser.selAlbum.ID
+	}
 }

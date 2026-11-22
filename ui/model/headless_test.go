@@ -93,12 +93,20 @@ func TestHeadlessInitSkipsScreenCommands(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := &atomic.Int32{}
 			prov := countingProvider{commandsTestProvider{name: "Counting"}, calls}
-			m := newHeadlessModel(t, &headlessEngine{}, []provider.Entry{{Key: "counting", Name: "Counting", Provider: prov}})
+			entries := []provider.Entry{{Key: "counting", Name: "Counting", Provider: prov}}
+			t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
+			pl := playlist.New()
+			defaultProvider := ""
+			if !tc.headless {
+				defaultProvider = "counting"
+			}
+			m := New(&headlessEngine{}, pl, entries, defaultProvider, nil, nil, history.New(), nil, nil, nil)
+			m.SetHeadless(tc.headless)
 			m.headless = tc.headless
 
 			msgs := initMessages(t, m)
 			if len(msgs) != tc.wantMessages {
-				t.Fatalf("Init messages = %T, want %d", msgs, tc.wantMessages)
+				t.Fatalf("Init messages = %v, want %d", msgs, tc.wantMessages)
 			}
 			if !slices.ContainsFunc(msgs, func(msg tea.Msg) bool { _, ok := msg.(tickMsg); return ok }) {
 				t.Fatalf("Init messages = %T, want a tick", msgs)
@@ -251,8 +259,16 @@ func TestHeadlessTrackStartSkipsProviderPaneRefresh(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := &atomic.Int32{}
 			prov := countingProvider{commandsTestProvider{name: "Local"}, calls}
-			m := newHeadlessModel(t, &headlessEngine{}, []provider.Entry{{Key: providerKeyLocal, Name: "Local", Provider: prov}},
-				playlist.Track{Path: "/music/one.flac", Title: "One"})
+			entries := []provider.Entry{{Key: providerKeyLocal, Name: "Local", Provider: prov}}
+			t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
+			pl := playlist.New()
+			pl.Add(playlist.Track{Path: "/music/one.flac", Title: "One"})
+			defaultProvider := ""
+			if !tc.headless {
+				defaultProvider = providerKeyLocal
+			}
+			m := New(&headlessEngine{}, pl, entries, defaultProvider, prov, nil, history.New(), nil, nil, nil)
+			m.SetHeadless(true)
 			m.headless = tc.headless
 
 			runCmd(m.playCurrentTrack())
