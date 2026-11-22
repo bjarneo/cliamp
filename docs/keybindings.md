@@ -177,10 +177,11 @@ preference remains saved for a wider layout. See
 
 | Key | Action |
 |---|---|
-| `a` | Toggle the queue (play next) |
-| `A` | Queue manager |
-| `c` | In the queue manager: clear the queue (press again to confirm when more than one track) |
-| `d` | In the queue manager: remove the highlighted track |
+| `a` | Toggle play next |
+| `A` | Open play next list |
+| `c` | In the play next overlay: clear play next (press again to confirm when more than one track) |
+| `d` | In the play next overlay: remove the highlighted track |
+| `Shift+Up` `Shift+Down` / `[` `]` | In the play next overlay: move the highlighted track |
 | `F` | Subscribed shows overlay (any provider that keeps subscriptions) |
 | `x` | Remove the highlighted track from the current playlist |
 | `p` | Playlist |
@@ -238,7 +239,7 @@ reordered, so `p` leaves them alone and reports them as skipped.
 | `p` | Tracks screen: play all from the top |
 | `w` | List: save the current queue with the playlist picker. Tracks: copy marked or selected tracks to another playlist. |
 | `Space` | Tracks: mark/unmark highlighted track (advances on mark, stays on unmark) |
-| `[` `]` | Tracks: move highlighted track and save the playlist |
+| `Shift+Up` `Shift+Down` / `[` `]` | Tracks: move highlighted track and save the playlist |
 | `f` | Tracks: toggle the favorite ♥ on the highlighted track. In "Favorites", an unfavorite removes the row. |
 | `s` | Tracks: sort and save, cycling `track`, `title`, `artist`, `album`, `artist+album`, `path` |
 | `o` | Tracks: open file browser to add files to this playlist |

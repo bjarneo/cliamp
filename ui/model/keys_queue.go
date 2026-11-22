@@ -51,7 +51,7 @@ func (m *Model) handleQueueKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.queue.cursor = 0
 		}
 		m.normalizeQueueOverlay()
-	case "shift+up":
+	case "shift+up", "[":
 		moved := false
 		if m.queue.cursor > 0 {
 			if m.playlist.MoveQueue(m.queue.cursor, m.queue.cursor-1) {
@@ -63,7 +63,7 @@ func (m *Model) handleQueueKey(msg tea.KeyPressMsg) tea.Cmd {
 		if moved {
 			return m.rearmStalePreload()
 		}
-	case "shift+down":
+	case "shift+down", "]":
 		moved := false
 		if m.queue.cursor < qLen-1 {
 			if m.playlist.MoveQueue(m.queue.cursor, m.queue.cursor+1) {

@@ -260,7 +260,7 @@ func TestPlaylistManagerHelpBar(t *testing.T) {
 	m.plMgrLoadTracks([]playlist.Track{{Path: "/a.mp3", Title: "A"}})
 
 	help := m.helpBar(commandModePlaylistManager)
-	for _, want := range []string{"Esc", "Enter", "Play", "Space", "Select", "Add to queue", "[ ]", "d", "Remove", "o", "Add files", "/", "Filter", "?"} {
+	for _, want := range []string{"Esc", "Enter", "Play", "Space", "Select", "Add to queue", "Shift+↑↓", "d", "Remove", "o", "Add files", "/", "Filter", "?"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("tracks help %q missing %q", help, want)
 		}
@@ -275,7 +275,7 @@ func TestPlaylistManagerHelpBar(t *testing.T) {
 	enter := strings.Index(help, "Enter")
 	space := strings.Index(help, "Space")
 	addQueue := strings.Index(help, "Add to queue")
-	bracket := strings.Index(help, "[ ]")
+	bracket := strings.Index(help, "Shift+↑↓")
 	d := strings.Index(help, " d ")
 	if d < 0 {
 		d = strings.Index(help, "d  Remove")
