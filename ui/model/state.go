@@ -281,6 +281,10 @@ type fileBrowserState struct {
 	err            string
 	targetPlaylist string
 	confirmReplace bool
+	// resumeLocal is set when this browser was opened for the Local provider
+	// (the page row, N, or o). Playing from it leaves the flag set so Esc
+	// from the queue reopens the same directory. Esc inside the browser clears it.
+	resumeLocal bool
 }
 
 // navBrowserState holds state for the provider browser overlay.

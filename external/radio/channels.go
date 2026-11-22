@@ -59,7 +59,7 @@ type ChannelProvider struct {
 // channel list on first use.
 func NewChannels() *ChannelProvider { return &ChannelProvider{} }
 
-func (*ChannelProvider) Name() string { return "cliamp radio" }
+func (*ChannelProvider) Name() string { return "Cliamp Radios" }
 
 // Playlists returns one row per channel. The playlist ID is the channel slug.
 // The first call downloads the channel list, so call it off the UI thread.

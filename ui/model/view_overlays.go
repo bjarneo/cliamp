@@ -31,7 +31,7 @@ func (m Model) visPickerHeaderLine() string {
 
 func (m Model) plMgrHeaderLine() string {
 	if m.plManager.filtering {
-		label := "Filter: Playlist"
+		label := "Filter: Playlists"
 		if m.plManager.screen == plMgrScreenTracks {
 			label = "Filter: Tracks"
 		}
@@ -53,11 +53,7 @@ func (m Model) plMgrHeaderLine() string {
 	case plMgrScreenRename:
 		return m.promptHeader("playlist-manager-rename", "Rename "+m.plManager.renameOldName, m.plManager.renameName)
 	default:
-		total := len(m.plManager.playlists)
-		if m.plManager.filter != "" {
-			total = len(m.plManager.filtered)
-		}
-		return sepHeaderN("Playlist", m.plManager.cursor+1, total, m.layout.panelWidth)
+		return sepHeader("Playlists", m.layout.panelWidth)
 	}
 }
 
@@ -315,7 +311,7 @@ func (m Model) renderSearchList() string {
 		name := trackViewName(track)
 		queueSuffix := ""
 		if qp := m.playlist.QueuePosition(i); qp > 0 {
-			queueSuffix = fmt.Sprintf(" [Q%d]", qp)
+			queueSuffix = fmt.Sprintf(" [N%d]", qp)
 		}
 		// The cursor and row prefixes take two cells each, ". " two more.
 		name = truncate(name, m.layout.panelWidth-6-numWidth-len([]rune(queueSuffix)))

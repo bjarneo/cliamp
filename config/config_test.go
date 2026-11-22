@@ -32,11 +32,17 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.BitDepth != 16 {
 		t.Errorf("BitDepth = %d, want 16", cfg.BitDepth)
 	}
-	if cfg.PaddingH != 3 {
-		t.Errorf("PaddingH = %d, want 3", cfg.PaddingH)
+	if cfg.BaseWidth != 150 {
+		t.Errorf("BaseWidth = %d, want 150", cfg.BaseWidth)
 	}
-	if cfg.PaddingV != 1 {
-		t.Errorf("PaddingV = %d, want 1", cfg.PaddingV)
+	if cfg.BaseHeight != 24 {
+		t.Errorf("BaseHeight = %d, want 24", cfg.BaseHeight)
+	}
+	if cfg.PaddingH != 0 {
+		t.Errorf("PaddingH = %d, want 0", cfg.PaddingH)
+	}
+	if cfg.PaddingV != 0 {
+		t.Errorf("PaddingV = %d, want 0", cfg.PaddingV)
 	}
 	if cfg.Spotify.Bitrate != 320 {
 		t.Errorf("Spotify.Bitrate = %d, want 320", cfg.Spotify.Bitrate)
@@ -280,6 +286,32 @@ func TestClampPadding(t *testing.T) {
 			}
 			if cfg.PaddingV != tt.wantV {
 				t.Errorf("PaddingV = %d, want %d", cfg.PaddingV, tt.wantV)
+			}
+		})
+	}
+}
+
+func TestClampBaseFrame(t *testing.T) {
+	tests := []struct {
+		name         string
+		inW, inH     int
+		wantW, wantH int
+	}{
+		{"below min", 10, 5, 40, 10},
+		{"over max", 800, 300, 500, 200},
+		{"within range", 120, 30, 120, 30},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := defaultConfig()
+			cfg.BaseWidth = tt.inW
+			cfg.BaseHeight = tt.inH
+			cfg.clamp()
+			if cfg.BaseWidth != tt.wantW {
+				t.Errorf("BaseWidth = %d, want %d", cfg.BaseWidth, tt.wantW)
+			}
+			if cfg.BaseHeight != tt.wantH {
+				t.Errorf("BaseHeight = %d, want %d", cfg.BaseHeight, tt.wantH)
 			}
 		})
 	}

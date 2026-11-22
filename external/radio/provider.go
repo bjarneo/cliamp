@@ -151,7 +151,7 @@ func namedPlace(code string) Place {
 	return Place{Code: code, Name: name}
 }
 
-func (p *Provider) Name() string { return "Radio" }
+func (p *Provider) Name() string { return "Radios" }
 
 // Playlists returns a unified list: pinned places, local stations, favorites
 // (★ prefixed), then catalog stations (with metadata). IDs are prefixed with
