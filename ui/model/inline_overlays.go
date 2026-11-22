@@ -184,7 +184,7 @@ func (m Model) renderMainBody() string {
 // — search —
 
 func (m Model) searchHeaderLine() string {
-	return m.filterHeader("Filter: Playlist", "playlist-search", m.search.query, m.formatListMatchCount(len(m.search.results), m.playlist.Len()))
+	return m.filterHeader("Filter: Queue", "playlist-search", m.search.query, m.formatListMatchCount(len(m.search.results), m.playlist.Len()))
 }
 
 // — theme picker —

@@ -24,7 +24,7 @@ func TestSearchInputsShowModeAndExitKey(t *testing.T) {
 			name:   "playlist search",
 			setup:  func(m *Model) { m.search.active = true; m.search.query = "jazz" },
 			header: (*Model).searchHeaderLine,
-			want:   "[Filter: Playlist] jazz_",
+			want:   "[Filter: Queue] jazz_",
 		},
 		{
 			name:   "file browser filter",
