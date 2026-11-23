@@ -200,6 +200,9 @@ func TestNewServerIgnoresStalePIDOfUnrelatedProcess(t *testing.T) {
 // Two daemons starting at once must not both succeed, and the loser must not
 // leave the winner unreachable on an unlinked socket.
 func TestNewServerConcurrentStartsYieldOneServer(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fileutil.LockFile takes no lock on Windows")
+	}
 	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
 
 	const starters = 8

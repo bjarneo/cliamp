@@ -139,6 +139,10 @@ func newServer(sockPath string, broker *Broker, brokerOwned bool) (*Server, erro
 
 	ln, err := listenExclusive(sockPath)
 	if err != nil {
+		// Listening already includes the ipc: prefix in probe errors.
+		if strings.HasPrefix(err.Error(), "ipc: ") {
+			return nil, err
+		}
 		return nil, fmt.Errorf("ipc: listen: %w", err)
 	}
 	// net.UnixListener.Close normally unlinks its path without checking
@@ -230,13 +234,18 @@ func publishPID(pidPath string) (os.FileInfo, error) {
 		_ = f.Close()
 		return nil, err
 	}
+	pidInfo, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
 	if err := f.Close(); err != nil {
 		return nil, err
 	}
 	if err := os.Rename(f.Name(), pidPath); err != nil {
 		return nil, err
 	}
-	return os.Lstat(pidPath)
+	return pidInfo, nil
 }
 
 // removeOwnedSocket uses the same stale-socket lock as startup, and only
