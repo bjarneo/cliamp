@@ -320,6 +320,28 @@ func (c *client) likedTracks(ctx context.Context, userID uint64) ([]string, erro
 	return ids, nil
 }
 
+// likeTracks adds the given tracks to the user's liked tracks.
+func (c *client) likeTracks(ctx context.Context, userID uint64, trackIDs []string) error {
+	if len(trackIDs) == 0 {
+		return nil
+	}
+	params := url.Values{
+		"track-ids": {strings.Join(trackIDs, ",")},
+	}
+	return c.apiPost(ctx, fmt.Sprintf("/users/%d/likes/tracks/add-multiple", userID), params, nil)
+}
+
+// unlikeTracks removes the given tracks from the user's liked tracks.
+func (c *client) unlikeTracks(ctx context.Context, userID uint64, trackIDs []string) error {
+	if len(trackIDs) == 0 {
+		return nil
+	}
+	params := url.Values{
+		"track-ids": {strings.Join(trackIDs, ",")},
+	}
+	return c.apiPost(ctx, fmt.Sprintf("/users/%d/likes/tracks/remove", userID), params, nil)
+}
+
 // tracks resolves track details for the given ids in one batched request.
 func (c *client) tracks(ctx context.Context, ids []string) ([]track, error) {
 	if len(ids) == 0 {

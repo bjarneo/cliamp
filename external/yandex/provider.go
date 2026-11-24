@@ -16,6 +16,7 @@ var (
 	_ playlist.Provider         = (*Provider)(nil)
 	_ provider.Searcher         = (*Provider)(nil)
 	_ provider.PlaybackReporter = (*Provider)(nil)
+	_ provider.TrackFavoriter   = (*Provider)(nil)
 )
 
 // TrackURIPrefix is the custom URI scheme for Yandex Music tracks. Track
@@ -433,6 +434,27 @@ func (p *Provider) report(track playlist.Track, playedSeconds int, waveEvent str
 		waveKeyFor(wave.keys, id),
 		float64(track.DurationSecs), float64(playedSeconds),
 	)
+}
+
+// CanFavoriteTrack reports whether track belongs to Yandex Music.
+func (p *Provider) CanFavoriteTrack(track playlist.Track) bool {
+	return track.Meta(provider.MetaYandexID) != ""
+}
+
+// SetTrackFavorite likes or unlikes a track on the Yandex Music service.
+func (p *Provider) SetTrackFavorite(ctx context.Context, track playlist.Track, favorite bool) error {
+	id := track.Meta(provider.MetaYandexID)
+	if id == "" {
+		return fmt.Errorf("yandex: track has no id")
+	}
+	uid, err := p.accountUserID(ctx)
+	if err != nil {
+		return err
+	}
+	if favorite {
+		return p.api.likeTracks(ctx, uid, []string{id})
+	}
+	return p.api.unlikeTracks(ctx, uid, []string{id})
 }
 
 func trackTitle(t track) string {
