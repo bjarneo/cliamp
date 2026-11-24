@@ -75,7 +75,14 @@ type globeStyles struct {
 func globeStylesFromTheme(t theme.Theme) globeStyles {
 	p := ui.PaletteFor(t)
 	fg := func(c color.Color) lipgloss.Style { return lipgloss.NewStyle().Foreground(c) }
-	sgr := func(c color.Color) ansi.Style { return ansi.Style{}.ForegroundColor(c) }
+	sgr := func(c color.Color) ansi.Style {
+		// ansi.Style renders NoColor as black. A nil color is the
+		// terminal's default foreground, which NoColor stands for.
+		if _, ok := c.(lipgloss.NoColor); ok {
+			c = nil
+		}
+		return ansi.Style{}.ForegroundColor(c)
+	}
 	return globeStyles{
 		colors: p,
 		title:  fg(p.Title).Bold(true),

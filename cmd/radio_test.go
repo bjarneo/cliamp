@@ -193,6 +193,15 @@ func TestGlobeStylesFromTheme(t *testing.T) {
 	}
 }
 
+// TestGlobeStylesDefaultForeground checks that the default theme, whose text
+// is the terminal foreground, draws lit land in the default foreground (SGR
+// 39) and not in black.
+func TestGlobeStylesDefaultForeground(t *testing.T) {
+	if got, want := globeStylesFromTheme(theme.Default()).palette.Lit.String(), "\x1b[39m"; got != want {
+		t.Errorf("lit land = %q, want %q", got, want)
+	}
+}
+
 func TestGlobeModelView(t *testing.T) {
 	m := newTestGlobeModel(t)
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
@@ -223,7 +232,7 @@ func TestGlobeModelView(t *testing.T) {
 	if !strings.Contains(view.Content, "US 48") {
 		t.Error("heaviest country should be labelled on the globe")
 	}
-	if !strings.Contains(view.Content, ansi.Style{}.ForegroundColor(ui.PaletteFor(theme.Default()).Text).String()) {
+	if !strings.Contains(view.Content, globeStylesFromTheme(theme.Default()).palette.Lit.String()) {
 		t.Error("countries with listeners should be lit")
 	}
 
