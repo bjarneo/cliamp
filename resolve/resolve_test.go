@@ -236,6 +236,43 @@ func TestResolveM3U_PlainPlaylist_StillParsesTracks(t *testing.T) {
 	}
 }
 
+func TestRemotePlaylistResolvesRelativeEntriesAgainstItsURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/radio/list.m3u":
+			_, _ = io.WriteString(w, "#EXTM3U\n#EXTINF:5,One\nsong1.mp3\n#EXTINF:5,Two\nsub/song2.mp3\n#EXTINF:5,Three\n../music/song3.mp3\n")
+		case "/radio/list.pls":
+			_, _ = io.WriteString(w, "[playlist]\nFile1=song1.mp3\nTitle1=One\nNumberOfEntries=1\nVersion=2\n")
+		}
+	}))
+	defer srv.Close()
+
+	m3u, err := resolveM3U(t.Context(), srv.URL+"/radio/list.m3u")
+	if err != nil {
+		t.Fatalf("resolveM3U: %v", err)
+	}
+	pls, err := resolvePLS(t.Context(), srv.URL+"/radio/list.pls")
+	if err != nil {
+		t.Fatalf("resolvePLS: %v", err)
+	}
+
+	want := []string{
+		srv.URL + "/radio/song1.mp3",
+		srv.URL + "/radio/sub/song2.mp3",
+		srv.URL + "/music/song3.mp3",
+		srv.URL + "/radio/song1.mp3",
+	}
+	tracks := append(m3u, pls...)
+	if len(tracks) != len(want) {
+		t.Fatalf("got %d tracks, want %d", len(tracks), len(want))
+	}
+	for i, tr := range tracks {
+		if tr.Path != want[i] || !tr.Stream {
+			t.Errorf("track %d = %q (stream %v), want stream %q", i, tr.Path, tr.Stream, want[i])
+		}
+	}
+}
+
 func TestAudioFilesSkipsUnreadableSubdir(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("os.Chmod does not map to Unix directory permissions on Windows")
