@@ -6,8 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -149,6 +153,50 @@ func fetch(ctx context.Context, artist, title string) ([]Line, error) {
 		return nil, lastErr
 	}
 	return nil, ErrNotFound
+}
+
+// maxLRCFileSize limits how much of an .lrc file LRCFile reads.
+const maxLRCFileSize = 1 << 20
+
+// LRCFile returns a Source that reads the lyrics of the local audio file at
+// audioPath from the .lrc file next to it with the same base name, such as
+// song.lrc for song.mp3. The file may hold timestamped LRC lines or plain
+// text. The Source returns ErrNotFound when there is no such file.
+func LRCFile(audioPath string) Source {
+	return func(context.Context) ([]Line, error) {
+		base := strings.TrimSuffix(audioPath, filepath.Ext(audioPath))
+		for _, ext := range []string{".lrc", ".LRC"} {
+			data, err := readLRCFile(base + ext)
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			if lines := ParseEmbedded(string(data)); len(lines) > 0 {
+				return lines, nil
+			}
+		}
+		return nil, ErrNotFound
+	}
+}
+
+// readLRCFile reads up to maxLRCFileSize bytes of the regular file at path.
+// Anything else at path, such as a directory or a FIFO, reads as missing.
+func readLRCFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fs.ErrNotExist
+	}
+	return io.ReadAll(io.LimitReader(f, maxLRCFileSize))
 }
 
 // ParseEmbedded converts lyrics read from local file tags into display lines.

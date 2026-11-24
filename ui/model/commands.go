@@ -294,6 +294,12 @@ func resolveURLCmd(rawURL string, autoPlay bool) tea.Cmd {
 
 func fetchTrackLyricsCmd(track playlist.Track, artist, title, query string, gen uint64, sources []trackLyricsSource) tea.Cmd {
 	lookups := lyricsLookups(track, sources)
+	if artist == "" || title == "" {
+		// Without both, only the track's own lyrics are used, embedded or
+		// in an .lrc file. A search for the title alone could find
+		// another song.
+		artist, title = "", ""
+	}
 	return func() tea.Msg {
 		lines, err := lyrics.Lookup(context.Background(), track.EmbeddedLyrics, artist, title, lookups...)
 		return lyricsLoadedMsg{lines: lines, err: err, query: query, gen: gen}

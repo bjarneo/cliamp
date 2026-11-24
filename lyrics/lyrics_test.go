@@ -1,6 +1,10 @@
 package lyrics
 
 import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -161,6 +165,70 @@ func TestParseLRCRepeatedTimestamps(t *testing.T) {
 			lines := parseLRC(tt.input)
 			if !slices.Equal(lines, tt.want) {
 				t.Fatalf("parseLRC(%q) = %+v, want %+v", tt.input, lines, tt.want)
+			}
+		})
+	}
+}
+
+func TestLRCFile(t *testing.T) {
+	tests := []struct {
+		name  string
+		files map[string]string // relative to the directory of song.mp3
+		dirs  []string
+		want  []Line
+	}{
+		{
+			name:  "timestamped lines",
+			files: map[string]string{"song.lrc": "[ar:Artist]\n[ti:Song]\n[00:12.50]Second\n[00:01.00]First\n"},
+			want:  []Line{{Start: time.Second, Text: "First"}, {Start: 12500 * time.Millisecond, Text: "Second"}},
+		},
+		{
+			name:  "byte order mark and CRLF",
+			files: map[string]string{"song.lrc": "\ufeff[00:01.00]First\r\n[00:02.00]Second\r\n"},
+			want:  []Line{{Start: time.Second, Text: "First"}, {Start: 2 * time.Second, Text: "Second"}},
+		},
+		{
+			name:  "plain text",
+			files: map[string]string{"song.lrc": "First\nSecond"},
+			want:  []Line{{Text: "First"}, {Text: "Second"}},
+		},
+		{
+			name:  "upper-case extension",
+			files: map[string]string{"song.LRC": "[00:01.00]First"},
+			want:  []Line{{Start: time.Second, Text: "First"}},
+		},
+		{name: "no file"},
+		{name: "only another track's file", files: map[string]string{"other.lrc": "[00:01.00]Other"}},
+		{name: "empty file", files: map[string]string{"song.lrc": "  \n"}},
+		{name: "a directory", dirs: []string{"song.lrc"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for name, data := range tt.files {
+				if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, name := range tt.dirs {
+				if err := os.Mkdir(filepath.Join(dir, name), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			got, err := LRCFile(filepath.Join(dir, "song.mp3"))(context.Background())
+
+			if tt.want == nil {
+				if !errors.Is(err, ErrNotFound) {
+					t.Fatalf("LRCFile() = %+v, %v, want ErrNotFound", got, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("LRCFile() error = %v", err)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("LRCFile() = %+v, want %+v", got, tt.want)
 			}
 		})
 	}
