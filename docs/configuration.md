@@ -211,8 +211,9 @@ setting.
 
 `keep_search_open = true` keeps the `Ctrl+F` search results open after `q`
 (queue next) or `a` (append), with the same query and cursor, so you can queue
-several results without searching again. The status line confirms each added
-track. `Enter` still plays the selected result and closes the search.
+several results without searching again. This covers provider search and the
+YouTube or SoundCloud search. The status line confirms each added track.
+`Enter` still plays the selected result and closes the search.
 
 `expanded = true` starts with the playlist at the expanded height, so the list
 gets every body row the terminal has left instead of the shorter default, and

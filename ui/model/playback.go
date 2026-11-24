@@ -235,12 +235,20 @@ func (m *Model) playTrackImmediate(track playlist.Track) tea.Cmd {
 	return m.playCurrentTrack()
 }
 
+// idleForNewTrack reports whether a track that is added now should start
+// playing: nothing plays and no track is still starting. While a stream or file
+// is buffering, the player is not playing yet, and starting the added track
+// would replace the one the user asked for first.
+func (m *Model) idleForNewTrack() bool {
+	return !m.player.IsPlaying() && !m.buffering
+}
+
 // appendTrack appends a track to the playlist; auto-plays if nothing is playing.
 func (m *Model) appendTrack(track playlist.Track) tea.Cmd {
 	wasEmpty := m.playlist.Len() == 0
 	idx := m.appendTracks(track)
 	m.status.Showf(statusTTLMedium, "Added: %s", track.DisplayName())
-	if wasEmpty || !m.player.IsPlaying() {
+	if wasEmpty || m.idleForNewTrack() {
 		m.playlist.SetIndex(idx)
 		m.plCursor = idx
 		m.adjustScroll()
@@ -269,7 +277,7 @@ func (m *Model) appendAlbum(album playlist.Track, tracks []playlist.Track) tea.C
 	wasEmpty := m.playlist.Len() == 0
 	idx := m.appendTracks(tracks...)
 	m.status.Showf(statusTTLMedium, "Added album: %s (%d tracks)", album.Title, len(tracks))
-	if wasEmpty || !m.player.IsPlaying() {
+	if wasEmpty || m.idleForNewTrack() {
 		m.playlist.SetIndex(idx)
 		m.plCursor = idx
 		m.adjustScroll()
@@ -286,7 +294,7 @@ func (m *Model) queueAlbumNext(album playlist.Track, tracks []playlist.Track) te
 		m.playlist.Queue(idx + i)
 	}
 	m.status.Showf(statusTTLMedium, "Queued album: %s (%d tracks)", album.Title, len(tracks))
-	if !m.player.IsPlaying() {
+	if m.idleForNewTrack() {
 		return m.nextTrack()
 	}
 	return m.rearmStalePreload()
@@ -337,7 +345,7 @@ func (m *Model) queueTrackNext(track playlist.Track) tea.Cmd {
 	m.playlist.Queue(idx)
 	m.normalizeQueueOverlay()
 	m.status.Showf(statusTTLMedium, "Queued: %s", track.DisplayName())
-	if !m.player.IsPlaying() {
+	if m.idleForNewTrack() {
 		return m.nextTrack()
 	}
 	return m.rearmStalePreload()

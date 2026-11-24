@@ -95,3 +95,78 @@ func TestSearchOverlayAlbumQueueKeepsResultsOpen(t *testing.T) {
 		})
 	}
 }
+
+func TestNetSearchQueueKeysKeepResultsOpen(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		key      tea.KeyPressMsg
+		keepOpen bool
+		wantOpen bool
+	}{
+		{"a closes the results", tea.KeyPressMsg{Code: 'a', Text: "a"}, false, false},
+		{"a keeps the results open", tea.KeyPressMsg{Code: 'a', Text: "a"}, true, true},
+		{"q keeps the results open", tea.KeyPressMsg{Code: 'q', Text: "q"}, true, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := keybindingTestModel()
+			m.player = &playbackFakeEngine{playing: true}
+			m.playlist.Add(playlist.Track{Title: "Playing"})
+			m.SetKeepSearchOpen(tt.keepOpen)
+			m.netSearch = netSearchState{
+				active:  true,
+				screen:  netSearchResults,
+				query:   "nofx",
+				results: []playlist.Track{trackResult("First"), trackResult("Second")},
+				cursor:  1,
+			}
+
+			m.handleNetSearchResultsKey(tt.key)
+
+			if got := m.netSearch.active; got != tt.wantOpen {
+				t.Fatalf("results open = %v, want %v", got, tt.wantOpen)
+			}
+			if tt.wantOpen && (m.netSearch.query != "nofx" || m.netSearch.cursor != 1) {
+				t.Fatalf("search state changed: query %q, cursor %d", m.netSearch.query, m.netSearch.cursor)
+			}
+			if got := m.playlist.Len(); got != 2 {
+				t.Fatalf("playlist length = %d, want 2", got)
+			}
+		})
+	}
+}
+
+// A track added while another one is still starting (buffering, so the player
+// is not playing yet) must not replace the start the user asked for first.
+func TestAddedTrackWaitsForPendingStart(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		add  func(*Model) tea.Cmd
+	}{
+		{"append", func(m *Model) tea.Cmd { return m.appendTrack(playlist.Track{Title: "Second"}) }},
+		{"queue next", func(m *Model) tea.Cmd { return m.queueTrackNext(playlist.Track{Title: "Second"}) }},
+		{"append album", func(m *Model) tea.Cmd {
+			return m.appendAlbum(albumResult("Album"), []playlist.Track{{Title: "A1"}, {Title: "A2"}})
+		}},
+		{"queue album next", func(m *Model) tea.Cmd {
+			return m.queueAlbumNext(albumResult("Album"), []playlist.Track{{Title: "A1"}, {Title: "A2"}})
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := keybindingTestModel()
+			m.player = &playbackFakeEngine{}
+			m.playlist.Add(playlist.Track{Title: "First"})
+			m.playlist.SetIndex(0)
+			m.buffering = true
+
+			if cmd := tt.add(&m); cmd != nil {
+				t.Fatal("adding a track during a pending start returned a command")
+			}
+			if got := m.playlist.Index(); got != 0 {
+				t.Fatalf("playlist index = %d, want 0 (the track that is starting)", got)
+			}
+			if !m.buffering {
+				t.Fatal("the pending start was dropped")
+			}
+		})
+	}
+}

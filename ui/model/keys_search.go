@@ -367,13 +367,17 @@ func (m *Model) handleNetSearchResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "a":
 		if count > 0 && !m.netSearch.loading {
 			track := m.netSearch.results[m.netSearch.cursor]
-			m.closeNetSearch()
+			if !m.keepSearchOpen {
+				m.closeNetSearch()
+			}
 			return m.appendTrack(track)
 		}
 	case "q":
 		if count > 0 && !m.netSearch.loading {
 			track := m.netSearch.results[m.netSearch.cursor]
-			m.closeNetSearch()
+			if !m.keepSearchOpen {
+				m.closeNetSearch()
+			}
 			return m.queueTrackNext(track)
 		}
 	case "f":
