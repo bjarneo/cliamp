@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -166,6 +167,35 @@ func TestAddedTrackWaitsForPendingStart(t *testing.T) {
 			}
 			if !m.buffering {
 				t.Fatal("the pending start was dropped")
+			}
+		})
+	}
+}
+
+func TestNewTrackStartClearsSupersededBuffering(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		playErr error
+	}{
+		{"start succeeds", nil},
+		{"start fails", errors.New("connection refused")},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := keybindingTestModel()
+			player := &playbackFakeEngine{playErr: tt.playErr}
+			m.player = player
+			m.playlist.Add(playlist.Track{Title: "Pending", Path: "https://example.com/live", Stream: true})
+			m.playlist.SetIndex(0)
+			m.buffering = true
+
+			// A plain http(s) file starts right away, not in a command.
+			m.playTrack(playlist.Track{Title: "Next", Path: "https://example.com/next.mp3"})
+
+			if m.buffering {
+				t.Fatal("buffering is still set after a new track replaced the pending stream")
+			}
+			if cmd := m.appendTrack(playlist.Track{Title: "Added", Path: "/added.mp3"}); tt.playErr != nil && cmd == nil {
+				t.Fatal("a track added after the failed start did not start")
 			}
 		})
 	}

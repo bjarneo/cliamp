@@ -552,6 +552,10 @@ func (m *Model) backfillLoadedPlaylistDuration(track playlist.Track) tea.Cmd {
 func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cmd) {
 	m.resetTitleScroll()
 	nextRequest(&m.requests.stream)
+	// A stream still starting for the previous track is refused when it
+	// reports back, so it cannot clear the flag. A start that runs in a
+	// command sets it again.
+	m.buffering = false
 	if m.player != nil {
 		m.player.CancelSeekYTDL()
 		m.player.SetPlaybackGeneration(m.requests.stream)
