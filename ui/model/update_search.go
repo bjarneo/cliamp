@@ -62,7 +62,9 @@ func (m *Model) handleSearchOverlayAlbumTracks(msg searchOverlayAlbumTracksMsg) 
 	}
 	album := msg.album
 	tracks := msg.tracks
-	m.closeSearchOverlay()
+	if msg.action == searchOverlayAlbumPlay || !m.keepSearchOpen {
+		m.closeSearchOverlay()
+	}
 	switch msg.action {
 	case searchOverlayAlbumAppend:
 		return m.appendAlbum(album, tracks)

@@ -172,6 +172,12 @@ func (m *Model) SetSimplified(v bool) {
 	m.normalizeMainFocus()
 }
 
+// SetKeepSearchOpen keeps the Ctrl+F results open after q (queue next) and a
+// (append), so several results can be queued from one search.
+func (m *Model) SetKeepSearchOpen(v bool) {
+	m.keepSearchOpen = v
+}
+
 // SetHideHelpBar hides the key-binding hint bar and gives the row back to the
 // body. The full keymap stays reachable with "?".
 func (m *Model) SetHideHelpBar(v bool) {

@@ -99,7 +99,9 @@ func (m *Model) handleSearchOverlayResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 			if track.IsAlbum() {
 				return m.expandSearchOverlayAlbum(track, searchOverlayAlbumAppend)
 			}
-			m.closeSearchOverlay()
+			if !m.keepSearchOpen {
+				m.closeSearchOverlay()
+			}
 			return m.appendTrack(track)
 		}
 	case "q":
@@ -108,7 +110,9 @@ func (m *Model) handleSearchOverlayResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 			if track.IsAlbum() {
 				return m.expandSearchOverlayAlbum(track, searchOverlayAlbumQueueNext)
 			}
-			m.closeSearchOverlay()
+			if !m.keepSearchOpen {
+				m.closeSearchOverlay()
+			}
 			return m.queueTrackNext(track)
 		}
 	case "p":

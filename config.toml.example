@@ -78,6 +78,10 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # drawn. The pane is open unless this is set; Ctrl+B toggles it and saves here.
 # hide_settings_pane = true
 
+# Keep the Ctrl+F search results open after q (queue next) or a (append), so
+# several results can be queued from one search. Enter still closes them.
+# keep_search_open = true
+
 # Show read-only metadata below Settings for the highlighted playlist item.
 # Hidden by default; Ctrl+I toggles and saves. Enabling it without room for the
 # section opens full info instead. Closing Settings preserves this preference.

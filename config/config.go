@@ -824,6 +824,7 @@ type Config struct {
 	Simplified       bool                         // simplified playback view: track summary and time strip
 	HideHelpBar      bool                         // hide the key-binding hint bar above the status line
 	HideSettingsPane bool                         // close the settings pane beside the playlist
+	KeepSearchOpen   bool                         // keep the Ctrl+F results open after q (queue next) or a (append)
 	ShowMetadata     bool                         // expand highlighted-track metadata below settings (default false)
 	Expanded         bool                         // start with the playlist expanded (the Ctrl+X state)
 	PaddingH         int                          // horizontal padding for the UI frame (default 3)
@@ -1136,6 +1137,10 @@ func (c *Config) setTopLevel(key, val string) {
 	case "hide_settings_pane":
 		if v, ok := parseBool(val); ok {
 			c.HideSettingsPane = v
+		}
+	case "keep_search_open":
+		if v, ok := parseBool(val); ok {
+			c.KeepSearchOpen = v
 		}
 	case "show_metadata":
 		if v, ok := parseBool(val); ok {

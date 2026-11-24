@@ -177,6 +177,7 @@ speed = 1.25
 simplified = true
 hide_help_bar = true
 hide_settings_pane = true
+keep_search_open = true
 show_metadata = true
 expanded = true
 audio_device = "USB DAC #2"
@@ -315,6 +316,7 @@ func TestLoadGolden(t *testing.T) {
 	topWant.Simplified = true
 	topWant.HideHelpBar = true
 	topWant.HideSettingsPane = true
+	topWant.KeepSearchOpen = true
 	topWant.ShowMetadata = true
 	topWant.Expanded = true
 	topWant.AudioDevice = "USB DAC #2"
@@ -333,6 +335,7 @@ func TestLoadGolden(t *testing.T) {
 	allWant.Simplified = true
 	allWant.HideHelpBar = true
 	allWant.HideSettingsPane = true
+	allWant.KeepSearchOpen = true
 	allWant.Expanded = true
 	allWant.Theme = "Tokyo Night"
 	allWant.Visualizer = "Bars"
