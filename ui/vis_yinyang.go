@@ -6,8 +6,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"charm.land/lipgloss/v2"
 )
 
 // YinYang draws two koi circling a lily pad, or following an S-curve in a
@@ -764,7 +762,7 @@ func refreshYinYangANSI() {
 	for fg := yinYangDim; fg < yinYangTagCount; fg++ {
 		yinYangANSI[fg][yinYangWater] = foregroundANSI(tags[fg])
 		for bg := yinYangDim; bg < yinYangTagCount; bg++ {
-			yinYangANSI[fg][bg] = colorANSI(lipgloss.NewStyle().Foreground(tags[fg]).Background(tags[bg]))
+			yinYangANSI[fg][bg] = colorANSI(pairStyle(tags[fg], tags[bg]))
 		}
 	}
 }

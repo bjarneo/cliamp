@@ -23,6 +23,17 @@ func foregroundANSI(c color.Color) styleANSI {
 	return colorANSI(lipgloss.NewStyle().Foreground(c))
 }
 
+// pairStyle colours fg over bg. A NoColor background stands for the
+// terminal's default foreground, which has no SGR of its own, so the pair is
+// drawn in reverse video: the terminal paints its foreground behind the cell
+// and fg on top.
+func pairStyle(fg, bg color.Color) lipgloss.Style {
+	if _, ok := bg.(lipgloss.NoColor); ok {
+		return lipgloss.NewStyle().Background(fg).Reverse(true)
+	}
+	return lipgloss.NewStyle().Foreground(fg).Background(bg)
+}
+
 // colorANSI splits the output of a colour-only style around a rare marker.
 func colorANSI(style lipgloss.Style) styleANSI {
 	const probe = "\uFFFC"

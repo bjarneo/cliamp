@@ -513,7 +513,7 @@ func TestYinYangStylesCoverEveryPair(t *testing.T) {
 			for bg := yinYangWater; bg < yinYangTagCount; bg++ {
 				style := lipgloss.NewStyle().Foreground(colors[fg])
 				if bg != yinYangWater {
-					style = style.Background(colors[bg])
+					style = pairStyle(colors[fg], colors[bg])
 				}
 				if got := yinYangANSI[fg][bg]; got.prefix+"▀"+got.suffix != style.Render("▀") {
 					t.Errorf("theme %s, tags %d over %d: cached style does not match", th.Name, fg, bg)
@@ -825,5 +825,18 @@ func BenchmarkYinYangFrame(b *testing.B) {
 				_ = d.Render(v)
 			}
 		})
+	}
+}
+
+// On the default theme the ink is the terminal foreground, which has no SGR of
+// its own. A cell over ink is drawn in reverse video, so the ink still fills
+// the back of the cell instead of falling through to the terminal background.
+func TestYinYangInkBackgroundUsesReverseVideo(t *testing.T) {
+	t.Cleanup(func() { ApplyThemeColors(theme.Default()) })
+	ApplyThemeColors(theme.Default())
+	got := yinYangANSI[yinYangRed][yinYangInk]
+	want := lipgloss.NewStyle().Background(SpectrumHigh).Reverse(true).Render("▀")
+	if got.prefix+"▀"+got.suffix != want {
+		t.Errorf("red over ink = %q, want %q", got.prefix+"▀"+got.suffix, want)
 	}
 }
