@@ -33,7 +33,7 @@ var httpClient = httpclient.NewAPI(10 * time.Second)
 // server.
 var (
 	lrclibBaseURL  = "https://lrclib.net"
-	neteaseBaseURL = "http://music.163.com"
+	neteaseBaseURL = "https://music.163.com" // plain HTTP is blocked on some networks
 )
 
 // sourceTimeout limits each Source that Lookup calls.
@@ -221,12 +221,13 @@ func fetchNetEase(ctx context.Context, query string) ([]Line, error) {
 	data.Set("type", "1")
 	data.Set("limit", "1")
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, neteaseBaseURL+"/api/search/get/web", strings.NewReader(data.Encode()))
+	// /api/search/get/web returns encrypted results string here; /api/search/get returns result.songs, easier to decode
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, neteaseBaseURL+"/api/search/get", strings.NewReader(data.Encode()))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Referer", "http://music.163.com")
+	req.Header.Set("Referer", neteaseBaseURL)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
