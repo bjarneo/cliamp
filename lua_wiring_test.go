@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"reflect"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/bjarneo/cliamp/internal/playback"
 	"github.com/bjarneo/cliamp/luaplugin"
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/ui/model"
 )
 
@@ -192,5 +194,66 @@ func TestLuaStateProviderReadsPublishedState(t *testing.T) {
 	empty := luaStateProvider(fakeClock{}, func() model.PluginState { return model.PluginState{} })
 	if got := empty.QueueList(); got != nil {
 		t.Errorf("queue of a state with no Queue = %#v, want nil", got)
+	}
+}
+
+type fakeChatCommander struct {
+	provider.ChatCommander
+	replyCalled bool
+	audioCalled bool
+	timeout     time.Duration
+}
+
+func (f *fakeChatCommander) WaitReply(_ context.Context, _ string, _ int, timeout time.Duration) (provider.ChatReply, error) {
+	f.replyCalled = true
+	f.timeout = timeout
+	return provider.ChatReply{Kind: "text"}, nil
+}
+
+func (f *fakeChatCommander) WaitAudio(_ context.Context, _ string, _ int, timeout time.Duration) (provider.ChatReply, error) {
+	f.audioCalled = true
+	f.timeout = timeout
+	return provider.ChatReply{Kind: "audio"}, nil
+}
+
+func TestWaitReplyResultHonorsAudioOnly(t *testing.T) {
+	f := &fakeChatCommander{}
+	out, err := waitReplyResult(context.Background(), f, "u:1:2", 5, map[string]any{"audio_only": true})
+	if err != nil {
+		t.Fatalf("waitReplyResult: %v", err)
+	}
+	if f.replyCalled || !f.audioCalled {
+		t.Fatalf("reply=%v audio=%v, want only WaitAudio", f.replyCalled, f.audioCalled)
+	}
+	if out["kind"] != "audio" {
+		t.Fatalf("kind = %v", out["kind"])
+	}
+}
+
+func TestWaitReplyResultUsesContextDeadline(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	f := &fakeChatCommander{}
+	if _, err := waitReplyResult(ctx, f, "u:1:2", 5, nil); err != nil {
+		t.Fatalf("waitReplyResult: %v", err)
+	}
+	if f.timeout < time.Second || f.timeout > 2*time.Second {
+		t.Fatalf("timeout = %v, want the remaining context deadline", f.timeout)
+	}
+}
+
+func TestReplyResultIncludesButtonQuery(t *testing.T) {
+	out := replyResult(provider.ChatReply{Buttons: []provider.ChatButton{{
+		Text:  "Switch",
+		Kind:  "switch_inline",
+		Query: "daft punk",
+	}}})
+	buttons, ok := out["buttons"].([]any)
+	if !ok || len(buttons) != 1 {
+		t.Fatalf("buttons = %#v", out["buttons"])
+	}
+	row, ok := buttons[0].(map[string]any)
+	if !ok || row["query"] != "daft punk" {
+		t.Fatalf("row = %#v, want query", buttons[0])
 	}
 }

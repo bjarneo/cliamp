@@ -787,3 +787,68 @@ func TestReverseShuffledKeepsPlayOrder(t *testing.T) {
 		t.Errorf("pos = %d, want %d", p.pos, pos)
 	}
 }
+
+func TestInsertAtTopKeepsTheCurrentTrack(t *testing.T) {
+	p := makePlaylist(3, false) // A B C
+	p.SetIndex(1)               // B
+
+	p.Insert(0, Track{Title: "X"})
+
+	if got, want := titles(p), []string{"X", "A", "B", "C"}; !sliceEq(got, want) {
+		t.Fatalf("titles = %v, want %v", got, want)
+	}
+	current, index := p.Current()
+	if current.Title != "B" || index != 2 {
+		t.Fatalf("current = %q index %d, want B index 2", current.Title, index)
+	}
+}
+
+func TestInsertAtMiddleKeepsOrder(t *testing.T) {
+	p := makePlaylist(3, false) // A B C
+
+	p.Insert(1, Track{Title: "X"})
+
+	if got, want := titles(p), []string{"A", "X", "B", "C"}; !sliceEq(got, want) {
+		t.Fatalf("titles = %v, want %v", got, want)
+	}
+	current, index := p.Current()
+	if current.Title != "A" || index != 0 {
+		t.Fatalf("current = %q index %d, want A index 0", current.Title, index)
+	}
+}
+
+func TestInsertShufflePlaysNext(t *testing.T) {
+	p := makePlaylist(3, true)
+	p.pos = 0
+
+	p.Insert(0, Track{Title: "X"})
+
+	next, ok := p.Next()
+	if !ok || next.Title != "X" {
+		t.Fatalf("next = %q, %v; want X", next.Title, ok)
+	}
+}
+
+func TestInsertRemapsThePlayNextQueue(t *testing.T) {
+	p := makePlaylist(3, false) // A B C
+	p.Queue(2)                  // C
+
+	p.Insert(0, Track{Title: "X"})
+
+	entries := p.QueueEntries()
+	if len(entries) != 1 {
+		t.Fatalf("queue = %#v", entries)
+	}
+	if entries[0].Track.Title != "C" || entries[0].TrackIndex != 3 {
+		t.Fatalf("queue entry = %#v, want C at 3", entries[0])
+	}
+}
+
+func TestInsertIntoEmptyPlaylistKeepsCurrentAtZero(t *testing.T) {
+	p := New()
+	p.ReplaceAt(nil, 0)
+	p.Insert(0, Track{Title: "A"})
+	if _, idx := p.Current(); idx != 0 {
+		t.Fatalf("current index = %d, want 0", idx)
+	}
+}
