@@ -931,6 +931,9 @@ func (m *Model) handleFullVisualizerKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.adjustVolume(-1)
 	case "v":
 		_ = m.cycleVisualizer()
+	case "f":
+		m.pureVis = !m.pureVis
+		m.recomputeLayout()
 	case "t":
 		// Hide the episode name so the full-screen visualizer can be put on a
 		// shared screen without naming what is playing.

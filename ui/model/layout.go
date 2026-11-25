@@ -127,6 +127,9 @@ func (m *Model) recomputeLayout() {
 	if m.paddingSet {
 		paddingH, paddingV = m.paddingH, m.paddingV
 	}
+	if m.fullVis && m.pureVis {
+		paddingH, paddingV = 0, 0
+	}
 	paddingH = min(paddingH, max(0, (width-1)/2))
 	paddingV = min(paddingV, max(0, (height-1)/2))
 
@@ -218,6 +221,9 @@ func (m *Model) recomputeLayout() {
 	}
 
 	layout.fullVisualizerRows = max(1, height-6-2*paddingV)
+	if m.fullVis && m.pureVis {
+		layout.fullVisualizerRows = max(1, height)
+	}
 	if !layout.tooSmall() {
 		layout.bodyRows = max(1, height-2*paddingV-layout.fixedRows-layout.footerRows)
 		if simplified {

@@ -586,6 +586,7 @@ type Model struct {
 	headless       bool // no screen: cliamp --daemon runs without a renderer
 	simplified     bool // simplified playback view: track summary and time strip
 	hideTrackInfo  bool // full-screen visualizer: show the source instead of the track
+	pureVis        bool // full-screen visualizer: draw only the visualizer, edge to edge (key f)
 	hideHelpBar    bool // hide the key-binding hint bar above the status line
 	hideSettings   bool // close the two-column settings pane beside the playlist
 	showMetadata   bool // expand highlighted-track metadata below settings

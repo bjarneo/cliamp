@@ -403,6 +403,7 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeFullVis, Keys: []string{"+", "=", "-"}, KeyLabel: "+ -", Label: "Volume up/down", Keymap: true},
 	{Mode: commandModeFullVis, Keys: []string{"v"}, KeyLabel: "v", Label: "Cycle visualizer", Keymap: true},
 	{Mode: commandModeFullVis, Keys: []string{"t"}, KeyLabel: "t", Label: "Hide track info", Keymap: true, ContextHelp: true},
+	{Mode: commandModeFullVis, Keys: []string{"f"}, KeyLabel: "f", Label: "Pure fullscreen (visualizer only)", Keymap: true},
 	{Mode: commandModeFullVis, Keys: []string{"?"}, KeyLabel: "?", Label: "Help", Keymap: true},
 }
 
