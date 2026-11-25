@@ -86,8 +86,6 @@ type Player struct {
 
 	lastPlayedDuration time.Duration // real duration of the track finished by the last gapless swap
 
-	streamTitle atomic.Value // stores string, set by ICY reader callback
-
 	// The source registries are guarded by mu. Register writes them, and
 	// buildPipeline reads them when a track starts.
 	customFactories  map[string]StreamerFactory // URI scheme prefix -> factory (e.g. "spotify:" -> fn)
@@ -328,7 +326,7 @@ func (p *Player) playPipelineForGeneration(tp *trackPipeline, generation uint64)
 	// Start API-based now-playing polling for streams without ICY metadata
 	// (no-op otherwise). Done here, not in buildPipeline, so preloaded
 	// pipelines that may never play don't spawn pollers.
-	p.startStreamMetadata(tp.path)
+	p.startStreamMetadata(tp)
 	// Close old resources asynchronously to avoid blocking the caller
 	// (UI thread) on slow Close() operations (ffmpeg wait, HTTP teardown).
 	go closePipelines(oldCurrent, oldNext)
@@ -684,6 +682,8 @@ func (p *Player) commitYTDLSeek(cur, replacement *trackPipeline, gen int64) bool
 		speaker.Unlock()
 		return false
 	}
+	// The replacement plays the same stream, so it keeps its metadata.
+	replacement.meta = cur.meta
 	p.gapless.Replace(replacement.stream)
 	p.gapless.SetNext(nil)
 	p.gaplessAdvance.Store(false)
@@ -877,16 +877,27 @@ func (p *Player) HasPreload() bool {
 	return p.nextPipeline != nil
 }
 
-// StreamTitle returns the current ICY stream title (e.g., "Artist - Song").
-// Returns "" when no ICY metadata has been received.
-func (p *Player) StreamTitle() string {
-	v, _ := p.streamTitle.Load().(string)
-	return v
+// currentMeta returns the stream metadata of the active pipeline, or nil.
+func (p *Player) currentMeta() *streamMeta {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.current == nil {
+		return nil
+	}
+	return p.current.meta
 }
 
-// setStreamTitle is the ICY onMeta callback, called from the reader goroutine.
-func (p *Player) setStreamTitle(title string) {
-	p.streamTitle.Store(title)
+// StreamTitle returns the stream title of the active pipeline (e.g.,
+// "Artist - Song"). Returns "" when no title has been received.
+func (p *Player) StreamTitle() string {
+	return p.currentMeta().Title()
+}
+
+// StreamTitleICY reports whether the active stream has sent inline ICY
+// metadata, as opposed to a title from the metadata resolver, Vorbis
+// comments, or none at all.
+func (p *Player) StreamTitleICY() bool {
+	return p.currentMeta().ICY()
 }
 
 // RegisterStreamMetadataResolver installs a resolver used to pull now-playing
@@ -900,8 +911,9 @@ func (p *Player) RegisterStreamMetadataResolver(r StreamMetadataResolver) {
 // startStreamMetadata (re)starts background now-playing polling for streamURL,
 // cancelling any previous poller. It is a no-op unless a registered resolver
 // recognizes the URL, so streams that carry ICY metadata (or local files) are
-// unaffected. The poller feeds titles through the same path as ICY metadata.
-func (p *Player) startStreamMetadata(streamURL string) {
+// unaffected. The poller writes the titles to tp's stream metadata.
+func (p *Player) startStreamMetadata(tp *trackPipeline) {
+	streamURL := tp.path
 	p.stopStreamMetadata()
 
 	p.mu.Lock()
@@ -923,7 +935,7 @@ func (p *Player) startStreamMetadata(streamURL string) {
 	p.metaCancel = cancel
 	p.mu.Unlock()
 
-	go p.pollStreamMetadata(ctx, fetch, interval)
+	go pollStreamMetadata(ctx, fetch, interval, tp.meta)
 }
 
 // stopStreamMetadata cancels the active metadata poller, if any.
@@ -938,10 +950,10 @@ func (p *Player) stopStreamMetadata() {
 }
 
 // pollStreamMetadata fetches the current title immediately and then on each
-// interval tick until ctx is cancelled, publishing non-empty titles via
-// setStreamTitle. A title fetched after cancellation is discarded so a stale
+// interval tick until ctx is cancelled, publishing non-empty titles to the
+// metadata of the pipeline it polls for. A title fetched after cancellation is discarded so a stale
 // poller cannot clobber the next stream's metadata.
-func (p *Player) pollStreamMetadata(ctx context.Context, fetch func(context.Context) (string, error), interval time.Duration) {
+func pollStreamMetadata(ctx context.Context, fetch func(context.Context) (string, error), interval time.Duration, meta *streamMeta) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -950,7 +962,7 @@ func (p *Player) pollStreamMetadata(ctx context.Context, fetch func(context.Cont
 			return
 		}
 		if err == nil && title != "" {
-			p.setStreamTitle(title)
+			meta.SetTitle(title)
 		}
 		select {
 		case <-ctx.Done():

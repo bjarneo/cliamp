@@ -203,3 +203,210 @@ func TestIPCTrackInfoKeepsAlbum(t *testing.T) {
 		})
 	}
 }
+
+// A plugin override sits between the two title sources: it wins over a resolver
+// title and yields to inline ICY metadata. A plugin can update or clear it.
+func TestPluginStreamTitle(t *testing.T) {
+	station := playlist.Track{Title: "Station", Path: "https://radio.example.com/live", Stream: true}
+	song := playlist.Track{Title: "Song", Path: "song.mp3"}
+	tests := []struct {
+		name       string
+		track      playlist.Track
+		engine     playbackFakeEngine // playing unless stopped is set
+		stopped    bool
+		titles     []string // sent to the handler in order
+		tick       func(*playbackFakeEngine)
+		wantShown  string
+		wantPlugin string
+	}{
+		{
+			name:       "a stream without metadata takes the override",
+			track:      station,
+			titles:     []string{"Artist - One"},
+			wantShown:  "Artist - One",
+			wantPlugin: "Artist - One",
+		},
+		{
+			name:       "a plugin updates its override",
+			track:      station,
+			titles:     []string{"Artist - One", "Artist - Two"},
+			wantShown:  "Artist - Two",
+			wantPlugin: "Artist - Two",
+		},
+		{
+			name:   "a plugin clears its override",
+			track:  station,
+			titles: []string{"Artist - One", ""},
+		},
+		{
+			name:       "the override wins over a resolver title",
+			track:      station,
+			engine:     playbackFakeEngine{streamTitle: "Resolver - Song"},
+			titles:     []string{"Artist - One"},
+			wantShown:  "Artist - One",
+			wantPlugin: "Artist - One",
+		},
+		{
+			name:      "clearing the override shows the resolver title",
+			track:     station,
+			engine:    playbackFakeEngine{streamTitle: "Resolver - Song"},
+			titles:    []string{"Artist - One", ""},
+			wantShown: "Resolver - Song",
+		},
+		{
+			name:      "inline ICY metadata refuses an override",
+			track:     station,
+			engine:    playbackFakeEngine{streamTitle: "Icy - Song", streamTitleICY: true},
+			titles:    []string{"Artist - One"},
+			wantShown: "Icy - Song",
+		},
+		{
+			name:   "later ICY metadata replaces the override",
+			track:  station,
+			titles: []string{"Artist - One"},
+			tick: func(e *playbackFakeEngine) {
+				e.streamTitle, e.streamTitleICY = "Icy - Song", true
+			},
+			wantShown: "Icy - Song",
+		},
+		{
+			name:       "a later resolver title keeps the override",
+			track:      station,
+			titles:     []string{"Artist - One"},
+			tick:       func(e *playbackFakeEngine) { e.streamTitle = "Resolver - Song" },
+			wantShown:  "Artist - One",
+			wantPlugin: "Artist - One",
+		},
+		{
+			name:    "a stopped player ignores the override",
+			track:   station,
+			stopped: true,
+			titles:  []string{"Artist - One"},
+		},
+		{
+			name:   "a non-stream ignores the override",
+			track:  song,
+			titles: []string{"Artist - One"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			engine := tt.engine
+			engine.playing = !tt.stopped
+			m := newPluginStateModel(&engine, tt.track)
+			m.setPlaybackTrack(tt.track)
+			m.tickStreamTitle()
+			for _, title := range tt.titles {
+				m.handlePluginStreamTitle(PluginStreamTitleMsg{Title: title})
+			}
+			if tt.tick != nil {
+				tt.tick(&engine)
+				m.tickStreamTitle()
+			}
+			if got := m.effectiveStreamTitle(); got != tt.wantShown {
+				t.Errorf("effectiveStreamTitle() = %q, want %q", got, tt.wantShown)
+			}
+			if m.pluginStreamTitle != tt.wantPlugin {
+				t.Errorf("pluginStreamTitle = %q, want %q", m.pluginStreamTitle, tt.wantPlugin)
+			}
+		})
+	}
+}
+
+// While station B buffers, the engine still plays station A. A tick then must
+// not copy A's title onto B, and once B plays without metadata, B shows none.
+func TestStreamTitleSkipsTheBufferingTrack(t *testing.T) {
+	stationA := playlist.Track{Title: "A", Path: "https://a.example.com/live", Stream: true}
+	stationB := playlist.Track{Title: "B", Path: "https://b.example.com/live", Stream: true}
+	engine := &playbackFakeEngine{playing: true, streamTitle: "Icy - A", streamTitleICY: true}
+	m := newPluginStateModel(engine, stationA, stationB)
+	m.setPlaybackTrack(stationA)
+	m.tickStreamTitle()
+	if m.streamTitle != "Icy - A" {
+		t.Fatalf("station A title = %q, want %q", m.streamTitle, "Icy - A")
+	}
+
+	m.setPlaybackTrack(stationB)
+	m.streamTitle = ""
+	m.buffering = true
+	m.tickStreamTitle()
+	m.handlePluginStreamTitle(PluginStreamTitleMsg{Title: "Plugin - B"})
+	if m.streamTitle != "" || m.pluginStreamTitle != "" {
+		t.Fatalf("while B buffers: streamTitle %q, plugin %q, want both empty", m.streamTitle, m.pluginStreamTitle)
+	}
+
+	// B plays and sends no metadata.
+	m.buffering = false
+	engine.streamTitle, engine.streamTitleICY = "", false
+	m.tickStreamTitle()
+	if got := m.effectiveStreamTitle(); got != "" {
+		t.Errorf("station B title = %q, want empty", got)
+	}
+}
+
+// Stopping forgets the override, so it cannot show on the stopped view or on
+// the next stream.
+func TestStopPlaybackClearsPluginStreamTitle(t *testing.T) {
+	station := playlist.Track{Title: "Station", Path: "https://radio.example.com/live", Stream: true}
+	engine := &playbackFakeEngine{playing: true}
+	m := newPluginStateModel(engine, station)
+	m.setPlaybackTrack(station)
+	m.handlePluginStreamTitle(PluginStreamTitleMsg{Title: "Artist - One"})
+	if m.pluginStreamTitle == "" {
+		t.Fatal("override not set before the stop")
+	}
+	m.streamTitle = "Resolver - Song"
+	m.stopPlayback()
+	if m.pluginStreamTitle != "" {
+		t.Errorf("pluginStreamTitle after stop = %q, want empty", m.pluginStreamTitle)
+	}
+	if m.streamTitle != "" {
+		t.Errorf("streamTitle after stop = %q, want empty", m.streamTitle)
+	}
+}
+
+// A plugin title that changes while lyrics load for the old one starts a new
+// lookup, and the result of the old lookup is dropped.
+func TestPluginStreamTitleRefreshesLoadingLyrics(t *testing.T) {
+	station := playlist.Track{Title: "Station", Path: "https://radio.example.com/live", Stream: true}
+	m := newPluginStateModel(&playbackFakeEngine{playing: true}, station)
+	m.setPlaybackTrack(station)
+	m.lyrics.visible = true
+	m.handlePluginStreamTitle(PluginStreamTitleMsg{Title: "Artist - One"})
+	if !m.lyrics.loading || m.lyrics.query != "Artist\nOne" {
+		t.Fatalf("first lookup: loading %v, query %q", m.lyrics.loading, m.lyrics.query)
+	}
+	oldGen := m.requests.lyrics
+
+	if cmd := m.handlePluginStreamTitle(PluginStreamTitleMsg{Title: "Artist - Two"}); cmd == nil {
+		t.Fatal("title change during a lookup returned no command")
+	}
+	if !m.lyrics.loading || m.lyrics.query != "Artist\nTwo" {
+		t.Errorf("second lookup: loading %v, query %q, want the new title", m.lyrics.loading, m.lyrics.query)
+	}
+	if m.requests.lyrics == oldGen {
+		t.Fatal("lyrics request generation unchanged")
+	}
+	next, _ := m.Update(lyricsLoadedMsg{query: "Artist\nOne", gen: oldGen})
+	if got := next.(Model); !got.lyrics.loading {
+		t.Error("the old lookup's result ended the new lookup")
+	}
+}
+
+// cliamp.player.stream_title() reads the raw title, so a plugin can tell its
+// own override from the station's metadata. The track fields show the override.
+func TestPluginStateStreamTitleIsRaw(t *testing.T) {
+	station := playlist.Track{Title: "Station", Path: "https://radio.example.com/live", Stream: true}
+	m := newPluginStateModel(&playbackFakeEngine{playing: true, streamTitle: "Resolver - Song"}, station)
+	m.setPlaybackTrack(station)
+	m.tickStreamTitle()
+	m.handlePluginStreamTitle(PluginStreamTitleMsg{Title: "Artist - One"})
+	m.publishPluginState()
+	state := m.PluginStateLoader()()
+	if state.StreamTitle != "Resolver - Song" {
+		t.Errorf("StreamTitle = %q, want the raw title", state.StreamTitle)
+	}
+	if state.Track.Artist != "Artist" || state.Track.Title != "One" {
+		t.Errorf("Track = (%q, %q), want the override", state.Track.Artist, state.Track.Title)
+	}
+}

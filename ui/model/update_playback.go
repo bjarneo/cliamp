@@ -113,6 +113,9 @@ func (m *Model) handleStreamPlayed(msg streamPlayedMsg) tea.Cmd {
 	if msg.gen != m.requests.stream || msg.path != track.Path {
 		return nil
 	}
+	// Only a streamPlayedMsg for the current track/generation may clear the
+	// buffering spinner. A stale message from a previous track or a different
+	// generation is ignored so the spinner keeps showing mid-load.
 	m.buffering = false
 	ytdlLiveDrain := m.reconnect.ytdlLiveDrain
 	m.reconnect.ytdlLiveDrain = false

@@ -574,6 +574,7 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 	m.reconnect.at = time.Time{}
 	m.reconnect.ytdlLiveDrain = false
 	m.streamTitle = ""
+	m.pluginStreamTitle = ""
 	m.lyrics.lines = nil
 	m.lyrics.err = nil
 	m.lyrics.query = ""

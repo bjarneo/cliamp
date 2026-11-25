@@ -57,6 +57,8 @@ func (m *Model) clearPlaybackTrack() {
 	m.playingTrackLeft = false
 	m.playbackDetached = false
 	m.playingProvider = ""
+	m.pluginStreamTitle = ""
+	m.streamTitle = ""
 }
 
 // stopPlayback stops audio and clears the active track. It also advances the
