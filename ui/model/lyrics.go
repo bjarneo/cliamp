@@ -62,6 +62,17 @@ func (m *Model) lyricsArtistTitle() (artist, title string) {
 	return track.Artist, track.Title
 }
 
+// lyricsSearch returns the artist and title for the LRCLIB and NetEase
+// search. Without both it returns neither, and the track gets only its own
+// lyrics, embedded or in an .lrc file: a search for the title alone could
+// find another song.
+func lyricsSearch(artist, title string) (string, string) {
+	if artist == "" || title == "" {
+		return "", ""
+	}
+	return artist, title
+}
+
 // localAudioFile reports whether path names a local audio file, which may
 // have an .lrc file next to it.
 func localAudioFile(path string) bool {

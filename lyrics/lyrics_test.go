@@ -197,6 +197,12 @@ func TestLRCFile(t *testing.T) {
 			files: map[string]string{"song.LRC": "[00:01.00]First"},
 			want:  []Line{{Start: time.Second, Text: "First"}},
 		},
+		{
+			name:  "plain text with ID tags",
+			files: map[string]string{"song.lrc": "[ar:Artist]\n[ti:Song]\n[offset:+250]\nFirst"},
+			want:  []Line{{Text: "First"}},
+		},
+		{name: "only ID tags", files: map[string]string{"song.lrc": "[ar:Artist]\n[ti:Song]\n"}},
 		{name: "no file"},
 		{name: "only another track's file", files: map[string]string{"other.lrc": "[00:01.00]Other"}},
 		{name: "empty file", files: map[string]string{"song.lrc": "  \n"}},

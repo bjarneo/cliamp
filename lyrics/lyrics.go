@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/bjarneo/cliamp/internal/httpclient"
@@ -173,7 +174,7 @@ func LRCFile(audioPath string) Source {
 			if err != nil {
 				return nil, err
 			}
-			if lines := ParseEmbedded(string(data)); len(lines) > 0 {
+			if lines := ParseEmbedded(withoutIDTags(string(data))); len(lines) > 0 {
 				return lines, nil
 			}
 		}
@@ -181,10 +182,29 @@ func LRCFile(audioPath string) Source {
 	}
 }
 
+// lrcIDTagRegex matches an LRC ID tag line such as [ar:Artist] or
+// [offset:+250]. A time tag starts with a digit, so it does not match.
+var lrcIDTagRegex = regexp.MustCompile(`^\[[A-Za-z#]+:[^\]]*\]$`)
+
+// withoutIDTags drops the ID tag lines of an LRC file, which are not lyrics.
+// parseLRC skips them anyway, but plain text would show them as lines.
+func withoutIDTags(data string) string {
+	var b strings.Builder
+	for line := range strings.SplitSeq(data, "\n") {
+		if lrcIDTagRegex.MatchString(strings.TrimSpace(strings.TrimPrefix(line, "\ufeff"))) {
+			continue
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
 // readLRCFile reads up to maxLRCFileSize bytes of the regular file at path.
 // Anything else at path, such as a directory or a FIFO, reads as missing.
+// O_NONBLOCK keeps the open of a FIFO without a writer from blocking.
 func readLRCFile(path string) ([]byte, error) {
-	f, err := os.Open(path)
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
 	}

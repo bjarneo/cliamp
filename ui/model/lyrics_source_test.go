@@ -193,3 +193,44 @@ func TestLRCFileOnlyForLocalAudioFiles(t *testing.T) {
 		t.Errorf("lyricsLookupKey() for a stream without an artist = %q, want empty", got)
 	}
 }
+
+// The lyrics remote operation reads the .lrc file too, and, like the
+// overlay, it does not search for a title without an artist.
+func TestIPCLyricsOfUntaggedLocalFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "song.lrc"), []byte("[00:01.00]from the file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name     string
+		path     string
+		wantText string
+	}{
+		{"the .lrc file", filepath.Join(dir, "song.mp3"), "from the file"},
+		{"no file and no artist", filepath.Join(dir, "untagged.mp3"), ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			pl := playlist.New()
+			pl.Add(playlist.Track{Path: tt.path, Title: strings.TrimSuffix(filepath.Base(tt.path), ".mp3")})
+			pl.SetIndex(0)
+			m := Model{player: &playbackFakeEngine{playing: true}, playlist: pl}
+
+			reply := make(chan ipc.Response, 1)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if cmd := m.handleIPCLyrics(ipcLyricsRequest{Context: ctx, Reply: reply}); cmd != nil {
+				cmd()
+			}
+			got := <-reply
+			if tt.wantText == "" {
+				if got.OK || got.Error != lyrics.ErrNotFound.Error() {
+					t.Fatalf("IPC lyrics = %+v, want %q", got, lyrics.ErrNotFound)
+				}
+				return
+			}
+			if !got.OK || len(got.Lyrics) != 1 || got.Lyrics[0].Text != tt.wantText {
+				t.Fatalf("IPC lyrics = %+v, want %q", got, tt.wantText)
+			}
+		})
+	}
+}
