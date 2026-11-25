@@ -461,6 +461,7 @@ footer a{color:var(--fg-2)}
       <div class="feat">
         <div class="feat-k">GAPLESS &amp; STREAMS</div>
         <p>Preloads the next track for seamless transitions. Plays URLs, HLS (.m3u8) and internet radio with jitter buffering and live ICY metadata, and <b>cliamp://</b> links from a browser or chat.</p>
+        <p>Select yt-dlp with <code>ytdlp_path</code> or <code>CLIAMP_YTDLP</code>. Fatal HTTP 403 errors get up to three attempts, even with <code>--color always</code>; warnings do not trigger retries. Status shows the fatal diagnostic without color escapes. Warnings and captured stderr go to <code>cliamp.log</code>, even at <code>log_level = "error"</code>; intentional teardown exits are debug-only. EOF diagnostics wait up to three seconds in the background without blocking controls. A yt-dlp failure does not wait for ffmpeg's exit. <a href="https://github.com/bjarneo/cliamp/blob/main/docs/yt-dlp.md">yt-dlp guide</a>.</p>
       </div>
     </div>
   </section>
