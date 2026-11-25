@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"reflect"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/bjarneo/cliamp/internal/playback"
 	"github.com/bjarneo/cliamp/luaplugin"
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/ui/model"
 )
 
@@ -192,5 +194,35 @@ func TestLuaStateProviderReadsPublishedState(t *testing.T) {
 	empty := luaStateProvider(fakeClock{}, func() model.PluginState { return model.PluginState{} })
 	if got := empty.QueueList(); got != nil {
 		t.Errorf("queue of a state with no Queue = %#v, want nil", got)
+	}
+}
+
+type fakeChatCommander struct {
+	provider.ChatCommander
+	replyCalled bool
+	audioCalled bool
+}
+
+func (f *fakeChatCommander) WaitReply(context.Context, string, int, time.Duration) (provider.ChatReply, error) {
+	f.replyCalled = true
+	return provider.ChatReply{Kind: "text"}, nil
+}
+
+func (f *fakeChatCommander) WaitAudio(context.Context, string, int, time.Duration) (provider.ChatReply, error) {
+	f.audioCalled = true
+	return provider.ChatReply{Kind: "audio"}, nil
+}
+
+func TestWaitReplyResultHonorsAudioOnly(t *testing.T) {
+	f := &fakeChatCommander{}
+	out, err := waitReplyResult(context.Background(), f, "u:1:2", 5, map[string]any{"audio_only": true})
+	if err != nil {
+		t.Fatalf("waitReplyResult: %v", err)
+	}
+	if f.replyCalled || !f.audioCalled {
+		t.Fatalf("reply=%v audio=%v, want only WaitAudio", f.replyCalled, f.audioCalled)
+	}
+	if out["kind"] != "audio" {
+		t.Fatalf("kind = %v", out["kind"])
 	}
 }

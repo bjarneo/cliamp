@@ -264,12 +264,25 @@ func (m Model) View() tea.View {
 		content = strings.Join(m.mainSections(body, true, contentFirst), "\n")
 	}
 
+	// Keep image placeholder lines changing every frame so the terminal
+	// re-emits them and kitty does not drop the images.
+	imagePulse = !imagePulse
+
 	// Every screen now renders within the main frame, so frame and center
 	// uniformly.
 	rendered := m.centerFrame(m.layout.frameStyle().Render(content))
 	rendered = ui.FitRect(rendered, m.layout.frameWidth, max(1, m.height))
 
+	if box := m.renderActionPane(); box != "" {
+		rendered = overlayCentered(rendered, box, m.layout.frameWidth, m.height)
+	}
 	if box := m.renderLuaSelect(); box != "" {
+		rendered = overlayCentered(rendered, box, m.layout.frameWidth, m.height)
+	}
+	if box := m.renderLuaInput(); box != "" {
+		rendered = overlayCentered(rendered, box, m.layout.frameWidth, m.height)
+	}
+	if box := m.renderLuaText(); box != "" {
 		rendered = overlayCentered(rendered, box, m.layout.frameWidth, m.height)
 	}
 	view := tea.NewView(rendered)
