@@ -123,7 +123,7 @@ list.
 | `t` | Choose theme |
 | `v` | Cycle visualizer and save the choice in `config.toml` |
 | `Ctrl+V` | Pick visualizer from a list (live preview) |
-| `V` | Full screen visualizer. Inside it, `v` cycles modes and saves the choice, `<`/`>` change track, `+`/`-` change volume, and `t` hides the episode name, leaving only the bracketed source. `q` or `Esc` exits back to the player; `Ctrl+C` quits. |
+| `V` | Full screen visualizer. Inside it, `v` cycles modes and saves the choice, `<`/`>` change track, `+`/`-` change volume, and `t` hides the episode name, leaving only the bracketed source. `f` toggles a pure mode that draws only the visualizer, edge to edge: no track line, time, seek bar or frame padding. Useful on a dedicated screen or CRT. `q` or `Esc` exits back to the player; `Ctrl+C` quits. |
 | `Ctrl+H` | Toggle album headers |
 | `Ctrl+G` | Toggle the key-binding hint bar (remembered in `hide_help_bar`) |
 | `Ctrl+B` | Open/close the settings pane (remembered in `hide_settings_pane`) |

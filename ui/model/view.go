@@ -695,6 +695,9 @@ func (m Model) renderSpectrum() string {
 // renderFullVisualizer renders a full-screen view showing only the visualizer
 // with minimal track info and a seek bar.
 func (m Model) renderFullVisualizer() string {
+	if m.pureVis {
+		return m.renderSpectrum()
+	}
 	sections := []string{
 		m.fullVisTopLine(),
 		m.renderTimeStatus(),
