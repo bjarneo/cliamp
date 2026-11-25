@@ -117,11 +117,12 @@ type ControlProvider struct {
 	SetEQPreset   func(name string, bands *[10]float64)
 	Next          func()
 	Prev          func()
-	QueueAdd      func(path string)  // resolve path/URL and append
-	QueueAddTrack func(track Track)  // append a track table as given, without resolving its path
-	QueueJump     func(index int)    // make index current and play it
-	QueueRemove   func(index int)    // remove track at index
-	QueueMove     func(from, to int) // reorder
+	QueueAdd      func(path string)            // resolve path/URL and append
+	QueueAddTrack func(track Track)            // append a track table as given, without resolving its path
+	QueueJump     func(index int)              // make index current and play it
+	QueueRemove   func(index int)              // remove track at index
+	QueueMove     func(from, to int)           // reorder
+	QueueInsert   func(index int, track Track) // insert a track at index
 }
 
 // UIProvider supplies callbacks that surface plugin output in the TUI.
@@ -133,6 +134,10 @@ type UIProvider struct {
 	// index, or -1 when the user cancels. It must return at once; onDone runs on
 	// the UI goroutine and the manager turns it into a plugin callback.
 	ShowSelect func(title string, options []string, cursor int, onDone func(index int), onCancel func())
+	// ShowInput opens a text input. It must return at once; onSubmit and
+	// onCancel run on the UI goroutine and the manager turns them into plugin
+	// callbacks.
+	ShowInput func(title, placeholder, value string, onSubmit func(text string), onCancel func())
 	// SetVis switches the active visualizer by name. It must return at once: the
 	// UI applies the change on its own goroutine.
 	SetVis func(name string)
@@ -152,14 +157,16 @@ type Manager struct {
 	keyBindDescs   map[string]KeyBinding          // key string -> UI overlay entry (only for binds that supplied a description)
 	reservedKeys   map[string]bool                // core-reserved keys; plugins may not bind these
 	commands       map[string]map[string]*luaHook // plugin name -> command name -> handler
+	actions        map[string]Action              // plugin name + id -> action pane entry
 	visPlugs       []*luaVis                      // Lua visualizers in registration order
 	visMap         map[string]*luaVis             // name -> Lua visualizer
 	namespaces     map[string]string              // event namespace -> owning plugin name
 	layoutProvider LayoutProvider
-	names          map[string]*Plugin              // display name -> plugin that registered it
-	state          atomic.Pointer[StateProvider]   // see SetStateProvider
-	control        atomic.Pointer[ControlProvider] // see SetControlProvider
-	ui             atomic.Pointer[UIProvider]      // see SetUIProvider
+	names          map[string]*Plugin               // display name -> plugin that registered it
+	state          atomic.Pointer[StateProvider]    // see SetStateProvider
+	control        atomic.Pointer[ControlProvider]  // see SetControlProvider
+	ui             atomic.Pointer[UIProvider]       // see SetUIProvider
+	provider       atomic.Pointer[ProviderProvider] // see SetProviderProvider
 	publisher      EventPublisher
 	timers         *timerManager
 	execs          *execManager
@@ -393,6 +400,11 @@ func (m *Manager) cleanupPlugin(p *Plugin) {
 			delete(m.names, name)
 		}
 	}
+	for key, action := range m.actions {
+		if action.Plugin == p.installName {
+			delete(m.actions, key)
+		}
+	}
 	for event, hooks := range m.hooks {
 		m.hooks[event] = filterOutPlugin(hooks, p)
 	}
@@ -511,6 +523,7 @@ func (m *Manager) registerPluginAPI(L *lua.LState, p *Plugin) {
 		m.registerPublishAPI(L, obj, p)
 		m.registerKeymapAPI(L, obj, p)
 		m.registerCommandAPI(L, obj, p)
+		m.registerActionAPI(L, obj, p)
 
 		// For visualizer plugins, add init/render registration.
 		if p.Type == "visualizer" {
@@ -535,6 +548,7 @@ func (m *Manager) registerCliampAPI(L *lua.LState, p *Plugin) {
 	registerImageAPI(L, cliamp, p)
 	registerLayoutAPI(L, cliamp, p, m)
 	registerUIAPI(L, cliamp, p, m)
+	m.registerProviderAPI(L, cliamp, p)
 	registerHTTPAPI(L, cliamp)
 	loadState, loadCtrl := loadProvider(&m.state), loadProvider(&m.control)
 	registerPlayerAPI(L, cliamp, loadState)
@@ -654,6 +668,12 @@ func (m *Manager) SetStateProvider(sp StateProvider) {
 	m.state.Store(&sp)
 }
 
+// SetProviderProvider sets the active provider context and the chat actions
+// that cliamp.provider.call exposes. It is safe to call while plugins run.
+func (m *Manager) SetProviderProvider(pp ProviderProvider) {
+	m.provider.Store(&pp)
+}
+
 // SetControlProvider sets the function pointers for player control.
 // Only plugins with permissions = {"control"} can use these. It is safe to
 // call while plugins run.
@@ -727,6 +747,7 @@ func (m *Manager) Close() {
 	// Close each VM under its lock. A timer or exec callback that runs now
 	// finishes first, and each later call sees closed and returns errClosed.
 	for _, p := range m.plugins {
+		m.removeActions(p.installName)
 		p.mu.Lock()
 		p.closed = true
 		p.L.Close()

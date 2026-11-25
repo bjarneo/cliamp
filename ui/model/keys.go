@@ -195,9 +195,19 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	defer func() { m.layoutText = "" }()
 	msg = normalizeShiftedLetter(msg)
 
+	if msg.String() == "ctrl+c" {
+		return m.quit()
+	}
+	if m.luaInput != nil {
+		m.handleLuaInputKey(msg)
+		return nil
+	}
 	if m.luaSelect != nil {
 		m.handleLuaSelectKey(msg)
 		return nil
+	}
+	if m.actionPane.visible {
+		return m.handleActionPaneKey(msg)
 	}
 
 	if cmd, ok := m.handleGlobalKey(msg); ok {
@@ -423,6 +433,8 @@ func (m *Model) handleProviderPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 		if _, ok := m.provider.(provider.ChatFilter); ok {
 			return m.startChatPicker()
 		}
+	case "!":
+		m.openActionPane()
 	}
 	return nil
 }
@@ -838,6 +850,9 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "?":
 		m.openKeymap()
+
+	case "!":
+		m.openActionPane()
 
 	default:
 		if m.luaMgr != nil {

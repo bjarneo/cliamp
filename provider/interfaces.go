@@ -468,3 +468,68 @@ type ChatFilter interface {
 	Chats() []string
 	SetChats(chats []string) error
 }
+
+// BotCommand is one command a chat bot advertises.
+type BotCommand struct {
+	Command     string // includes the leading slash, e.g. "/search"
+	Description string
+}
+
+// ChatButton is one inline button attached to a bot message. Data is the
+// callback payload; URL is set for link buttons. A button has one or the
+// other.
+type ChatButton struct {
+	Text     string
+	Data     []byte
+	DataText string // Data as text when it is valid UTF-8, e.g. a Deezer URL
+	URL      string
+	Query    string // switch_inline: the inline query the button opens
+	Kind     string // "callback", "url", "text", "switch_inline", ...
+	SendText bool   // reply keyboard: sending Text is the button press
+}
+
+// InlineResult is one result an inline bot returns for a query.
+type InlineResult struct {
+	ID          string
+	Type        string
+	Kind        string // "audio", "media", "photo", "text"
+	Title       string
+	Description string
+	URL         string
+	ThumbURL    string
+}
+
+// InlineResults is the answer to an inline query. QueryID must be sent back
+// with the chosen result.
+type InlineResults struct {
+	QueryID    int64
+	NextOffset string
+	Results    []InlineResult
+}
+
+// ChatReply is what arrived in a chat after a command. Kind is "audio",
+// "text" or "none". MessageID is the reply message, so a callback can target
+// its inline keyboard.
+type ChatReply struct {
+	Kind      string
+	Track     playlist.Track
+	Text      string
+	From      string
+	MessageID int
+	Buttons   []ChatButton
+	Links     []string
+}
+
+// ChatCommander is implemented by providers that can write into a chat as the
+// signed-in user and read the reply. The chat id is a provider playlist id.
+type ChatCommander interface {
+	BotCommands(ctx context.Context, chatID string) ([]BotCommand, error)
+	SendCommand(ctx context.Context, chatID, text string) (int, error)
+	WaitReply(ctx context.Context, chatID string, afterID int, timeout time.Duration) (ChatReply, error)
+	WaitAudio(ctx context.Context, chatID string, afterID int, timeout time.Duration) (ChatReply, error)
+	BotCallback(ctx context.Context, chatID string, messageID int, data []byte) error
+	Message(ctx context.Context, chatID string, messageID int) (ChatReply, error)
+	ResolveChat(ctx context.Context, username string) (playlist.PlaylistInfo, error)
+	InlineResults(ctx context.Context, chatID, botID, query, offset string) (InlineResults, error)
+	SendInlineResult(ctx context.Context, chatID, botID string, queryID int64, resultID string) (int, error)
+}

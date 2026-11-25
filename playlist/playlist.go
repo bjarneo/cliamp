@@ -210,6 +210,57 @@ func (p *Playlist) Add(tracks ...Track) {
 	p.revision++
 }
 
+// Insert puts track at index in the list. Every index in the play order,
+// the play-next queue and the current position moves with its track. In
+// shuffle mode the new track plays next; otherwise it keeps the list
+// position.
+func (p *Playlist) Insert(index int, track Track) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if index < 0 {
+		index = 0
+	}
+	if index > len(p.tracks) {
+		index = len(p.tracks)
+	}
+	track = cloneTrack(track)
+	p.tracks = append(p.tracks, Track{})
+	copy(p.tracks[index+1:], p.tracks[index:])
+	p.tracks[index] = track
+
+	for i, idx := range p.order {
+		if idx >= index {
+			p.order[i] = idx + 1
+		}
+	}
+	insertAt := index
+	if p.shuffle {
+		insertAt = p.pos + 1
+		if insertAt < 0 {
+			insertAt = 0
+		}
+		if insertAt > len(p.order) {
+			insertAt = len(p.order)
+		}
+	}
+	p.order = append(p.order, 0)
+	copy(p.order[insertAt+1:], p.order[insertAt:])
+	p.order[insertAt] = index
+	if !p.shuffle && len(p.tracks) > 1 && index <= p.pos {
+		p.pos++
+	}
+	for i, idx := range p.queue {
+		if idx >= index {
+			p.queue[i] = idx + 1
+		}
+	}
+	if p.queuedIdx >= index {
+		p.queuedIdx++
+	}
+	p.rebuildQueuePositions()
+	p.revision++
+}
+
 // Len returns the number of tracks.
 func (p *Playlist) Len() int {
 	p.mu.Lock()

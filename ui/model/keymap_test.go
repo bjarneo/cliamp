@@ -19,7 +19,9 @@ var mainKeyPath = []string{"handleKey", "handleGlobalKey", "handleMainKey"}
 // modalKeyHandlers own the keys while their modal is open. They are not part of
 // a command mode, so the registry drift guard does not apply to them.
 var modalKeyHandlers = map[string]bool{
-	"handleLuaSelectKey": true,
+	"handleLuaSelectKey":  true,
+	"handleLuaInputKey":   true,
+	"handleActionPaneKey": true,
 }
 
 // focusKeyHandlers maps the handlers that handleKey calls for a focused area
