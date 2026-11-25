@@ -715,7 +715,10 @@ func ResolveYTDLBatchPageContext(ctx context.Context, pageURL string, start, cou
 		return nil, 0, fmt.Errorf("yt-dlp not found in PATH — see https://github.com/yt-dlp/yt-dlp#installation")
 	}
 
-	args := []string{"--flat-playlist", "-j", "--socket-timeout", "15"}
+	args := []string{"-j", "--socket-timeout", "15"}
+	if !isBilibiliMedialist(pageURL) {
+		args = append([]string{"--flat-playlist"}, args...)
+	}
 	if b := strings.TrimSpace(browser); b != "" {
 		args = append(args, "--cookies-from-browser", b)
 	} else {
@@ -753,6 +756,19 @@ func ResolveYTDLBatchPageContext(ctx context.Context, pageURL string, start, cou
 		return nil, 0, fmt.Errorf("yt-dlp: %w", err)
 	}
 	return parseYTDLTracks(bytes.NewReader(stdout))
+}
+
+// isBilibiliMedialist reports whether pageURL is a Bilibili favorite list.
+// yt-dlp's flat extraction for those lists exposes only the BV id and the
+// playlist owner, so these entries need full extraction for their own metadata.
+func isBilibiliMedialist(pageURL string) bool {
+	u, err := url.Parse(pageURL)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return (host == "bilibili.com" || strings.HasSuffix(host, ".bilibili.com")) &&
+		strings.HasPrefix(strings.ToLower(u.Path), "/medialist/detail/")
 }
 
 // resolveYTDL lists the first maxItems entries of pageURL, or all entries when

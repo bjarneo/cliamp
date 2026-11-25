@@ -372,6 +372,35 @@ func TestResolveYTDLBatchCookieSelection(t *testing.T) {
 	}
 }
 
+func TestResolveYTDLBilibiliFavoriteMetadata(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping Unix shell script test on Windows")
+	}
+	tmpDir := t.TempDir()
+	logFile := filepath.Join(tmpDir, "ytdlp_args.log")
+	script := "#!/bin/sh\n" +
+		"echo \"$@\" > \"" + logFile + "\"\n" +
+		"case \"$*\" in\n" +
+		"*--flat-playlist*) echo '{\"webpage_url\":\"https://www.bilibili.com/video/BV1xx\",\"title\":\"BV1xx\",\"uploader\":\"Playlist owner\",\"duration\":123}' ;;\n" +
+		"*) echo '{\"webpage_url\":\"https://www.bilibili.com/video/BV1xx\",\"title\":\"Actual title\",\"uploader\":\"Video uploader\",\"duration\":123}' ;;\n" +
+		"esac\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "yt-dlp"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", tmpDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	tracks, err := ResolveYTDLBatch("https://www.bilibili.com/medialist/detail/ml123", 0, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tracks) != 1 {
+		t.Fatalf("tracks = %+v, want one entry", tracks)
+	}
+	if tracks[0].Title != "Actual title" || tracks[0].Artist != "Video uploader" {
+		t.Fatalf("track metadata = %q / %q, want Actual title / Video uploader", tracks[0].Title, tracks[0].Artist)
+	}
+}
+
 // TestYTDLRangeFlags pins the yt-dlp range flags that each entry point sends.
 // yt-dlp counts from 1, and count 0 means all remaining entries.
 func TestYTDLRangeFlags(t *testing.T) {
