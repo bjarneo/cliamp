@@ -343,6 +343,8 @@ cliamp.track.album_art_url()  --> string (file:// or data: URL; resolved on dema
 
 `cliamp.track` reports the track that plays, as `playback.state` does. When you load a playlist during playback, the old track plays on, and `cliamp.track` reports it until the next track starts. For a radio stream, `title` and `artist` come from the stream title when the station sends one. When nothing plays, `cliamp.track` reports the current track of the queue.
 
+The path of a local file is the one cliamp loaded it with. For files named on the command line, such as `cliamp album1`, it is relative to the directory cliamp started in. `cliamp.fs.abs(cliamp.track.path())` returns the full path.
+
 cliamp updates the values of `cliamp.player`, `cliamp.track`, and `cliamp.queue` after it handles each key, message, or tick. `cliamp.player.position()` and `cliamp.player.duration()` read the audio engine directly.
 
 ### cliamp.queue
@@ -437,6 +439,8 @@ cliamp.fs.remove(path)            -- delete file
 cliamp.fs.exists(path)            --> boolean
 cliamp.fs.mkdir(path)             -- create directory (recursive)
 cliamp.fs.listdir(path)           --> {names}, err
+cliamp.fs.cwd()                   --> string (the directory cliamp started in)
+cliamp.fs.abs(path)               --> string (a local path made absolute against cwd)
 ```
 
 You can write only to the system temp directory (`/tmp/` on Unix), `~/.config/cliamp/`, `~/.local/share/cliamp/`, and `~/Music/cliamp/`. In `~/.config/cliamp/`, you cannot write to the `plugins/` directory, `config.toml`, `radios.toml`, `config.toml.lock`, `favorites.toml.lock`, `history.toml.lock`, `radio_favorites.toml.lock`, `radio_countries.toml.lock`, `playlists.lock`, `cliamp.sock`, `cliamp.sock.pid`, or `plugins.log`. You can read from any path. `cliamp.fs.read` reads only regular files. For a FIFO, a device, or a directory, it returns `nil` and an error, because a read of such a file can block without a limit. On Windows, the config directory resolves to `%APPDATA%\cliamp` unless `HOME` names another directory. If that directory has no `config.toml` and `HOME/.config/cliamp` has one, cliamp keeps the existing directory.

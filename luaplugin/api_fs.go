@@ -336,5 +336,28 @@ func registerFSAPI(L *lua.LState, cliamp *lua.LTable) {
 		return 1
 	}))
 
+	// cliamp.fs.cwd() -> string, err
+	// The working directory of cliamp, which relative track paths, such as
+	// those of files named on the command line, are relative to.
+	L.SetField(tbl, "cwd", L.NewFunction(func(L *lua.LState) int {
+		dir, err := os.Getwd()
+		if err != nil {
+			return pushErr(L, err.Error())
+		}
+		L.Push(lua.LString(dir))
+		return 1
+	}))
+
+	// cliamp.fs.abs(path) -> string, err
+	// The absolute form of a local path, resolved against cliamp.fs.cwd().
+	L.SetField(tbl, "abs", L.NewFunction(func(L *lua.LState) int {
+		abs, err := filepath.Abs(L.CheckString(1))
+		if err != nil {
+			return pushErr(L, err.Error())
+		}
+		L.Push(lua.LString(abs))
+		return 1
+	}))
+
 	L.SetField(cliamp, "fs", tbl)
 }

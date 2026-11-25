@@ -354,3 +354,40 @@ func TestFSMkdirRejectsOutsideAllowlist(t *testing.T) {
 		t.Fatal("expected error for path outside allowlist")
 	}
 }
+
+func TestFSCwdAndAbs(t *testing.T) {
+	t.Chdir(t.TempDir())
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	absolute := filepath.Join(wd, "music", "song.mp3")
+
+	L := lua.NewState()
+	defer L.Close()
+	cliamp := L.NewTable()
+	registerFSAPI(L, cliamp)
+	L.SetGlobal("cliamp", cliamp)
+	L.SetGlobal("relative", lua.LString(filepath.Join("album", "..", "music", "song.mp3")))
+	L.SetGlobal("absolute", lua.LString(absolute))
+
+	if err := L.DoString(`
+		_G.cwd = cliamp.fs.cwd()
+		_G.from_relative = cliamp.fs.abs(relative)
+		_G.from_absolute = cliamp.fs.abs(absolute)
+	`); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		global string
+		want   string
+	}{
+		{"cwd", wd},
+		{"from_relative", absolute},
+		{"from_absolute", absolute},
+	} {
+		if got := L.GetGlobal(tt.global).String(); got != tt.want {
+			t.Errorf("%s = %q, want %q", tt.global, got, tt.want)
+		}
+	}
+}
