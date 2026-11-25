@@ -16,6 +16,9 @@ import (
 // the browse view. Playlist IDs are prefixed so they can be told apart from
 // album ratingKeys (both live in the same server-side metadata key space).
 const (
+	// TrackURIPrefix starts the token-free path that queues, history,
+	// favorites, playlists, resume state and IPC keep for a Plex track.
+	TrackURIPrefix   = "plex:track:"
 	prefixPlaylist   = "pl:"
 	sectionAlbums    = "Albums"
 	sectionPlaylists = "Playlists"
@@ -37,6 +40,7 @@ type Provider struct {
 	mu            sync.Mutex
 	playlistCache []playlist.PlaylistInfo
 	trackCache    map[string][]playlist.Track
+	partKeys      map[string]string // ratingKey to stream part
 }
 
 // newProvider returns a Provider backed by the given Client.
@@ -124,16 +128,18 @@ func (p *Provider) Refresh() {
 	p.mu.Lock()
 	p.playlistCache = nil
 	p.trackCache = nil
+	p.partKeys = nil
 	p.mu.Unlock()
 }
 
 // Tracks returns the tracks for the playlist or album identified by
 // playlistID. Playlist IDs (prefixed "pl:") load via the server playlists
 // endpoint; album IDs load via the album children endpoint. Each track's Path
-// is a complete authenticated HTTP URL ready for the player. Tracks with no
-// streamable part (missing Media/Part data) are silently skipped. Album tracks
-// are cached per album ID; playlist tracks are intentionally not cached so
-// smart playlists always reflect their current server contents.
+// is a token-free plex:track:<ratingKey> URI that ResolveSource turns into a
+// stream URL at play time. Tracks with no streamable part (missing Media/Part
+// data) are silently skipped. Album tracks are cached per album ID; playlist
+// tracks are intentionally not cached so smart playlists always reflect their
+// current server contents.
 func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 	isPlaylist := strings.HasPrefix(playlistID, prefixPlaylist)
 
@@ -184,15 +190,23 @@ func (p *Provider) SearchTracks(_ context.Context, query string, limit int) ([]p
 }
 
 // convertTracks converts Plex tracks to playlist tracks, skipping entries
-// without a streamable part. If limit > 0, at most limit tracks are returned.
+// without a valid ratingKey or a streamable part. If limit > 0, at most limit
+// tracks are returned. Each Path is a token-free plex:track: URI;
+// ResolveSource adds the token when playback starts.
 func (p *Provider) convertTracks(plexTracks []Track, limit int) []playlist.Track {
 	tracks := make([]playlist.Track, 0, len(plexTracks))
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	for _, t := range plexTracks {
-		if t.PartKey == "" {
+		if !validRatingKey(t.RatingKey) || t.PartKey == "" {
 			continue
 		}
+		if p.partKeys == nil {
+			p.partKeys = make(map[string]string)
+		}
+		p.partKeys[t.RatingKey] = t.PartKey
 		tracks = append(tracks, playlist.Track{
-			Path:         p.client.StreamURL(t.PartKey),
+			Path:         TrackURIPrefix + t.RatingKey,
 			Title:        t.Title,
 			Artist:       t.ArtistName,
 			Album:        t.AlbumName,
@@ -206,6 +220,50 @@ func (p *Provider) convertTracks(plexTracks []Track, limit int) []playlist.Track
 		}
 	}
 	return tracks
+}
+
+// ResolveSource turns a plex:track: URI into an authenticated stream URL when
+// playback starts. After a restart the part is not known yet, so it reads
+// the track's metadata once.
+func (p *Provider) ResolveSource(uri string) (string, error) {
+	id, ok := strings.CutPrefix(uri, TrackURIPrefix)
+	if !ok || !validRatingKey(id) {
+		return "", fmt.Errorf("plex: invalid track uri %q", uri)
+	}
+	p.mu.Lock()
+	partKey := p.partKeys[id]
+	p.mu.Unlock()
+	if partKey == "" {
+		track, err := p.client.Track(id)
+		if err != nil {
+			return "", fmt.Errorf("plex: resolve track %s: %w", id, err)
+		}
+		if track.PartKey == "" {
+			return "", fmt.Errorf("plex: track %s has no streamable part", id)
+		}
+		partKey = track.PartKey
+		p.mu.Lock()
+		if p.partKeys == nil {
+			p.partKeys = make(map[string]string)
+		}
+		p.partKeys[id] = partKey
+		p.mu.Unlock()
+	}
+	return p.client.StreamURL(partKey), nil
+}
+
+// validRatingKey reports whether id is safe to put in a metadata path.
+func validRatingKey(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, r := range id {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') &&
+			(r < '0' || r > '9') && r != '-' && r != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 // AlbumTracks returns the tracks for the given album (ratingKey).
