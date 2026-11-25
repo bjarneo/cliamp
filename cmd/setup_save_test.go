@@ -74,6 +74,13 @@ func TestSetupRewriteKeepsUserLines(t *testing.T) {
 			want:    "[spotify]\nbitrate = 320\n",
 		},
 		{
+			name:    "plex manual setup keeps client_id and drops server_id",
+			section: "plex",
+			values:  map[string]string{keyPlexAuth: "manual", "url": "http://plex.local:32400", "token": "manual-token", "client_id": "client-1"},
+			initial: "[plex]\nurl = \"https://old.plex.direct:32400\"\ntoken = \"account-token\"\nclient_id = \"client-1\"\nserver_id = \"server-1\"\n",
+			want:    "[plex]\nurl = \"http://plex.local:32400\"\ntoken = \"manual-token\"\nclient_id = \"client-1\"\n",
+		},
+		{
 			name:    "no config file",
 			section: "qobuz",
 			values:  map[string]string{keyQobuzQuality: "27"},

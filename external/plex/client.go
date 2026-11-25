@@ -2,13 +2,19 @@
 package plex
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/internal/httpclient"
 	"github.com/bjarneo/cliamp/internal/netdiag"
 )
@@ -22,16 +28,243 @@ var apiClient = httpclient.NewAPI(30 * time.Second)
 
 // Client speaks to a Plex Media Server over its HTTP API.
 type Client struct {
+	mu        sync.Mutex
 	baseURL   string   // e.g. "http://192.168.1.10:32400"
-	token     string   // X-Plex-Token
+	token     string   // X-Plex-Token used with the current server
+	clientID  string   // stable device identity sent with Plex requests
 	libraries []string // if non-empty, MusicSections filters to these titles (case-insensitive)
+	account   *accountBinding
+	// refresh asks endpoint to rediscover the route. RefreshConnection sets
+	// it without c.mu, which endpoint holds for a whole discovery, so the
+	// UI goroutine never waits on plex.tv.
+	refresh atomic.Bool
+}
+
+type accountBinding struct {
+	api       *AccountAPI
+	token     string
+	clientID  string
+	serverID  string
+	connected bool
 }
 
 // NewClient returns a Client for the given server URL and authentication token.
 // libraries is an optional list of music library names to restrict MusicSections to.
 // When not provided, all music libraries will be loaded
 func NewClient(baseURL, token string, libraries ...string) *Client {
-	return &Client{baseURL: baseURL, token: token, libraries: libraries}
+	return &Client{baseURL: baseURL, token: token, clientID: accountProduct, libraries: libraries}
+}
+
+// NewAccountClient returns a client that rediscovers the selected Plex server
+// through plex.tv before its first request. baseURL is retained for display and
+// as the last known connection in config; discovery supplies the live route.
+func NewAccountClient(baseURL, accountToken, clientID, serverID string, libraries ...string) *Client {
+	return newAccountClient(baseURL, accountToken, clientID, serverID, NewAccountAPI(), libraries...)
+}
+
+func newAccountClient(baseURL, accountToken, clientID, serverID string, api *AccountAPI, libraries ...string) *Client {
+	return &Client{
+		baseURL:   baseURL,
+		token:     accountToken,
+		clientID:  clientID,
+		libraries: libraries,
+		account: &accountBinding{
+			api:      api,
+			token:    accountToken,
+			clientID: clientID,
+			serverID: serverID,
+		},
+	}
+}
+
+func (c *Client) endpoint(ctx context.Context) (string, string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.account != nil && c.refresh.Swap(false) {
+		c.account.connected = false
+	}
+	if c.account != nil && !c.account.connected {
+		server, err := c.account.api.ConnectServer(ctx, c.account.token, c.account.clientID, c.account.serverID)
+		if err != nil {
+			return "", "", err
+		}
+		c.baseURL = server.URL
+		c.token = server.AccessToken
+		c.account.connected = true
+	}
+	return c.baseURL, c.token, nil
+}
+
+// responseHeaderTimeout bounds the wait for a server's response headers on
+// one attempt. A dead route then fails in seconds instead of after the full
+// request timeout, and send can move to another route. Tests shorten it.
+var responseHeaderTimeout = 10 * time.Second
+
+// send runs one request against the current server route; build makes it for
+// a base URL and token. When an account-backed client cannot reach its route,
+// send drops the route, rediscovers one through plex.tv and retries once, so
+// a dead local, remote or relay connection does not stall playback. HTTP
+// error responses are returned as they are. label names the call in errors.
+//
+// On a plain-HTTP route of an account-backed client, send first checks
+// without the token that the address still answers as the server: after a
+// network change another host can hold it. An HTTPS route needs no check,
+// since its certificate belongs to the server. A failed check counts as an
+// unreachable route.
+func (c *Client) send(ctx context.Context, client *http.Client, label string, build func(baseURL, token string) (*http.Request, error)) (*http.Response, error) {
+	for retried := false; ; retried = true {
+		baseURL, token, err := c.endpoint(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("plex: connect account server: %w", err)
+		}
+		req, err := build(baseURL, token)
+		if err != nil {
+			return nil, fmt.Errorf("plex: %s: %w", label, err)
+		}
+		err = c.verifyPlainRoute(ctx, baseURL)
+		if err == nil {
+			var resp *http.Response
+			if resp, err = c.do(client, req); err == nil {
+				return resp, nil
+			}
+		}
+		// A url.Error names the request URL, and with it the token.
+		if uerr, ok := errors.AsType[*url.Error](err); ok {
+			err = uerr.Err
+		}
+		// The route goes even when this was the retry, so the next request
+		// does not wait on it again.
+		if ctx.Err() != nil || !c.dropRoute(baseURL) || retried {
+			return nil, fmt.Errorf("plex: %s: server unreachable: %w", label, netdiag.Explain(err))
+		}
+		applog.Info("plex: %s: %v; finding another server route", label, netdiag.Explain(err))
+	}
+}
+
+// dropRoute makes the next request rediscover the route when baseURL is still
+// the current one. It reports whether rediscovery is possible: manual clients
+// have only their configured URL.
+func (c *Client) dropRoute(baseURL string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.account == nil {
+		return false
+	}
+	if c.baseURL == baseURL {
+		c.account.connected = false
+	}
+	return true
+}
+
+// do sends one request. An account-backed client bounds the wait for
+// headers, so it can move to another route; a manual client has no other
+// route and keeps the client's own timeout.
+func (c *Client) do(client *http.Client, req *http.Request) (*http.Response, error) {
+	c.mu.Lock()
+	account := c.account != nil
+	c.mu.Unlock()
+	if !account {
+		return client.Do(req)
+	}
+	return doWithHeaderDeadline(client, req)
+}
+
+// doWithHeaderDeadline sends req and cancels it when no response headers
+// arrive within responseHeaderTimeout. The body read is not limited by it.
+// When the deadline fires, the request fails even if headers arrived at the
+// same moment: the cancel may already be on its way to the body.
+func doWithHeaderDeadline(client *http.Client, req *http.Request) (*http.Response, error) {
+	ctx, cancel := context.WithCancel(req.Context())
+	timeout := responseHeaderTimeout
+	timer := time.AfterFunc(timeout, cancel)
+	resp, err := client.Do(req.WithContext(ctx))
+	fired := !timer.Stop()
+	if err == nil && fired {
+		resp.Body.Close()
+	}
+	if err != nil || fired {
+		cancel()
+		if fired && req.Context().Err() == nil {
+			return nil, fmt.Errorf("no response in %s", timeout)
+		}
+		if err == nil {
+			err = req.Context().Err()
+		}
+		return nil, err
+	}
+	resp.Body = cancelOnClose{ReadCloser: resp.Body, cancel: cancel}
+	return resp, nil
+}
+
+// cancelOnClose releases a request context when its response body closes.
+type cancelOnClose struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b cancelOnClose) Close() error {
+	err := b.ReadCloser.Close()
+	b.cancel()
+	return err
+}
+
+// CheckRoute makes sure an account-backed client has a route that answers
+// as its server. A stream goes to the player, not through send, so a route
+// that died during playback is found here, before the next track's URL is
+// built on it. The check sends no token: after a network change the cached
+// local address can belong to another host. When the route fails, CheckRoute
+// rediscovers once. A manual client has no other route and makes no request.
+func (c *Client) CheckRoute() error {
+	c.mu.Lock()
+	account := c.account
+	c.mu.Unlock()
+	if account == nil {
+		return nil
+	}
+	ctx := context.Background()
+	for retried := false; ; retried = true {
+		baseURL, _, err := c.endpoint(ctx)
+		if err != nil {
+			return fmt.Errorf("plex: connect account server: %w", err)
+		}
+		err = account.verify(ctx, baseURL)
+		if err == nil {
+			return nil
+		}
+		c.dropRoute(baseURL)
+		if retried {
+			return fmt.Errorf("plex: check server route: %w", netdiag.Explain(err))
+		}
+		applog.Info("plex: check server route: %v; finding another server route", netdiag.Explain(err))
+	}
+}
+
+// verify checks without a token that baseURL answers as the selected
+// server. The error does not name the URL.
+func (a *accountBinding) verify(ctx context.Context, baseURL string) error {
+	ctx, cancel := context.WithTimeout(ctx, responseHeaderTimeout)
+	defer cancel()
+	err := a.api.probe(ctx, baseURL, a.serverID, a.clientID)
+	if uerr, ok := errors.AsType[*url.Error](err); ok {
+		return uerr.Err
+	}
+	return err
+}
+
+// verifyPlainRoute runs verify for an account-backed client on a route
+// that is not HTTPS. Other routes need no check and return nil.
+func (c *Client) verifyPlainRoute(ctx context.Context, baseURL string) error {
+	if c.account == nil || strings.HasPrefix(baseURL, "https://") {
+		return nil
+	}
+	return c.account.verify(ctx, baseURL)
+}
+
+// RefreshConnection makes an account-backed client rediscover its route on
+// the next request. Manual clients keep their configured URL unchanged. It
+// does not block: the UI goroutine calls it, also while a discovery runs.
+func (c *Client) RefreshConnection() {
+	c.refresh.Store(true)
 }
 
 // Section represents a Plex library section (e.g. a music library).
@@ -73,22 +306,23 @@ type Playlist struct {
 
 // get issues an authenticated GET request and decodes the JSON response into result.
 func (c *Client) get(path string, params url.Values, result any) error {
-	if params == nil {
-		params = url.Values{}
-	}
-	params.Set("X-Plex-Token", c.token)
-
-	req, err := http.NewRequest(http.MethodGet, c.baseURL+path+"?"+params.Encode(), nil)
+	resp, err := c.send(context.Background(), apiClient, path, func(baseURL, token string) (*http.Request, error) {
+		query := url.Values{}
+		for k, v := range params {
+			query[k] = v
+		}
+		query.Set("X-Plex-Token", token)
+		req, err := http.NewRequest(http.MethodGet, baseURL+path+"?"+query.Encode(), nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("X-Plex-Product", "cliamp")
+		req.Header.Set("X-Plex-Client-Identifier", c.clientID)
+		return req, nil
+	})
 	if err != nil {
-		return fmt.Errorf("plex: %s: %w", path, err)
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("X-Plex-Product", "cliamp")
-	req.Header.Set("X-Plex-Client-Identifier", "cliamp")
-
-	resp, err := apiClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("plex: %s: server unreachable: %w", path, netdiag.Explain(err))
+		return err
 	}
 	defer resp.Body.Close()
 
@@ -374,10 +608,28 @@ func (c *Client) Search(query string) ([]Track, error) {
 	return tracks, nil
 }
 
+// Track returns one track by its ratingKey.
+func (c *Client) Track(ratingKey string) (Track, error) {
+	var result struct {
+		MediaContainer struct {
+			Metadata []trackJSON `json:"Metadata"`
+		} `json:"MediaContainer"`
+	}
+	if err := c.get("/library/metadata/"+ratingKey, nil, &result); err != nil {
+		return Track{}, err
+	}
+	if len(result.MediaContainer.Metadata) == 0 {
+		return Track{}, fmt.Errorf("plex: track %s not found", ratingKey)
+	}
+	return trackFromJSON(result.MediaContainer.Metadata[0]), nil
+}
+
 // StreamURL returns the authenticated HTTP URL for streaming a track part.
 // partKey is the relative path from the Part element, e.g. "/library/parts/…/file.flac".
 // The token is appended as a query parameter; Plex accepts it in either header or query form.
 func (c *Client) StreamURL(partKey string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.baseURL + partKey + "?X-Plex-Token=" + url.QueryEscape(c.token)
 }
 
