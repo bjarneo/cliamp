@@ -63,9 +63,9 @@ func decodePCMFrame(buf []byte, f32 bool) [2]float64 {
 	return [2]float64{float64(left) / 32768, float64(right) / 32768}
 }
 
-// streamFromReader is the shared Stream() implementation for all pipe-based
-// PCM streamers. It reads the requested block into reusable storage, decodes
-// every complete frame, and records the first non-EOF error.
+// streamFromReader is the shared Stream implementation for pipe PCM streamers.
+// It reads one block into reusable storage, decodes every complete frame, and
+// records the first non-EOF error.
 func streamFromReader(reader *bufio.Reader, samples [][2]float64, bufp *[]byte, f32 bool, state *pipeStreamState) (int, bool) {
 	if state.err.load() != nil {
 		return 0, false
@@ -75,22 +75,46 @@ func streamFromReader(reader *bufio.Reader, samples [][2]float64, bufp *[]byte, 
 	}
 	fs := pcmFrameSize(f32)
 	need := len(samples) * fs
-	if cap(*bufp) < need {
-		*bufp = make([]byte, need)
+	buf := *bufp
+	if cap(buf) < need {
+		buf = make([]byte, need)
 	} else {
-		*bufp = (*bufp)[:need]
+		buf = buf[:need]
 	}
+	*bufp = buf
 
-	nBytes, err := io.ReadFull(reader, *bufp)
+	nBytes, err := io.ReadFull(reader, buf)
 	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 		state.err.publish(err)
 	}
 	n := nBytes / fs
-	for i := range n {
-		off := i * fs
-		samples[i] = decodePCMFrame((*bufp)[off:off+fs], f32)
+	if n == 0 {
+		return 0, false
 	}
-	return n, n > 0
+	dst := samples[:n]
+	if f32 {
+		raw := buf[:n*pcmFrameSize32]
+		for i := range dst {
+			off := i * pcmFrameSize32
+			v := binary.LittleEndian.Uint64(raw[off : off+pcmFrameSize32])
+			dst[i] = [2]float64{
+				decodePCMFloat32(uint32(v)),
+				decodePCMFloat32(uint32(v >> 32)),
+			}
+		}
+		return n, true
+	}
+	const invInt16 = 1.0 / 32768.0
+	raw := buf[:n*pcmFrameSize16]
+	for i := range dst {
+		off := i * pcmFrameSize16
+		v := binary.LittleEndian.Uint32(raw[off : off+pcmFrameSize16])
+		dst[i] = [2]float64{
+			float64(int16(v)) * invInt16,
+			float64(int16(v>>16)) * invInt16,
+		}
+	}
+	return n, true
 }
 
 type errorValue struct {
@@ -120,12 +144,33 @@ type pipeStreamState struct {
 	pos atomic.Int64
 }
 
+// atomicClock marks a decoder whose Position and Len methods are safe without
+// the speaker lock.
+type atomicClock interface {
+	atomicClock()
+}
+
+// atomicErr marks a decoder whose Err method is safe without the speaker lock.
+type atomicErr interface {
+	atomicErr()
+}
+
 // pipeReport answers Err, Len and Position for a pipe-based streamer from
 // the state that its Stream updates. ffmpegPipe and ytdlPipeStreamer embed it.
 type pipeReport struct {
 	state atomic.Pointer[pipeStreamState]
 	total atomic.Int64 // total frames, or 0 when unknown
 }
+
+func (*pipeReport) atomicClock() {}
+func (*pipeReport) atomicErr()   {}
+
+var (
+	_ atomicClock = (*ffmpegPipe)(nil)
+	_ atomicErr   = (*ffmpegPipe)(nil)
+	_ atomicClock = (*ytdlPipeStreamer)(nil)
+	_ atomicErr   = (*ytdlPipeStreamer)(nil)
+)
 
 func (r *pipeReport) setState(state *pipeStreamState) {
 	r.state.Store(state)

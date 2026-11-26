@@ -1,9 +1,12 @@
 package player
 
 import (
+	"errors"
 	"math"
 	"sync/atomic"
 	"testing"
+
+	"github.com/gopxl/beep/v2"
 )
 
 func TestBiquadPassthroughAtZeroDB(t *testing.T) {
@@ -219,4 +222,242 @@ func TestBiquadGuardsNonFiniteAndFlushesSubnormal(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEQStreamerMatchesChainedBiquads(t *testing.T) {
+	tests := []struct {
+		name    string
+		useMask bool
+		gains   [10]float64
+	}{
+		{
+			name:    "mixed bands with active mask",
+			useMask: true,
+			gains:   [10]float64{6, 0, -3.5, 0.05, 4.2, 0, -6, 2.5, 0, 8},
+		},
+		{
+			name:    "mixed bands direct atomic writes",
+			useMask: false,
+			gains:   [10]float64{-4, 3, 0, 2, -2, 1.5, 0, -1, 5, -3},
+		},
+		{
+			name:    "all bands active",
+			useMask: true,
+			gains:   [10]float64{3, 2, 1, -1, -2, 2, 3, -3, 1.5, -1.5},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const sr = 44100.0
+			const totalFrames = 700
+
+			var atomicGains [10]atomic.Uint64
+			var mask atomic.Uint32
+			for i, g := range tt.gains {
+				atomicGains[i].Store(math.Float64bits(g))
+				if isEQGainActive(g) {
+					mask.Or(1 << i)
+				}
+			}
+
+			srcChain := &stereoSineStreamer{freqL: 440, freqR: 3200, sr: sr, count: totalFrames}
+			var chain beep.Streamer = srcChain
+			for i := range 10 {
+				chain = newBiquad(chain, eqFreqs[i], eqDefaultQ, &atomicGains[i], sr)
+			}
+
+			srcEQ := &stereoSineStreamer{freqL: 440, freqR: 3200, sr: sr, count: totalFrames}
+			var maskPtr *atomic.Uint32
+			if tt.useMask {
+				maskPtr = &mask
+			}
+			eq := newEQStreamer(srcEQ, &atomicGains, maskPtr, sr)
+
+			want := make([][2]float64, totalFrames)
+			got := make([][2]float64, totalFrames)
+			wn, wok := chain.Stream(want)
+			gn, gok := eq.Stream(got)
+			if wn != gn || wok != gok {
+				t.Fatalf("Stream() = (%d, %v), want (%d, %v)", gn, gok, wn, wok)
+			}
+			for i := range gn {
+				if diff := math.Abs(got[i][0] - want[i][0]); diff > 1e-12 {
+					t.Fatalf("frame %d left diff = %e (got=%v want=%v)", i, diff, got[i][0], want[i][0])
+				}
+				if diff := math.Abs(got[i][1] - want[i][1]); diff > 1e-12 {
+					t.Fatalf("frame %d right diff = %e (got=%v want=%v)", i, diff, got[i][1], want[i][1])
+				}
+			}
+		})
+	}
+}
+
+func TestEQStreamerFlatFastPathAndBypassReset(t *testing.T) {
+	t.Run("active to bypass clears state once and resumes flat fast path", func(t *testing.T) {
+		var gains [10]atomic.Uint64
+		var mask atomic.Uint32
+		src := &stereoSineStreamer{freqL: 1000, freqR: 1000, sr: 44100, count: -1}
+		eq := newEQStreamer(src, &gains, &mask, 44100)
+
+		buf := make([][2]float64, 64)
+		// Flat start: no filter history populated.
+		eq.Stream(buf)
+		if eq.prevActive != 0 {
+			t.Fatalf("prevActive = %#x, want 0", eq.prevActive)
+		}
+
+		// Activate band 4.
+		gains[4].Store(math.Float64bits(6.0))
+		mask.Store(1 << 4)
+		eq.Stream(buf)
+		if eq.prevActive != 1<<4 || !eq.bands[4].wasActive {
+			t.Fatalf("band 4 did not activate: prevActive=%#x wasActive=%v", eq.prevActive, eq.bands[4].wasActive)
+		}
+		if eq.bands[4].x1 == ([2]float64{}) && eq.bands[4].y1 == ([2]float64{}) {
+			t.Fatal("active band 4 left empty filter state")
+		}
+
+		// Transition band 4 back to flat.
+		gains[4].Store(math.Float64bits(0.05))
+		mask.Store(0)
+		eq.Stream(buf)
+		if eq.prevActive != 0 || eq.bands[4].wasActive {
+			t.Fatalf("band 4 did not bypass: prevActive=%#x wasActive=%v", eq.prevActive, eq.bands[4].wasActive)
+		}
+		if eq.bands[4].x1 != ([2]float64{}) || eq.bands[4].x2 != ([2]float64{}) || eq.bands[4].y1 != ([2]float64{}) || eq.bands[4].y2 != ([2]float64{}) {
+			t.Fatalf("transition to bypass did not reset band 4 state: x1=%v y1=%v", eq.bands[4].x1, eq.bands[4].y1)
+		}
+
+		// While flat, state stays untouched without unconditional resets.
+		eq.bands[4].x1 = [2]float64{42, 42}
+		eq.Stream(buf)
+		if eq.bands[4].x1 != ([2]float64{42, 42}) {
+			t.Fatalf("flat fast path wrote band state: got %v, want untouched [42 42]", eq.bands[4].x1)
+		}
+	})
+
+	t.Run("direct atomic mode detects gain changes without active mask", func(t *testing.T) {
+		var gains [10]atomic.Uint64
+		src := &stereoSineStreamer{freqL: 1000, freqR: 1000, sr: 44100, count: -1}
+		eq := newEQStreamer(src, &gains, nil, 44100)
+
+		buf := make([][2]float64, 512)
+		eq.Stream(buf)
+		if eq.prevActive != 0 {
+			t.Fatalf("prevActive = %#x, want 0", eq.prevActive)
+		}
+
+		gains[4].Store(math.Float64bits(12.0))
+		eq.Stream(buf)
+		if eq.prevActive != 1<<4 {
+			t.Fatalf("prevActive = %#x, want 0x10", eq.prevActive)
+		}
+		maxAmp := 0.0
+		for i := 256; i < len(buf); i++ {
+			maxAmp = max(maxAmp, math.Abs(buf[i][0]))
+		}
+		if maxAmp <= 1.05 {
+			t.Fatalf("direct atomic +12dB max amplitude = %f, want > 1.05", maxAmp)
+		}
+	})
+
+	t.Run("Err forwards underlying error", func(t *testing.T) {
+		wantErr := errors.New("eq source failed")
+		var gains [10]atomic.Uint64
+		eq := newEQStreamer(&errStreamer{err: wantErr}, &gains, nil, 44100)
+		if err := eq.Err(); !errors.Is(err, wantErr) {
+			t.Fatalf("Err() = %v, want %v", err, wantErr)
+		}
+	})
+}
+
+type noopStreamer struct{}
+
+func (*noopStreamer) Stream(samples [][2]float64) (int, bool) { return len(samples), true }
+func (*noopStreamer) Err() error                              { return nil }
+
+func BenchmarkEQFlat(b *testing.B) {
+	buf := make([][2]float64, 1024)
+	b.Run("eqStreamer_mask", func(b *testing.B) {
+		var gains [10]atomic.Uint64
+		var mask atomic.Uint32
+		eq := newEQStreamer(&noopStreamer{}, &gains, &mask, 44100)
+		b.ReportAllocs()
+		for b.Loop() {
+			eq.Stream(buf)
+		}
+	})
+	b.Run("eqStreamer_direct", func(b *testing.B) {
+		var gains [10]atomic.Uint64
+		eq := newEQStreamer(&noopStreamer{}, &gains, nil, 44100)
+		b.ReportAllocs()
+		for b.Loop() {
+			eq.Stream(buf)
+		}
+	})
+	b.Run("chained_biquads", func(b *testing.B) {
+		var gains [10]atomic.Uint64
+		var s beep.Streamer = &noopStreamer{}
+		for i := range 10 {
+			s = newBiquad(s, eqFreqs[i], eqDefaultQ, &gains[i], 44100)
+		}
+		b.ReportAllocs()
+		for b.Loop() {
+			s.Stream(buf)
+		}
+	})
+}
+
+func BenchmarkEQActive(b *testing.B) {
+	seed := make([][2]float64, 1024)
+	for i := range seed {
+		v := 0.5 * math.Sin(2*math.Pi*440*float64(i)/44100)
+		seed[i] = [2]float64{v, -v}
+	}
+	buf := make([][2]float64, 1024)
+
+	b.Run("eqStreamer_10bands", func(b *testing.B) {
+		var gains [10]atomic.Uint64
+		var mask atomic.Uint32
+		for i := range 10 {
+			gains[i].Store(math.Float64bits(3.0))
+		}
+		mask.Store(eqBandMask)
+		eq := newEQStreamer(&noopStreamer{}, &gains, &mask, 44100)
+		b.ReportAllocs()
+		for b.Loop() {
+			copy(buf, seed)
+			eq.Stream(buf)
+		}
+	})
+	b.Run("eqStreamer_3bands", func(b *testing.B) {
+		var gains [10]atomic.Uint64
+		var mask atomic.Uint32
+		for _, idx := range []int{0, 4, 8} {
+			gains[idx].Store(math.Float64bits(3.0))
+			mask.Or(1 << idx)
+		}
+		eq := newEQStreamer(&noopStreamer{}, &gains, &mask, 44100)
+		b.ReportAllocs()
+		for b.Loop() {
+			copy(buf, seed)
+			eq.Stream(buf)
+		}
+	})
+	b.Run("chained_10bands", func(b *testing.B) {
+		var gains [10]atomic.Uint64
+		for i := range 10 {
+			gains[i].Store(math.Float64bits(3.0))
+		}
+		var s beep.Streamer = &noopStreamer{}
+		for i := range 10 {
+			s = newBiquad(s, eqFreqs[i], eqDefaultQ, &gains[i], 44100)
+		}
+		b.ReportAllocs()
+		for b.Loop() {
+			copy(buf, seed)
+			s.Stream(buf)
+		}
+	})
 }

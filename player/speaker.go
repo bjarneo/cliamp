@@ -36,7 +36,9 @@ type outputQueue interface {
 // While the speaker lock is held, the output reads no samples.
 type audioOutput struct {
 	mu     sync.Mutex // the speaker lock
-	mixer  beep.Mixer
+	single beep.Streamer
+	multi  []beep.Streamer
+	mixBuf [][2]float64
 	device outputDevice // nil until Init
 	queue  outputQueue  // nil until Init
 }
@@ -71,19 +73,81 @@ func (o *audioOutput) Lock() { o.mu.Lock() }
 // Unlock lets the output read samples again.
 func (o *audioOutput) Unlock() { o.mu.Unlock() }
 
-// Play adds the streamers to the mixer.
+// Play registers one or more streamers for playback.
 func (o *audioOutput) Play(s ...beep.Streamer) {
 	o.mu.Lock()
-	o.mixer.Add(s...)
+	defer o.mu.Unlock()
+	for _, st := range s {
+		if st == nil {
+			continue
+		}
+		if o.single == nil && len(o.multi) == 0 {
+			o.single = st
+			continue
+		}
+		if o.single != nil {
+			o.multi = append(o.multi, o.single)
+			o.single = nil
+		}
+		o.multi = append(o.multi, st)
+	}
+}
+
+// Clear removes all active streamers from the output. The samples that the
+// output queued before the call still play.
+func (o *audioOutput) Clear() {
+	o.mu.Lock()
+	o.single = nil
+	clear(o.multi)
+	o.multi = o.multi[:0]
 	o.mu.Unlock()
 }
 
-// Clear removes all streamers from the mixer. The samples that the output
-// queued before the call still play.
-func (o *audioOutput) Clear() {
-	o.mu.Lock()
-	o.mixer.Clear()
-	o.mu.Unlock()
+// streamLocked reads up to len(dst) frames from the active streamers and
+// returns the highest written frame count. The caller holds o.mu.
+func (o *audioOutput) streamLocked(dst [][2]float64) int {
+	if o.single != nil {
+		s := o.single
+		n, ok := s.Stream(dst)
+		if n < len(dst) || !ok {
+			if o.single == s {
+				o.single = nil
+			}
+		}
+		return n
+	}
+	if len(o.multi) == 0 {
+		return 0
+	}
+	clear(dst)
+	if len(o.mixBuf) < len(dst) {
+		o.mixBuf = make([][2]float64, len(dst))
+	}
+	tmp := o.mixBuf[:len(dst)]
+	maxN := 0
+	for si := 0; si < len(o.multi); si++ {
+		sn, ok := o.multi[si].Stream(tmp)
+		for i := range sn {
+			dst[i][0] += tmp[i][0]
+			dst[i][1] += tmp[i][1]
+		}
+		if sn > maxN {
+			maxN = sn
+		}
+		if sn < len(dst) || !ok {
+			last := len(o.multi) - 1
+			o.multi[si] = o.multi[last]
+			o.multi[last] = nil
+			o.multi = o.multi[:last]
+			si--
+		}
+	}
+	if len(o.multi) == 1 {
+		o.single = o.multi[0]
+		o.multi[0] = nil
+		o.multi = o.multi[:0]
+	}
+	return maxN
 }
 
 // Suspend stops the device. The queued samples stay in the queue, and the
@@ -131,9 +195,32 @@ type mixerReader struct {
 	buf [][2]float64
 }
 
+const (
+	pcm16Max = 1<<15 - 1
+	pcm16Min = uint16(0x8001) // two's complement of -32767
+)
+
+// clampPCM16 converts one float64 sample to signed 16-bit PCM.
+// It maps NaN to 0 and clamps values outside [-1, 1] to full scale.
+func clampPCM16(v float64) uint16 {
+	if v >= -1 && v <= 1 {
+		return uint16(int16(v * pcm16Max))
+	}
+	if v > 1 {
+		return pcm16Max
+	}
+	if v < -1 {
+		return pcm16Min
+	}
+	return 0
+}
+
 func (r *mixerReader) Read(p []byte) (int, error) {
 	if len(p)%outputBytesPerFrame != 0 {
 		return 0, errors.New("requested number of bytes do not align with the samples")
+	}
+	if len(p) == 0 {
+		return 0, nil
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -142,16 +229,22 @@ func (r *mixerReader) Read(p []byte) (int, error) {
 		r.buf = make([][2]float64, frames)
 	}
 	r.out.mu.Lock()
-	// The mixer sends silence when it has no streamers, so it fills every frame.
-	n, _ := r.out.mixer.Stream(r.buf[:frames])
+	n := r.out.streamLocked(r.buf[:frames])
 	r.out.mu.Unlock()
-	for i, frame := range r.buf[:n] {
-		for c, v := range frame {
-			v16 := int16(max(min(v, 1), -1) * (1<<15 - 1))
-			binary.LittleEndian.PutUint16(p[i*outputBytesPerFrame+c*2:], uint16(v16))
-		}
+	if n == 0 {
+		clear(p)
+		return len(p), nil
 	}
-	return n * outputBytesPerFrame, nil
+	out := p[:n*outputBytesPerFrame]
+	for i, frame := range r.buf[:n] {
+		l := clampPCM16(frame[0])
+		rc := clampPCM16(frame[1])
+		binary.LittleEndian.PutUint32(out[i*outputBytesPerFrame:], uint32(l)|uint32(rc)<<16)
+	}
+	if n < frames {
+		clear(p[n*outputBytesPerFrame:])
+	}
+	return len(p), nil
 }
 
 // Seek does nothing, because a mixer has no position. oto calls it when Drop

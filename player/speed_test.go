@@ -251,13 +251,18 @@ func TestSpeedStreamerOutputCompactionNoSteadyStateAllocs(t *testing.T) {
 			var speed atomic.Uint64
 			speed.Store(math.Float64bits(ratio))
 			ss := newSpeedStreamer(src, &speed)
-			out := make([][2]float64, 1024)
-			initialCap := cap(ss.out)
-
-			// Warm up the first frame.
-			if n, ok := ss.Stream(out); n != len(out) || !ok {
-				t.Fatalf("warmup Stream() = (%d, %v)", n, ok)
+			if ss.in != nil || ss.out != nil {
+				t.Fatalf("newSpeedStreamer allocated WSOLA buffers eagerly: in=%v out=%v", len(ss.in), len(ss.out))
 			}
+			out := make([][2]float64, 1024)
+
+			// Warm up the first frames so lazy WSOLA and energy buffers allocate once.
+			for range 4 {
+				if n, ok := ss.Stream(out); n != len(out) || !ok {
+					t.Fatalf("warmup Stream() = (%d, %v)", n, ok)
+				}
+			}
+			initialCap := cap(ss.out)
 			allocs := testing.AllocsPerRun(20, func() {
 				if n, ok := ss.Stream(out); n != len(out) || !ok {
 					t.Fatalf("Stream() = (%d, %v)", n, ok)
@@ -270,6 +275,47 @@ func TestSpeedStreamerOutputCompactionNoSteadyStateAllocs(t *testing.T) {
 				t.Fatalf("out buffer grew from %d to %d", initialCap, cap(ss.out))
 			}
 		})
+	}
+}
+
+func TestSpeedStreamerLazyBuffersAnd1xFastPath(t *testing.T) {
+	var speed atomic.Uint64
+	speed.Store(math.Float64bits(1.0))
+	src := &fakeStreamer{val: [2]float64{0.25, -0.75}, count: 100000}
+	ss := newSpeedStreamer(src, &speed)
+	out := make([][2]float64, 512)
+
+	allocs := testing.AllocsPerRun(20, func() {
+		n, ok := ss.Stream(out)
+		if n != len(out) || !ok {
+			t.Fatalf("1.0x Stream() = (%d, %v), want (%d, true)", n, ok, len(out))
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("1.0x Stream() allocations = %v, want 0", allocs)
+	}
+	if ss.in != nil || ss.out != nil || ss.inEnergy != nil || ss.coarseEnergy != nil {
+		t.Fatal("1.0x playback allocated WSOLA buffers")
+	}
+
+	// Switch to 1.5x, then back to 1.0x and verify passthrough drains cleanly.
+	speed.Store(math.Float64bits(1.5))
+	if n, ok := ss.Stream(out); n != len(out) || !ok {
+		t.Fatalf("1.5x Stream() = (%d, %v), want (%d, true)", n, ok, len(out))
+	}
+	if ss.in == nil || ss.out == nil {
+		t.Fatal("non-1.0x playback did not allocate WSOLA buffers")
+	}
+
+	speed.Store(math.Float64bits(1.0))
+	for range 20 {
+		if n, ok := ss.Stream(out); n != len(out) || !ok {
+			t.Fatalf("drain back to 1.0x Stream() = (%d, %v)", n, ok)
+		}
+	}
+	if ss.inN != 0 || ss.outRd != ss.outWr || ss.tailValid {
+		t.Fatalf("passthrough did not return to fast-path state: inN=%d outRd=%d outWr=%d tailValid=%v",
+			ss.inN, ss.outRd, ss.outWr, ss.tailValid)
 	}
 }
 
@@ -295,14 +341,15 @@ func TestSpeedStreamerReset(t *testing.T) {
 			t.Fatalf("tail[%d] = %v after Reset, want zero", i, v)
 		}
 	}
-	for i, v := range ss.in {
-		if v != ([2]float64{}) {
-			t.Fatalf("in[%d] = %v after Reset, want zero", i, v)
-		}
+
+	// After Reset, Stream reads only samples from the new source.
+	ss.s = &fakeStreamer{val: [2]float64{0.6, -0.4}, count: 20000}
+	if n, ok := ss.Stream(out); n != len(out) || !ok {
+		t.Fatalf("Stream() after Reset = (%d, %v)", n, ok)
 	}
-	for i, v := range ss.out {
-		if v != ([2]float64{}) {
-			t.Fatalf("out[%d] = %v after Reset, want zero", i, v)
+	for i := range out {
+		if out[i] != ([2]float64{0.6, -0.4}) {
+			t.Fatalf("out[%d] after Reset = %v, want [0.6 -0.4]", i, out[i])
 		}
 	}
 }
@@ -321,6 +368,7 @@ func TestWSOLAFrameClampsShortTail(t *testing.T) {
 			var speed atomic.Uint64
 			speed.Store(math.Float64bits(1.5))
 			ss := newSpeedStreamer(&fakeStreamer{val: [2]float64{0.25, -0.25}, count: tt.totalIn}, &speed)
+			ss.ensureBuffers()
 			// Pre-fill stale values beyond totalIn to verify clamping and zeroing.
 			for i := range ss.in {
 				ss.in[i] = [2]float64{9, 9}
@@ -393,6 +441,27 @@ func BenchmarkSearchBestOffset(b *testing.B) {
 			exhaustiveBestOffset(ss, expected)
 		}
 	})
+}
+
+func BenchmarkSpeed1x(b *testing.B) {
+	var speed atomic.Uint64
+	speed.Store(math.Float64bits(1.0))
+	ss := newSpeedStreamer(&noopStreamer{}, &speed)
+	buf := make([][2]float64, 1024)
+	b.ReportAllocs()
+	for b.Loop() {
+		ss.Stream(buf)
+	}
+}
+
+func BenchmarkSpeedNew(b *testing.B) {
+	var speed atomic.Uint64
+	speed.Store(math.Float64bits(1.0))
+	src := &noopStreamer{}
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = newSpeedStreamer(src, &speed)
+	}
 }
 
 // sineStreamer generates a sine wave for testing WSOLA

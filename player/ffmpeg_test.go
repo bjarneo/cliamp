@@ -109,6 +109,16 @@ func TestStreamFromReaderDecodesBlock(t *testing.T) {
 			f32:  true,
 			want: [][2]float64{{0.5, -0.5}, {1, -1}, {0.25, 0.75}},
 		},
+		{
+			name: "f32 non-finite sanitized to zero",
+			pcm: encodeF32(
+				[2]float32{float32(math.NaN()), 0.5},
+				[2]float32{-0.25, float32(math.NaN())},
+				[2]float32{float32(math.Inf(1)), float32(math.Inf(-1))},
+			),
+			f32:  true,
+			want: [][2]float64{{0, 0.5}, {-0.25, 0}, {0, 0}},
+		},
 	}
 
 	for _, tt := range tests {

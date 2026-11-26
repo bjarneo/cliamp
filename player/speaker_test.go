@@ -207,8 +207,12 @@ func TestMixerReaderEncodesPCM(t *testing.T) {
 		{0.5, 16383},
 		{-0.5, -16383},
 		{1, 32767},
+		{-1, -32767},
 		{2, 32767},
 		{-2, -32767},
+		{math.NaN(), 0},
+		{math.Inf(1), 32767},
+		{math.Inf(-1), -32767},
 	}
 	for _, tt := range tests {
 		out := &audioOutput{}
@@ -226,5 +230,114 @@ func TestMixerReaderEncodesPCM(t *testing.T) {
 	}
 	if _, err := (&mixerReader{out: &audioOutput{}}).Read(make([]byte, 3)); err == nil {
 		t.Error("Read of a partial frame: got no error")
+	}
+}
+
+type callCountingStreamer struct {
+	calls int
+	val   [2]float64
+	left  int
+}
+
+func (s *callCountingStreamer) Stream(samples [][2]float64) (int, bool) {
+	s.calls++
+	n := len(samples)
+	if s.left >= 0 {
+		n = min(n, s.left)
+		s.left -= n
+	}
+	for i := range samples[:n] {
+		samples[i] = s.val
+	}
+	return n, n > 0
+}
+
+func (*callCountingStreamer) Err() error { return nil }
+
+func TestMixerReaderSingleSlotDirectAndMultiFallback(t *testing.T) {
+	t.Run("single streamer bypasses 512-frame chunking", func(t *testing.T) {
+		out := &audioOutput{}
+		src := &callCountingStreamer{val: [2]float64{0.5, -0.25}, left: -1}
+		out.Play(src)
+		r := &mixerReader{out: out}
+		buf := make([]byte, 1024*outputBytesPerFrame)
+		n, err := r.Read(buf)
+		if err != nil || n != len(buf) {
+			t.Fatalf("Read = (%d, %v), want (%d, nil)", n, err, len(buf))
+		}
+		if src.calls != 1 {
+			t.Fatalf("single streamer Stream calls = %d, want 1", src.calls)
+		}
+		gotL := int16(binary.LittleEndian.Uint16(buf[0:2]))
+		gotR := int16(binary.LittleEndian.Uint16(buf[2:4]))
+		if gotL != 16383 || gotR != -8191 {
+			t.Fatalf("first stereo frame = (%d, %d), want (16383, -8191)", gotL, gotR)
+		}
+	})
+
+	t.Run("partial drain pads trailing silence and removes streamer", func(t *testing.T) {
+		out := &audioOutput{}
+		src := &callCountingStreamer{val: [2]float64{0.5, 0.5}, left: 2}
+		out.Play(src)
+		r := &mixerReader{out: out}
+		buf := make([]byte, 4*outputBytesPerFrame)
+		for i := range buf {
+			buf[i] = 0x7f
+		}
+		n, err := r.Read(buf)
+		if err != nil || n != len(buf) {
+			t.Fatalf("Read = (%d, %v), want (%d, nil)", n, err, len(buf))
+		}
+		for frame := range 4 {
+			got := int16(binary.LittleEndian.Uint16(buf[frame*4:]))
+			want := int16(16383)
+			if frame >= 2 {
+				want = 0
+			}
+			if got != want {
+				t.Fatalf("frame %d = %d, want %d", frame, got, want)
+			}
+		}
+		if out.single != nil {
+			t.Fatal("drained single streamer stayed registered")
+		}
+	})
+
+	t.Run("multiple streamers mix and collapse back to single slot", func(t *testing.T) {
+		out := &audioOutput{}
+		short := &callCountingStreamer{val: [2]float64{0.25, 0.25}, left: 2}
+		steady := &callCountingStreamer{val: [2]float64{0.25, -0.25}, left: -1}
+		out.Play(short, steady)
+		r := &mixerReader{out: out}
+
+		buf := make([]byte, 4*outputBytesPerFrame)
+		if _, err := r.Read(buf); err != nil {
+			t.Fatalf("first Read error = %v", err)
+		}
+		// Frames 0..1 mix short + steady: L=0.5, R=0.
+		if gotL := int16(binary.LittleEndian.Uint16(buf[0:2])); gotL != 16383 {
+			t.Fatalf("mixed frame 0 left = %d, want 16383", gotL)
+		}
+		if gotR := int16(binary.LittleEndian.Uint16(buf[2:4])); gotR != 0 {
+			t.Fatalf("mixed frame 0 right = %d, want 0", gotR)
+		}
+		// Frames 2..3 carry only steady: L=0.25, R=-0.25.
+		if gotL := int16(binary.LittleEndian.Uint16(buf[8:10])); gotL != 8191 {
+			t.Fatalf("frame 2 left = %d, want 8191", gotL)
+		}
+		if out.single != steady || len(out.multi) != 0 {
+			t.Fatalf("after short drained: single=%v len(multi)=%d, want steady and 0", out.single, len(out.multi))
+		}
+	})
+}
+
+func BenchmarkSpeakerRead(b *testing.B) {
+	out := &audioOutput{}
+	out.Play(&levelDecoder{level: 0.5, left: -1})
+	r := &mixerReader{out: out}
+	pcm := make([]byte, 1024*outputBytesPerFrame)
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = r.Read(pcm)
 	}
 }

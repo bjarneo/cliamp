@@ -69,7 +69,9 @@ type Player struct {
 	volume          atomic.Uint64     // dB stored as Float64bits, range [volMin, +6]
 	speed           atomic.Uint64     // playback speed ratio as Float64bits; 1.0 = normal
 	eqBands         [10]atomic.Uint64 // dB stored as math.Float64bits
-	tap             *tap
+	eqActive        atomic.Uint32     // bitmask of active EQ bands
+	tap             atomic.Pointer[tap]
+	tapDisabled     atomic.Bool // false means tap capture is enabled
 	playing         atomic.Bool
 	paused          atomic.Bool
 	mono            atomic.Bool
@@ -342,14 +344,12 @@ func (p *Player) playPipelineForGeneration(tp *trackPipeline, generation uint64)
 
 		// Build the long-lived pipeline once
 		p.speeder = newSpeedStreamer(p.gapless, &p.speed)
-		var s beep.Streamer = p.speeder
+		var s beep.Streamer = newEQStreamer(p.speeder, &p.eqBands, &p.eqActive, float64(p.sr))
 
-		for i := range 10 {
-			s = newBiquad(s, eqFreqs[i], 1.4, &p.eqBands[i], float64(p.sr))
-		}
-
-		p.tap = newTap(s, p.tapBufferFrames, int(p.sr), p.speakerBufferFrames)
-		s = &volumeStreamer{s: p.tap, vol: &p.volume, mono: &p.mono, cachedDB: math.NaN()}
+		t := newTap(s, p.tapBufferFrames, int(p.sr), p.speakerBufferFrames)
+		t.SetEnabled(!p.tapDisabled.Load())
+		p.tap.Store(t)
+		s = &volumeStreamer{s: t, vol: &p.volume, mono: &p.mono, cachedDB: math.NaN()}
 		ctrl := &beep.Ctrl{Streamer: s}
 		p.ctrl = ctrl
 		p.started = true
@@ -789,26 +789,33 @@ func (p *Player) IsYTDLSeek() bool {
 // Position returns the current playback position.
 // streamOffset is added for yt-dlp streams restarted at a time offset.
 func (p *Player) Position() time.Duration {
-	speaker.Lock()
-	defer speaker.Unlock()
-	pos, _ := p.positionAndDurationLocked()
+	pos, _ := p.PositionAndDuration()
 	return pos
 }
 
 // Duration returns the total duration of the current track.
-// For seekable local files it is derived from the decoder's sample count.
-// For HTTP streams where the decoder reports Len()==0, the metadata hint
-// stored at pipeline build time (knownDuration) is returned instead.
+// For seekable local files it comes from the decoder sample count.
+// For HTTP streams with zero decoder length, it returns knownDuration.
 func (p *Player) Duration() time.Duration {
-	speaker.Lock()
-	defer speaker.Unlock()
-	_, dur := p.positionAndDurationLocked()
+	_, dur := p.PositionAndDuration()
 	return dur
 }
 
-// PositionAndDuration returns both position and duration under a single
-// speaker lock, avoiding two separate lock acquisitions per tick.
+// PositionAndDuration returns both position and duration.
+// It skips the speaker lock for prefetched streams and lock-free decoders.
 func (p *Player) PositionAndDuration() (time.Duration, time.Duration) {
+	p.mu.Lock()
+	cur := p.current
+	p.mu.Unlock()
+	if cur == nil {
+		return 0, 0
+	}
+	if cur.livePrefetch != nil {
+		return cur.positionAndDuration()
+	}
+	if _, ok := cur.decoder.(atomicClock); ok {
+		return cur.positionAndDuration()
+	}
 	speaker.Lock()
 	defer speaker.Unlock()
 	return p.positionAndDurationLocked()
@@ -897,7 +904,23 @@ func (p *Player) SetEQBand(band int, dB float64) {
 	if band < 0 || band >= 10 || math.IsNaN(dB) {
 		return
 	}
-	p.eqBands[band].Store(math.Float64bits(max(min(dB, 12), -12)))
+	clamped := max(min(dB, 12), -12)
+	p.eqBands[band].Store(math.Float64bits(clamped))
+	p.setEQActiveBit(band, isEQGainActive(clamped))
+}
+
+func (p *Player) setEQActiveBit(band int, active bool) {
+	bit := uint32(1) << band
+	for {
+		old := p.eqActive.Load()
+		next := old &^ bit
+		if active {
+			next = old | bit
+		}
+		if next == old || p.eqActive.CompareAndSwap(old, next) {
+			break
+		}
+	}
 }
 
 // EQBands returns a copy of all 10 EQ band gains.
@@ -1052,7 +1075,7 @@ func (p *Player) Seekable() bool {
 }
 
 // StreamErr returns the current streamer error, if any.
-// It holds speaker.Lock for direct decoders so Err cannot race with Stream.
+// It skips the speaker lock for prefetched streams and lock-free decoders.
 func (p *Player) StreamErr() error {
 	p.mu.Lock()
 	cur := p.current
@@ -1062,6 +1085,9 @@ func (p *Player) StreamErr() error {
 	}
 	if cur.livePrefetch != nil {
 		return cur.livePrefetch.Err()
+	}
+	if _, ok := cur.decoder.(atomicErr); ok {
+		return cur.decoder.Err()
 	}
 	speaker.Lock()
 	defer speaker.Unlock()
@@ -1077,40 +1103,44 @@ func (p *Player) StreamErr() error {
 	return cur.decoder.Err()
 }
 
-// SamplesInto copies the latest audio samples into dst, avoiding allocation.
-// Returns the number of samples written.
-func (p *Player) SamplesInto(dst []float64) int {
+// SetTapEnabled enables or disables visualizer sample capture on the audio path.
+func (p *Player) SetTapEnabled(enabled bool) {
 	p.mu.Lock()
-	tap := p.tap
-	p.mu.Unlock()
-	if tap == nil {
-		return 0
+	p.tapDisabled.Store(!enabled)
+	if t := p.tap.Load(); t != nil {
+		t.SetEnabled(enabled)
 	}
-	return tap.SamplesInto(dst)
+	p.mu.Unlock()
 }
 
-// WaveformSamplesInto copies audio samples at the current position within the
-// output buffer for smooth raw visualizer rendering.
-func (p *Player) WaveformSamplesInto(dst []float64) int {
-	p.mu.Lock()
-	tap := p.tap
-	p.mu.Unlock()
-	if tap == nil {
+// SamplesInto copies the latest audio samples into dst without locking p.mu.
+// It returns the number of samples written.
+func (p *Player) SamplesInto(dst []float64) int {
+	t := p.tap.Load()
+	if t == nil {
 		return 0
 	}
-	return tap.WaveformSamplesInto(dst)
+	return t.SamplesInto(dst)
+}
+
+// WaveformSamplesInto copies audio samples at the current audible position.
+// It returns the number of samples written.
+func (p *Player) WaveformSamplesInto(dst []float64) int {
+	t := p.tap.Load()
+	if t == nil {
+		return 0
+	}
+	return t.WaveformSamplesInto(dst)
 }
 
 // StereoSamplesInto copies the latest stereo audio frames into dst.
-// Returns the number of frames written.
+// It returns the number of frames written.
 func (p *Player) StereoSamplesInto(dst [][2]float64) int {
-	p.mu.Lock()
-	tap := p.tap
-	p.mu.Unlock()
-	if tap == nil {
+	t := p.tap.Load()
+	if t == nil {
 		return 0
 	}
-	return tap.StereoSamplesInto(dst)
+	return t.StereoSamplesInto(dst)
 }
 
 // SampleRate returns the output sample rate in Hz.

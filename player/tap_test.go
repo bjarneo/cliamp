@@ -319,3 +319,103 @@ func TestDurationAndFrameConversionsNoOverflow(t *testing.T) {
 		t.Fatalf("durationToFrames(MaxInt64, 192000) = %d, want positive", got)
 	}
 }
+
+func TestTapSetEnabledSkipsCaptureAndClock(t *testing.T) {
+	nowCalls := 0
+	tp := newTap(&fakeStreamer{val: [2]float64{0.4, -0.2}, count: 100}, 16, 44100, 4)
+	tp.now = func() time.Time {
+		nowCalls++
+		return time.Unix(1, 0)
+	}
+
+	out := make([][2]float64, 4)
+	// Enabled by default.
+	if n, ok := tp.Stream(out); n != 4 || !ok {
+		t.Fatalf("enabled Stream() = (%d, %v), want (4, true)", n, ok)
+	}
+	if nowCalls != 1 || tp.written != 4 {
+		t.Fatalf("after enabled Stream: nowCalls=%d written=%d, want 1, 4", nowCalls, tp.written)
+	}
+
+	// Disabled skips both ring writes and clock queries while passing audio through.
+	tp.SetEnabled(false)
+	if n, ok := tp.Stream(out); n != 4 || !ok {
+		t.Fatalf("disabled Stream() = (%d, %v), want (4, true)", n, ok)
+	}
+	if out[0] != ([2]float64{0.4, -0.2}) {
+		t.Fatalf("disabled Stream() altered audio: got %v", out[0])
+	}
+	if nowCalls != 1 || tp.written != 4 {
+		t.Fatalf("disabled Stream() touched capture state: nowCalls=%d written=%d, want 1, 4", nowCalls, tp.written)
+	}
+
+	// SetEnabled(true) resumes capture.
+	tp.SetEnabled(true)
+	if n, ok := tp.Stream(out); n != 4 || !ok {
+		t.Fatalf("re-enabled Stream() = (%d, %v), want (4, true)", n, ok)
+	}
+	if nowCalls != 2 || tp.written != 8 {
+		t.Fatalf("after re-enabled Stream: nowCalls=%d written=%d, want 2, 8", nowCalls, tp.written)
+	}
+}
+
+func TestTapSamplesIntoZeroSteadyStateAllocs(t *testing.T) {
+	tp := newTap(&levelDecoder{level: 0.5, left: -1}, 4096, 44100, 512)
+	tp.Stream(make([][2]float64, 4096))
+	dst := make([]float64, 1024)
+
+	allocsSamples := testing.AllocsPerRun(50, func() {
+		if n := tp.SamplesInto(dst); n != len(dst) {
+			t.Fatalf("SamplesInto() = %d, want %d", n, len(dst))
+		}
+	})
+	if allocsSamples != 0 {
+		t.Fatalf("SamplesInto() allocations = %v, want 0", allocsSamples)
+	}
+
+	allocsWave := testing.AllocsPerRun(50, func() {
+		if n := tp.WaveformSamplesInto(dst); n != len(dst) {
+			t.Fatalf("WaveformSamplesInto() = %d, want %d", n, len(dst))
+		}
+	})
+	if allocsWave != 0 {
+		t.Fatalf("WaveformSamplesInto() allocations = %v, want 0", allocsWave)
+	}
+}
+
+func BenchmarkTap(b *testing.B) {
+	buf := make([][2]float64, 1024)
+	dst := make([]float64, 2048)
+
+	b.Run("Stream_enabled", func(b *testing.B) {
+		tp := newTap(&noopStreamer{}, 8192, 44100, 2048)
+		b.ReportAllocs()
+		for b.Loop() {
+			tp.Stream(buf)
+		}
+	})
+	b.Run("Stream_disabled", func(b *testing.B) {
+		tp := newTap(&noopStreamer{}, 8192, 44100, 2048)
+		tp.SetEnabled(false)
+		b.ReportAllocs()
+		for b.Loop() {
+			tp.Stream(buf)
+		}
+	})
+	b.Run("SamplesInto", func(b *testing.B) {
+		tp := newTap(&levelDecoder{level: 0.5, left: -1}, 8192, 44100, 2048)
+		tp.Stream(make([][2]float64, 4096))
+		b.ReportAllocs()
+		for b.Loop() {
+			tp.SamplesInto(dst)
+		}
+	})
+	b.Run("WaveformSamplesInto", func(b *testing.B) {
+		tp := newTap(&levelDecoder{level: 0.5, left: -1}, 8192, 44100, 2048)
+		tp.Stream(make([][2]float64, 4096))
+		b.ReportAllocs()
+		for b.Loop() {
+			tp.WaveformSamplesInto(dst)
+		}
+	})
+}

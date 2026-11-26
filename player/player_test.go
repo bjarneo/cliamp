@@ -1645,3 +1645,155 @@ func TestSeekConcurrentWithStreamRaceFree(t *testing.T) {
 	wg.Wait()
 	p.Close()
 }
+
+func TestPositionAndDurationAndStreamErrSkipSpeakerLock(t *testing.T) {
+	wantErr := errors.New("pipe error")
+	format := beep.Format{SampleRate: 100, NumChannels: 2, Precision: 2}
+
+	makeState := func(pos int, err error) *pipeStreamState {
+		st := newPipeStreamState(pos)
+		st.err.publish(err)
+		return st
+	}
+
+	localPipe := &localFFmpegStreamer{sr: format.SampleRate}
+	localPipe.setState(makeState(250, wantErr))
+	localPipe.setTotal(1000)
+
+	navPipe := &navFFmpegStreamer{sr: format.SampleRate}
+	navPipe.setState(makeState(150, wantErr))
+	navPipe.probed.Store(800)
+
+	streamPipe := &ffmpegPipeStreamer{}
+	streamPipe.setState(makeState(300, wantErr))
+
+	ytdlPipe := &ytdlPipeStreamer{}
+	ytdlPipe.setState(makeState(200, wantErr))
+
+	prefetch := &livePrefetchStreamer{sampleRate: format.SampleRate, consumed: 400, err: wantErr}
+
+	tests := []struct {
+		name    string
+		tp      *trackPipeline
+		wantPos time.Duration
+		wantDur time.Duration
+	}{
+		{
+			name:    "livePrefetch",
+			tp:      &trackPipeline{decoder: newPlaybackTestDecoder(), format: format, livePrefetch: prefetch, knownDuration: 30 * time.Second},
+			wantPos: 4 * time.Second,
+			wantDur: 30 * time.Second,
+		},
+		{
+			name:    "localFFmpegStreamer",
+			tp:      &trackPipeline{decoder: localPipe, format: format},
+			wantPos: 2500 * time.Millisecond,
+			wantDur: 10 * time.Second,
+		},
+		{
+			name:    "navFFmpegStreamer",
+			tp:      &trackPipeline{decoder: navPipe, format: format},
+			wantPos: 1500 * time.Millisecond,
+			wantDur: 8 * time.Second,
+		},
+		{
+			name:    "ffmpegPipeStreamer",
+			tp:      &trackPipeline{decoder: streamPipe, format: format, knownDuration: 20 * time.Second},
+			wantPos: 3 * time.Second,
+			wantDur: 20 * time.Second,
+		},
+		{
+			name:    "ytdlPipeStreamer",
+			tp:      &trackPipeline{decoder: ytdlPipe, format: format, streamOffset: time.Minute, knownDuration: 2 * time.Minute},
+			wantPos: time.Minute + 2*time.Second,
+			wantDur: 2 * time.Minute,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := newTestPlayer()
+			p.current = tt.tp
+
+			// Hold the speaker lock so any path that tries to lock it blocks.
+			speaker.Lock()
+			defer speaker.Unlock()
+
+			done := make(chan struct{})
+			var pos, dur, posOnly, durOnly time.Duration
+			var streamErr error
+			go func() {
+				defer close(done)
+				pos, dur = p.PositionAndDuration()
+				posOnly = p.Position()
+				durOnly = p.Duration()
+				streamErr = p.StreamErr()
+			}()
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatalf("%s blocked on speaker.Lock()", tt.name)
+			}
+
+			if pos != tt.wantPos || dur != tt.wantDur || posOnly != tt.wantPos || durOnly != tt.wantDur {
+				t.Fatalf("got pos=(%v,%v) dur=(%v,%v), want (%v, %v)", pos, posOnly, dur, durOnly, tt.wantPos, tt.wantDur)
+			}
+			if !errors.Is(streamErr, wantErr) {
+				t.Fatalf("StreamErr() = %v, want %v", streamErr, wantErr)
+			}
+		})
+	}
+}
+
+func TestPlayerSetTapEnabledAndLockFreeReads(t *testing.T) {
+	p := newTestPlayer()
+	p.sr = 44100
+	p.gapless = &gaplessStreamer{}
+	p.tapBufferFrames = 64
+	p.suspended = true
+	t.Cleanup(speaker.Clear)
+
+	// A call to SetTapEnabled(false) before first play propagates to the new tap.
+	p.SetTapEnabled(false)
+	dec := &levelDecoder{level: 0.5, left: -1}
+	if err := p.playPipelineForGeneration(&trackPipeline{decoder: dec, stream: dec}, 0); err != nil {
+		t.Fatalf("playPipelineForGeneration: %v", err)
+	}
+	tp := p.tap.Load()
+	if tp == nil {
+		t.Fatal("tap was not published")
+	}
+	if !tp.disabled.Load() {
+		t.Fatal("tap started enabled despite SetTapEnabled(false) before play")
+	}
+
+	// Enable tap, feed frames, and read while p.mu is held.
+	p.SetTapEnabled(true)
+	if tp.disabled.Load() {
+		t.Fatal("SetTapEnabled(true) did not enable tap")
+	}
+	tp.Stream(make([][2]float64, 8))
+
+	p.mu.Lock()
+	done := make(chan struct{})
+	var nMono, nWave, nStereo int
+	go func() {
+		defer close(done)
+		nMono = p.SamplesInto(make([]float64, 4))
+		nWave = p.WaveformSamplesInto(make([]float64, 4))
+		nStereo = p.StereoSamplesInto(make([][2]float64, 4))
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		p.mu.Unlock()
+		t.Fatal("tap sample readers blocked on p.mu")
+	}
+	p.mu.Unlock()
+
+	if nMono != 4 || nWave != 4 || nStereo != 4 {
+		t.Fatalf("sample counts = (%d, %d, %d), want (4, 4, 4)", nMono, nWave, nStereo)
+	}
+	p.Close()
+}
