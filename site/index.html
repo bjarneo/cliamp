@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>cliamp — terminal music player</title>
-<meta name="description" content="A full music player that lives in your terminal. Play local files, podcasts, Spotify, Qobuz, Tidal, Bandcamp, YouTube Music, Plex, Jellyfin, Emby, Navidrome, Lyrion, Audiobookshelf, SoundCloud, Mixcloud, NetEase, Yandex Music, and about 58,000 radio stations, with a 10-band equalizer, visualizers, synced lyrics, and Lua plugins.">
+<meta name="description" content="A full music player that lives in your terminal. Play local files, podcasts, Spotify, Qobuz, Tidal, Bandcamp, YouTube Music, Telegram, Plex, Jellyfin, Emby, Navidrome, Lyrion, Audiobookshelf, SoundCloud, Mixcloud, NetEase, Yandex Music, and about 58,000 radio stations, with a 10-band equalizer, visualizers, synced lyrics, and Lua plugins.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg" id="favicon">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="theme-color" content="#0b0c0d">
@@ -331,7 +331,7 @@ footer a{color:var(--fg-2)}
       <div class="eyebrow">~/audio/cliamp</div>
       <h1>cliamp</h1>
       <p class="tagline">A full <em>music player</em> that lives in your terminal. No browser tab required.</p>
-      <p class="lede">Playlists, a 10-band equalizer, 34 visualizers, synced lyrics, podcasts, remote control, and Lua plugins. Stream from <b>Spotify, Qobuz, Tidal, Bandcamp, YouTube Music, SoundCloud, Mixcloud, NetEase Cloud Music, Yandex Music, Plex, Jellyfin, Emby, Navidrome, Lyrion, Audiobookshelf</b> — plus podcast feeds and about 58,000 internet radio stations.</p>
+      <p class="lede">Playlists, a 10-band equalizer, 34 visualizers, synced lyrics, podcasts, remote control, and Lua plugins. Stream from <b>Spotify, Qobuz, Tidal, Bandcamp, YouTube Music, SoundCloud, Mixcloud, NetEase Cloud Music, Yandex Music, Telegram, Plex, Jellyfin, Emby, Navidrome, Lyrion, Audiobookshelf</b> — plus podcast feeds and about 58,000 internet radio stations.</p>
       <div class="btns">
         <a href="#install" class="btn go">$ install</a>
         <a href="https://github.com/bjarneo/cliamp" class="btn">view source</a>
@@ -435,7 +435,7 @@ footer a{color:var(--fg-2)}
       </div>
       <div class="feat">
         <div class="feat-k">VISUALIZERS</div>
-        <p>34 built-in modes rendered in the terminal from live FFT data: spectrum bars, scope, wave, matrix, flame, and a true-stereo LED peak meter. ClassicPeak uses smooth bars and floating peak caps, with sampling aligned to audible playback and adaptive redraws for smooth motion. ClassicLED redraws at 30 FPS during playback. Neighboring bands are averaged into each bar. YinYang koi chase each other across a wide strip, leaving on the right and coming back on the left; taller panels have them circle a lily pad whose lotus follows recent bass levels, including after silence or time in the strip. Ethereal brings Omarchy's cosmic wallpaper to life with Flame-style Braille pixels and an untouched background: bass swells drifting clouds, mids lift bright highlights, and treble brightens twinkling stars. Its colors follow the terminal palette by default and the selected cliamp theme, with no Omarchy installation required. <kbd>v</kbd> cycles, <kbd>V</kbd> goes full screen.</p>
+        <p>34 built-in modes rendered in the terminal from live FFT data: spectrum bars, scope, wave, matrix, flame, and a true-stereo LED peak meter. ClassicPeak uses smooth bars and floating peak caps, with sampling aligned to audible playback and adaptive redraws for smooth motion. ClassicLED updates its LED physics at 30 Hz during playback. Neighboring bands are averaged into each bar. YinYang koi chase each other across a wide strip, leaving on the right and coming back on the left; taller panels have them circle a lily pad whose lotus follows recent bass levels, including after silence or time in the strip. Ethereal brings Omarchy's cosmic wallpaper to life with Flame-style Braille pixels and an untouched background: bass swells drifting clouds, mids lift bright highlights, and treble brightens twinkling stars. Its colors follow the terminal palette by default and the selected cliamp theme, with no Omarchy installation required. <kbd>v</kbd> cycles, <kbd>V</kbd> goes full screen.</p>
       </div>
       <div class="feat">
         <div class="feat-k">SYNCED LYRICS</div>
@@ -685,12 +685,18 @@ var KEYS=[
 var COMMUNITY=[
   {name:"cliamp-lastfm",url:"https://github.com/tetsuo76/cliamp-lastfm",desc:"Last.fm scrobbling",author:"tetsuo76"},
   {name:"cliamp-plugin-led-burst",url:"https://github.com/AlexZeitler/cliamp-plugin-led-burst",desc:"Stereo LED matrix visualizer",author:"AlexZeitler"},
+  {name:"cliamp-plugin-block-burst",url:"https://github.com/AlexZeitler/cliamp-plugin-block-burst",desc:"Stereo LED block matrix visualizer",author:"AlexZeitler"},
+  {name:"cliamp-plugin-vu-meter",url:"https://github.com/AlexZeitler/cliamp-plugin-vu-meter",desc:"Analog multi VU meter style visualizer",author:"AlexZeitler"},
   {name:"cliamp-plugin-nightrider",url:"https://github.com/HANCORE-linux/cliamp-plugin-nightrider",desc:"Nightrider visualizer",author:"HANCORE-linux"},
   {name:"cliamp-plugin-tubeamp",url:"https://github.com/8bit64k/cliamp-plugin-tubeamp",desc:"Vacuum-tube amplifier visualizer",author:"8bit64k"},
   {name:"cliamp-plugin-nova",url:"https://github.com/8bit64k/cliamp-plugin-nova",desc:"Concentric-ring spectrum visualizer",author:"8bit64k"},
+  {name:"cliamp-plugin-mandelbrot",url:"https://github.com/mikkel-bergmann/cliamp-plugin-mandelbrot",desc:"Zooming psychedelic Mandelbrot set visualizer with braille rendering and bass reactivity",author:"mikkel-bergmann"},
   {name:"cliamp-plugin-gpodder-sync",url:"https://github.com/sollymay/cliamp-plugin-gpodder-sync",desc:"gpodder.net subscription, progress, and download sync",author:"sollymay"},
   {name:"cliamp-plugin-discord-rpc",url:"https://github.com/fazaimron27/cliamp-plugin-discord-rpc",desc:"Discord Rich Presence",author:"fazaimron27"},
   {name:"herdr-cliamp",url:"https://github.com/coryshaw1/herdr-cliamp",desc:"Floating cliamp for the herdr multiplexer, with now-playing and transport key bindings",author:"coryshaw1"},
+  {name:"cliamp-plugin-autoplay",url:"https://github.com/gaurabxkc/cliamp-plugin-autoplay",desc:"Endless similar-track playback: Last.fm similarity, played from Spotify",author:"gaurabxkc"},
+  {name:"cliamp-plugin-pomodoro",url:"https://github.com/gaurabxkc/cliamp-plugin-pomodoro",desc:"Focus timer that pauses playback during breaks, with a countdown clock visualizer",author:"gaurabxkc"},
+  {name:"cliamp-plugin-save-song",url:"https://github.com/dorobica/cliamp-plugin-save-song",desc:"One key saves the playing song, including live radio titles, to a dated list you can search and replay",author:"dorobica"},
   {name:"cliamp-plugin-mac-notify",url:"https://github.com/dbarrerap/cliamp-plugin-mac-notify",desc:"macOS Now Playing notifications with local cover art and YouTube thumbnails",author:"dbarrerap"},
   {name:"cliamp-plugin-hanami",url:"https://github.com/niteover/cliamp-plugin-hanami",desc:"Pixel cherry blossom visualizer: petals pile up in drifts and jump on the beat",author:"niteover"}
 ];

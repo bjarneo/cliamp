@@ -439,7 +439,7 @@ cliamp.fs.mkdir(path)             -- create directory (recursive)
 cliamp.fs.listdir(path)           --> {names}, err
 ```
 
-You can write only to the system temp directory (`/tmp/` on Unix), `~/.config/cliamp/`, `~/.local/share/cliamp/`, and `~/Music/cliamp/`. In `~/.config/cliamp/`, you cannot write to the `plugins/` directory, `config.toml`, `radios.toml`, `config.toml.lock`, `favorites.toml.lock`, `history.toml.lock`, `radio_favorites.toml.lock`, `radio_countries.toml.lock`, `playlists.lock`, `cliamp.sock`, `cliamp.sock.pid`, or `plugins.log`. You can read from any path. `cliamp.fs.read` reads only regular files. For a FIFO, a device, or a directory, it returns `nil` and an error, because a read of such a file can block without a limit. On Windows, the config directory resolves to `%APPDATA%\cliamp` unless `HOME` names another directory. If that directory has no `config.toml` and `HOME/.config/cliamp` has one, cliamp keeps the existing directory.
+You can write only to the system temp directory (`/tmp/` on Unix), `~/.config/cliamp/`, `~/.local/share/cliamp/`, and `~/Music/cliamp/`. In `~/.config/cliamp/`, you cannot write to the `plugins/` directory, `config.toml`, `radios.toml`, `favorites.toml`, `history.toml`, `resume.json`, `cliamp.log`, `*_credentials.json`, `config.toml.lock`, `favorites.toml.lock`, `history.toml.lock`, `radio_favorites.toml.lock`, `radio_countries.toml.lock`, `playlists.lock`, `cliamp.sock`, `cliamp.sock.pid`, or `plugins.log`. You can read from any path. `cliamp.fs.read` reads only regular files. For a FIFO, a device, or a directory, it returns `nil` and an error, because a read of such a file can block without a limit. On Windows, the config directory resolves to `%APPDATA%\cliamp` unless `HOME` names another directory. If that directory has no `config.toml` and `HOME/.config/cliamp` has one, cliamp keeps the existing directory.
 
 ### cliamp.json
 
@@ -821,12 +821,13 @@ These paths in `~/.config/cliamp/` stay read-only for `cliamp.fs` and for the `c
 - `plugins/`, which contains the plugin files and `plugins/.trust.json`
 - `config.toml`
 - `radios.toml`
+- `favorites.toml`, `history.toml`, `resume.json`, `cliamp.log`, and `*_credentials.json`
 - `config.toml.lock`, `favorites.toml.lock`, `history.toml.lock`, `radio_favorites.toml.lock`, `radio_countries.toml.lock` and `playlists.lock`
 - `cliamp.sock`
 - `cliamp.sock.pid`
 - `plugins.log`
 
-Thus a plugin cannot use `cliamp.fs` to approve plugins, change the exec allowlist, stop the next start of cliamp, or hide its log. A plugin with the exec permission can still write to any path that you can write through `yt-dlp` or `ffmpeg`. Approve a plugin that declares the exec permission only when you trust it.
+Thus a plugin cannot use `cliamp.fs` to approve plugins, change the exec allowlist, stop the next start of cliamp, alter credentials, or hide its log. `cliamp.exec` also rejects `yt-dlp` shell-execution flags and checks `ffmpeg` output paths against the same write allowlist. Approve a plugin that declares the exec permission only when you trust it.
 
 Writing outside these directories, or to a read-only path, raises a Lua error. cliamp resolves symlinks and blocks directory traversal (`..`) before it checks the path. The `cwd` of `cliamp.exec` follows the same rules.
 

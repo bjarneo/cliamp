@@ -228,6 +228,8 @@ Playlists provider shows this data in the virtual "Recently Played" entry. See
 cliamp spotify reset                          # clear stored Spotify credentials
 cliamp qobuz reset                            # clear stored Qobuz credentials
 cliamp tidal reset                            # clear stored Tidal credentials
+cliamp tidal probe [query]                    # inspect Tidal stream quality for a track
+cliamp bandcamp probe                         # test Bandcamp Subsonic endpoints and audio fetch
 cliamp ytmusic reset                          # clear stored YouTube Music credentials
 ```
 

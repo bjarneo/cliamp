@@ -78,7 +78,7 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # Mirror draws tapered Braille bars around a persistent horizontal center axis.
 # ClassicPeak uses smooth bars and floating peak caps, with sampling aligned
 # to audible playback and adaptive redraws for smooth motion.
-# ClassicLED redraws at 30 FPS during playback, like the Winamp LED meter.
+# ClassicLED updates its LED physics at 30 Hz during playback, like the Winamp LED meter.
 # Neighboring bands are averaged into each bar.
 # YinYang koi chase each other across a wide strip, leaving on the right and
 # coming back on the left. Taller panels have them circle a lily pad whose
@@ -130,6 +130,12 @@ padding_vertical = 1
 
 # UI theme name (see available themes in ~/.config/cliamp/themes/)
 theme = "Tokyo Night"
+
+# Start playing the first track automatically on launch (default: false)
+auto_play = false
+
+# Synced lyrics drift adjustment in milliseconds (-10000 to 10000, default: 0)
+lyrics_offset_ms = 0
 
 # Log level: "debug", "info", "warn", or "error" (default "info")
 # Logs are written to ~/.config/cliamp/cliamp.log

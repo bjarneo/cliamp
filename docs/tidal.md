@@ -91,6 +91,7 @@ After you load a playlist or album, cliamp returns to the standard playlist view
 - **Re-authenticate**: Run `cliamp tidal reset` to clear stored credentials. Then restart cliamp, select Tidal, and sign in again. This is the same as deleting `~/.config/cliamp/tidal_credentials.json`.
 - **Track is unplayable / skipped**: The track might not stream in the region, or its stream might be encrypted for this client type. cliamp marks the track unplayable and continues.
 - **"delivered as HIGH (AAC)" notice**: The track has no hi-res master, so Tidal does not send FLAC to this client type. See the FLAC availability note. Playback continues at AAC 320.
+- **Inspect delivered stream quality**: Run `cliamp tidal probe [query]` to inspect the audio quality tier and manifest format that Tidal returns for a track.
 - **Long-idle sessions**: cliamp resolves stream URLs when each track starts. Queued tracks continue after an idle period without manual refresh. `Ctrl+R` gets the playlist lists again.
 
 ## Requirements

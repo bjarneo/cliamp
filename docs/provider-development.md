@@ -200,6 +200,10 @@ are in `provider/interfaces.go`.
 | `PlaylistDocumenter` | Snapshot and restore a playlist document for undo | `PlaylistDocument(name)`, `RestorePlaylistDocument(name, data)` |
 | `PlaylistDirSourceManager` | Directory sources of a playlist | `DirSources`, `AddDirSource`, `RemoveDirSource`, `SetDirRecursive` |
 | `TrackPager` | Fill the queue one page at a time | `TracksPage(playlistID, offset)` |
+| `TrackWindow` | Fetch tracks around a saved resume index before loading the rest | `TrackWindow(playlistID, index)` |
+| `ArtworkProvider` | Resolve cover artwork on demand for the active track | `ArtworkFor(track)` |
+| `CodeAuthenticator` | Interactive code sign-in inside the provider pane | `Prompt()`, `Authenticate(code)` |
+| `ChatFilter` | Filter dialogs inside the provider pane with `Ctrl+P` | `Dialogs()`, `Chats()`, `SetChats(ids)` |
 | `CustomStreamer` | Custom URI decode pipeline | `URISchemes()`, `NewStreamer(uri)` |
 | `FavoriteToggler` | Favorite toggling for provider list items, such as stations and shows | `ToggleFavorite(id)` |
 | `TrackFavoriter` | Copy the ♥ favorite of a track to the service, such as liked or starred songs. The UI calls it in a `tea.Cmd` and keeps the local favorite when it fails | `CanFavoriteTrack(track)`, `SetTrackFavorite(ctx, track, favorite) error` |

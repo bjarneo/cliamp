@@ -1,6 +1,6 @@
 # Audio Quality
 
-Set the output sample rate, speaker buffer size, resample quality, and bit depth in `~/.config/cliamp/config.toml`. The `OUT` status line below the EQ shows the active settings.
+Set the output sample rate, speaker buffer size, resample quality, and bit depth in `~/.config/cliamp/config.toml`.
 
 ## Configuration
 

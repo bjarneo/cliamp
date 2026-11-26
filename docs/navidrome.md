@@ -152,6 +152,15 @@ format = "raw"
 
 Other values, such as `"mp3"`, `"aac"`, or `"opus"`, are sent as the requested format, but transcoding configured for the player in Navidrome takes precedence. Only `"raw"` bypasses that server setting. Format values are case-insensitive; surrounding whitespace is ignored.
 
+## Scrobbling
+
+Navidrome scrobbling is enabled by default. To disable now-playing and scrobble reports for Navidrome, add `scrobble = false` to your `[navidrome]` section in `~/.config/cliamp/config.toml`:
+
+```toml
+[navidrome]
+scrobble = false
+```
+
 ## Requirements
 
 You need only a running Navidrome instance. The client uses the Go standard `net/http` and `crypto/md5` packages. The Navidrome server must have the Subsonic API enabled. This is the default.
