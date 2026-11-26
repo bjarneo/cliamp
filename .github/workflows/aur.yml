@@ -5,6 +5,9 @@ on:
     workflows: ["Release"]
     types: [completed]
 
+permissions:
+  contents: read
+
 jobs:
   aur:
     runs-on: ubuntu-latest
@@ -14,11 +17,14 @@ jobs:
         uses: actions/checkout@v7.0.0
         with:
           ref: ${{ github.event.workflow_run.head_branch }}
+          persist-credentials: false
 
       - name: Extract version
         id: version
+        env:
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
-          TAG="${{ github.event.workflow_run.head_branch }}"
+          TAG="${HEAD_BRANCH}"
           echo "pkgver=${TAG#v}" >> "$GITHUB_OUTPUT"
 
       - name: Generate PKGBUILD
@@ -27,7 +33,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           SOURCE_URL="https://github.com/${REPO}/archive/refs/tags/v${PKGVER}.tar.gz"
-          SHA256=$(curl -sL "$SOURCE_URL" | sha256sum | cut -d' ' -f1)
+          SHA256=$(curl -fsSL "$SOURCE_URL" | sha256sum | cut -d' ' -f1)
 
           cat > PKGBUILD <<'HEREDOC'
           # Maintainer: bjarneo <https://github.com/bjarneo>

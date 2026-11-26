@@ -41,7 +41,11 @@ echo "Downloading ${ASSET}..."
 TMP=$(mktemp)
 CHECKSUMS=$(mktemp)
 TMP_DIR=""
-trap 'rm -f "$TMP" "$CHECKSUMS"; [ -z "$TMP_DIR" ] || rm -rf "$TMP_DIR"' EXIT HUP INT TERM
+ICON_TMP=""
+DESKTOP_TMP=""
+HANDLER_TMP=""
+STAGE_TMP=""
+trap 'rm -f "$TMP" "$CHECKSUMS" "$ICON_TMP" "$DESKTOP_TMP" "$HANDLER_TMP" "$STAGE_TMP"; [ -z "$TMP_DIR" ] || rm -rf "$TMP_DIR"' EXIT HUP INT TERM
 if command -v curl > /dev/null; then
     curl -fSL -o "$TMP" "$URL"
 elif command -v wget > /dev/null; then
@@ -100,12 +104,22 @@ if [ "$OS" = "windows" ]; then
     INSTALLED="${INSTALL_DIR}/cliamp.exe"
 else
     chmod +x "$TMP"
-    if [ -w "$INSTALL_DIR" ]; then
-        mv "$TMP" "${INSTALL_DIR}/cliamp"
-    else
-        sudo mv "$TMP" "${INSTALL_DIR}/cliamp"
+    if [ ! -d "$INSTALL_DIR" ]; then
+        mkdir -p "$INSTALL_DIR" 2>/dev/null || sudo mkdir -p "$INSTALL_DIR"
     fi
-    TMP=""
+    if [ -w "$INSTALL_DIR" ]; then
+        STAGE_TMP=$(mktemp "${INSTALL_DIR}/.cliamp.tmp.XXXXXX")
+        cp "$TMP" "$STAGE_TMP"
+        chmod 0755 "$STAGE_TMP"
+        mv -f "$STAGE_TMP" "${INSTALL_DIR}/cliamp"
+        STAGE_TMP=""
+    else
+        STAGE_TMP=$(sudo mktemp "${INSTALL_DIR}/.cliamp.tmp.XXXXXX")
+        sudo cp "$TMP" "$STAGE_TMP"
+        sudo chmod 0755 "$STAGE_TMP"
+        sudo mv -f "$STAGE_TMP" "${INSTALL_DIR}/cliamp"
+        STAGE_TMP=""
+    fi
     INSTALLED="${INSTALL_DIR}/cliamp"
 fi
 
@@ -145,7 +159,7 @@ if [ "$OS" = "linux" ]; then
 Name=cliamp
 GenericName=Music Player
 Comment=A retro terminal music player inspired by Winamp 2.x
-Exec=${INSTALL_DIR}/cliamp
+Exec="${INSTALL_DIR}/cliamp"
 Icon=cliamp
 Terminal=true
 Type=Application
