@@ -822,13 +822,7 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 
 	case "d":
-		m.devicePicker.visible = true
-		m.devicePicker.cursor = 0
-		m.devicePicker.scroll = 0
-		if len(m.devicePicker.devices) == 0 {
-			m.devicePicker.loading = true
-			return listDevicesCmd()
-		}
+		return m.openDevicePicker()
 
 	case "]":
 		m.changeSpeed(0.25)
@@ -1073,6 +1067,19 @@ func (m *Model) handleURLInputKey(msg tea.KeyPressMsg) tea.Cmd {
 		if m.editText("url", &m.urlInput.input, msg) {
 			m.urlInput.err = ""
 		}
+	}
+	return nil
+}
+
+// openDevicePicker shows the audio device picker and lists the devices when
+// the list is empty. The picker renders above any open overlay.
+func (m *Model) openDevicePicker() tea.Cmd {
+	m.devicePicker.visible = true
+	m.devicePicker.cursor = 0
+	m.devicePicker.scroll = 0
+	if len(m.devicePicker.devices) == 0 {
+		m.devicePicker.loading = true
+		return listDevicesCmd()
 	}
 	return nil
 }

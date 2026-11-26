@@ -180,7 +180,8 @@ preference remains saved for a wider layout. See
 | `a` | Toggle the queue (play next) |
 | `A` | Queue manager |
 | `c` | In the queue manager: clear the queue (press again to confirm when more than one track) |
-| `d` | In the queue manager: remove the highlighted track |
+| `d` | In the queue manager: open the audio device picker |
+| `x` | In the queue manager: remove the highlighted track |
 | `F` | Subscribed shows overlay (any provider that keeps subscriptions) |
 | `x` | Remove the highlighted track from the current playlist |
 | `p` | Playlist |
@@ -245,7 +246,8 @@ reordered, so `p` leaves them alone and reports them as skipped.
 | `D` | List: open the file browser to add `[[dir]]` sources to the selected playlist. Tracks: open the directory-sources screen. |
 | `a` | List: create a playlist. After naming it, the file browser opens at `~`. Use `Enter` to enter a directory, `Space` to select folders or files, `Enter` to confirm, or `Esc` to finish. Tracks: mark or unmark all visible tracks. |
 | `r` | List: rename the playlist (`Recently Played` cannot be renamed) |
-| `d` | List: delete playlist (confirms; `Recently Played` cannot be deleted). Tracks: remove marked tracks, or highlighted track when none are marked |
+| `d` | Open the audio device picker |
+| `x` | List: delete playlist (confirms; `Recently Played` cannot be deleted). Tracks: remove marked tracks, or highlighted track when none are marked |
 | `A` | List: append the selected playlist to the current one, keeping what is loaded. Tracks: append the marked tracks, or the highlighted one. |
 | `u` | Undo the last manager edit |
 | `←` `Backspace` `h` `q` | Tracks screen: go back to the list |
@@ -262,7 +264,8 @@ other key cancels. The Shift-letter keys do not switch providers then.
 |---|---|
 | `↑` `↓` / `j` `k` | Navigate directory sources |
 | `a` | Open the file browser to add a directory as a `[[dir]]` source |
-| `d` then `y` | Remove the selected source. `y` confirms; any other key cancels. |
+| `d` | Open the audio device picker |
+| `x` then `y` | Remove the selected source. `y` confirms; any other key cancels. |
 | `r` | Toggle `recursive` on the highlighted source |
 | `←` `Backspace` `h` `Esc` | Back to the tracks screen |
 

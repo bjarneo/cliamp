@@ -65,7 +65,7 @@ func TestUpdateDropsStalePreload(t *testing.T) {
 		{name: "queue overlay remove", setup: func(m *Model, player *playbackFakeEngine) {
 			queueC(m, player)
 			m.queue.visible = true
-		}, msg: tea.KeyPressMsg{Text: "d", Code: 'd'}, wantNext: "b.mp3"},
+		}, msg: tea.KeyPressMsg{Text: "x", Code: 'x'}, wantNext: "b.mp3"},
 		{name: "IPC repeat one", msg: v2Request(t, "repeat", ipc.Request{Name: "one"}), wantNext: "a.mp3"},
 		{name: "IPC enqueue a later track", msg: v2Request(t, "queue.enqueue", ipc.Request{Index: 2}), wantNext: "c.mp3"},
 		{name: "plugin swap next away", msg: PluginQueueMsg{Op: "move", Index: 1, To: 2}, wantNext: "c.mp3"},

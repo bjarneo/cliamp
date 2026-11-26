@@ -520,7 +520,7 @@ func TestPlaylistManagerEditsKeepOtherWriters(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	remove := func(m *Model) { m.plManager.cursor = 0; m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "d"}) }
+	remove := func(m *Model) { m.plManager.cursor = 0; m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "x"}) }
 	move := func(m *Model) { m.plManager.cursor = 0; m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "]"}) }
 	sortTitle := func(m *Model) { m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "s"}) }
 	for _, tc := range []struct {
@@ -538,7 +538,7 @@ func TestPlaylistManagerEditsKeepOtherWriters(t *testing.T) {
 		{
 			name:      "remove the second row of one path",
 			file:      []playlist.Track{{Path: a.Path, Title: "A1"}, b, {Path: a.Path, Title: "A2"}},
-			edit:      func(m *Model) { m.plManager.cursor = 2; m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "d"}) },
+			edit:      func(m *Model) { m.plManager.cursor = 2; m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "x"}) },
 			wantMix:   []string{a.Path, b.Path},
 			wantTitle: []string{"A1", "B"},
 		},

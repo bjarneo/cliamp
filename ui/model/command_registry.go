@@ -324,7 +324,8 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeVisPicker, Keys: []string{"/"}, KeyLabel: "/", Label: "Filter", ContextHelp: true},
 	{Mode: commandModeThemePickerFilter | commandModeVisPickerFilter, Keys: []string{"esc"}, KeyLabel: "Esc", Label: "Cancel filter", ContextHelp: true, Cancel: true},
 	{Mode: commandModeThemePickerFilter | commandModeVisPickerFilter, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Finish filter", ContextHelp: true, Primary: true},
-	{Mode: commandModeQueue, Keys: []string{"d"}, KeyLabel: "d", Label: "Remove", Destructive: true, ContextHelp: true, Primary: true, Enabled: func(m Model) bool { return m.playlist != nil && m.playlist.QueueLen() > 0 }},
+	{Mode: commandModeQueue, Keys: []string{"d"}, KeyLabel: "d", Label: "Audio device picker", Keymap: true, ContextHelp: true},
+	{Mode: commandModeQueue, Keys: []string{"x"}, KeyLabel: "x", Label: "Remove", Destructive: true, ContextHelp: true, Primary: true, Enabled: func(m Model) bool { return m.playlist != nil && m.playlist.QueueLen() > 0 }},
 	{Mode: commandModeQueue, Keys: []string{"c"}, KeyLabel: "c", Label: "Clear", Destructive: true, ContextHelp: true},
 	{Mode: commandModeFileBrowser, Keys: []string{"R"}, KeyLabel: "R", Label: "Replace queue", Destructive: true, ContextHelp: true},
 	{Mode: commandModeNavBrowser, Keys: []string{"R"}, KeyLabel: "R", Label: "Replace queue", Destructive: true, ContextHelp: true, Enabled: func(m Model) bool { return m.navView() == navViewTracks }},
@@ -357,7 +358,8 @@ var commandRegistry = []commandSpec{
 	}},
 	{Mode: commandModePlaylistManagerDirs, Keys: []string{"esc", "backspace", "h", "left", "q"}, KeyLabel: "Esc", Label: "Back to tracks", ContextHelp: true, Cancel: true},
 	{Mode: commandModePlaylistManagerDirs, Keys: []string{"a"}, KeyLabel: "a", Label: "Add dir", ContextHelp: true, Primary: true},
-	{Mode: commandModePlaylistManagerDirs, Keys: []string{"d"}, KeyLabel: "d", Label: "Remove", Destructive: true, ContextHelp: true},
+	{Mode: commandModePlaylistManagerDirs, Keys: []string{"d"}, KeyLabel: "d", Label: "Audio device picker", Keymap: true, ContextHelp: true},
+	{Mode: commandModePlaylistManagerDirs, Keys: []string{"x"}, KeyLabel: "x", Label: "Remove", Destructive: true, ContextHelp: true},
 	{Mode: commandModePlaylistManagerDirs, Keys: []string{"r"}, KeyLabel: "r", Label: "Toggle recursive", ContextHelp: true},
 	{Mode: commandModePlaylistManagerDirs, Keys: []string{"up", "down", "k", "j"}, KeyLabel: "Up Down", Label: "Navigate", ContextHelp: true},
 	{Mode: commandModeFileBrowser, Keys: []string{"D"}, KeyLabel: "D", Label: "Add as dir source", ContextHelp: true, Enabled: func(m Model) bool {
@@ -384,7 +386,8 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModePlaylistManager, Keys: []string{"o"}, KeyLabel: "o", Label: "Add files", Keymap: true, ContextHelp: true, Enabled: func(m Model) bool {
 		return m.plManager.visible && m.plManager.screen == plMgrScreenTracks
 	}},
-	{Mode: commandModePlaylistManager, Keys: []string{"d"}, KeyLabel: "d", Label: "Remove", Destructive: true, Keymap: true, ContextHelp: true, Enabled: func(m Model) bool {
+	{Mode: commandModePlaylistManager, Keys: []string{"d"}, KeyLabel: "d", Label: "Audio device picker", Keymap: true, ContextHelp: true},
+	{Mode: commandModePlaylistManager, Keys: []string{"x"}, KeyLabel: "x", Label: "Remove", Destructive: true, Keymap: true, ContextHelp: true, Enabled: func(m Model) bool {
 		return m.plManager.visible && m.plManager.screen == plMgrScreenTracks
 	}},
 	{Mode: commandModePlaylistManager, Keys: []string{"u"}, KeyLabel: "u", Label: "Undo", Keymap: true, Enabled: func(m Model) bool {

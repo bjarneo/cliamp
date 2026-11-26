@@ -331,11 +331,11 @@ other view to open it as an overlay:
 3. **Open**: Press `Enter` or `→` to view playlist tracks.
 4. **Create playlist**: Press `a`, enter a name, and press `Enter`. The file browser opens at `~` for the new playlist. Use `Space` to select folders or files. Folders become live `[[dir]]` sources. Press `Enter` to confirm or `Esc` to finish.
 5. **Rename playlist**: Press `r` on the list screen.
-6. **Delete playlist**: Press `d`, then `y` to confirm.
+6. **Delete playlist**: Press `x`, then `y` to confirm.
 7. **Mark tracks**: Open a playlist. Press `Space` to mark a track and advance, or unmark it and stay on the row. Press `a` to mark or unmark all visible tracks.
 8. **Move tracks**: Press `[` or `]`. cliamp saves the playlist immediately.
 9. **Sort tracks**: Press `s` to cycle `track`, `title`, `artist`, `album`, `artist+album`, and `path`.
-10. **Remove tracks**: Press `d` to remove marked tracks, or the selected track when none are marked.
+10. **Remove tracks**: Press `x` to remove marked tracks, or the selected track when none are marked.
 11. **Undo manager edits**: Press `u` after delete, remove, move, or sort.
 12. **Write tracks elsewhere**: Press `w` to copy marked or selected tracks to another playlist. cliamp skips duplicate paths.
 13. **Add files**: Press `o` inside a playlist to browse and add files to it.
@@ -348,7 +348,7 @@ playlist and the main player view. Album grouping is hidden while a
 filter is active.
 
 cliamp creates `~/.config/cliamp/playlists/` on first use. Removing the last
-track leaves an empty playlist file. Use `d` in the playlist list or `cliamp
+track leaves an empty playlist file. Use `x` in the playlist list or `cliamp
 playlist delete` to delete the playlist.
 
 ### Writing to Playlists
@@ -445,7 +445,8 @@ title = "My Radio"
 | `o` | Add files to the open playlist (tracks screen) |
 | `D` | List: open the file browser to add `[[dir]]` sources to the selected playlist. Tracks: open the directory-sources screen for the open playlist. |
 | `[` `]` | Move track up/down and save (tracks screen) |
-| `d` | Delete a playlist after confirmation. `Recently Played` cannot be deleted. In tracks, remove marked tracks or the selected track if none are marked. |
+| `d` | Open the audio device picker. |
+| `x` | Delete a playlist after confirmation. `Recently Played` cannot be deleted. In tracks, remove marked tracks or the selected track if none are marked. |
 | `u` | Undo the last playlist edit |
 | `←` / `Backspace` | Go back from tracks screen to list |
 
@@ -458,7 +459,8 @@ indicator next to the track count.
 |-----|--------|
 | `Up` `Down` / `j` `k` | Navigate directory sources |
 | `a` | Open the file browser to add a directory as a `[[dir]]` source |
-| `d` then `y` | Remove the selected source. Confirm with `y`; any other key cancels. |
+| `d` | Open the audio device picker. |
+| `x` then `y` | Remove the selected source. Confirm with `y`; any other key cancels. |
 | `r` | Toggle `recursive` on the selected source. cliamp scans it again immediately. |
 | `←` / `Backspace` / `Esc` | Back to the tracks screen |
 
