@@ -253,30 +253,32 @@ func (p *Player) buildYTDLDirectSource(pageURL string, knownDuration time.Durati
 	if isPermanentYTDLError(err) {
 		return nil, err
 	}
-	if media == nil {
-		tp, pipeErr := p.buildYTDLPipeSource(pageURL, knownDuration, probe, stale)
-		if pipeErr != nil {
-			return nil, pipeErr
+	noDirect := errors.Is(err, errNoDirectYTDLMedia)
+	var duration time.Duration
+	if media != nil {
+		tp, directErr := p.buildYTDLDirectPipeline(ctx, pageURL, media, 0)
+		if superseded() {
+			if tp != nil {
+				tp.close()
+			}
+			return nil, errSourceSuperseded
 		}
-		tp.ytdlNoDirect = errors.Is(err, errNoDirectYTDLMedia)
-		return tp, nil
-	}
-	tp, err := p.buildYTDLDirectPipeline(ctx, pageURL, media, 0)
-	if superseded() {
-		if tp != nil {
-			tp.close()
+		if directErr == nil {
+			tp.knownDuration = cmp.Or(knownDuration, media.duration)
+			return tp, nil
 		}
-		return nil, errSourceSuperseded
+		// A URL that fails right after its resolve would fail on a seek too.
+		noDirect, duration = true, media.duration
 	}
+
+	// No direct URL, or its read failed: play the pipe.
+	tp, err := p.buildYTDLPipeSource(pageURL, knownDuration, probe && duration == 0, stale)
 	if err != nil {
-		tp, err = p.buildYTDLPipeSource(pageURL, knownDuration, probe && media.duration == 0, stale)
-		if err != nil {
-			return nil, err
-		}
-		tp.ytdlNoDirect = true
+		return nil, err
 	}
-	// The pipe fallback may already hold a probed duration.
-	tp.knownDuration = cmp.Or(tp.knownDuration, knownDuration, media.duration)
+	tp.ytdlNoDirect = noDirect
+	// The pipe may already hold a known or probed duration.
+	tp.knownDuration = cmp.Or(tp.knownDuration, duration)
 	return tp, nil
 }
 

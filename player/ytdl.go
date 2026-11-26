@@ -421,21 +421,19 @@ func (p *Player) buildYTDLPipelineContext(ctx context.Context, pageURL string, s
 }
 
 // buildYTDLSource starts pageURL at 0. A YouTube page plays from its direct
-// media URL (see buildYTDLDirectSource); any other page plays through the
-// yt-dlp | ffmpeg chain. So does a YouTube page whose direct read failed
-// mid-track, so that the reconnect that follows does not hit the same failure.
-// When stale reports true, it cancels the setup.
+// media URL (see buildYTDLDirectSource). Every other page plays through the
+// yt-dlp | ffmpeg chain: a page of another site, and a YouTube page whose
+// direct read failed mid-track, so that the reconnect that follows does not
+// hit the same failure. When stale reports true, it cancels the setup.
 func (p *Player) buildYTDLSource(pageURL string, knownDuration time.Duration, probe bool, stale func() bool) (*trackPipeline, error) {
-	if !directSeekPage(pageURL) {
-		return p.buildYTDLPipeSource(pageURL, knownDuration, probe, stale)
-	}
-	if !p.ytdlDirectFailedFor(pageURL) {
+	if directSeekPage(pageURL) && !p.ytdlDirectFailedFor(pageURL) {
 		return p.buildYTDLDirectSource(pageURL, knownDuration, probe, stale)
 	}
 	tp, err := p.buildYTDLPipeSource(pageURL, knownDuration, probe, stale)
 	if err != nil {
 		return nil, err
 	}
+	// Seeks on this page stay on the pipe too.
 	tp.ytdlNoDirect = true
 	return tp, nil
 }
@@ -444,23 +442,24 @@ func (p *Player) buildYTDLSource(pageURL string, knownDuration time.Duration, pr
 // A nil stale never cancels it. The caller must call the CancelFunc.
 func staleContext(stale func() bool) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
-	if stale != nil {
-		go func() {
-			ticker := time.NewTicker(25 * time.Millisecond)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
+	if stale == nil {
+		return ctx, cancel
+	}
+	go func() {
+		ticker := time.NewTicker(25 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if stale() {
+					cancel()
 					return
-				case <-ticker.C:
-					if stale() {
-						cancel()
-						return
-					}
 				}
 			}
-		}()
-	}
+		}
+	}()
 	return ctx, cancel
 }
 
