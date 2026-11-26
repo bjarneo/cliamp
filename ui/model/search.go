@@ -15,9 +15,9 @@ func (m *Model) updateSearch() {
 	if m.search.query == "" {
 		return
 	}
-	tracks := m.playlist.Tracks()
-	m.search.results = fuzzyRank(m.search.query, len(tracks), func(i int) string {
-		return tracks[i].DisplayName()
+	names := m.playlist.DisplayNames()
+	m.search.results = fuzzyRank(m.search.query, len(names), func(i int) string {
+		return names[i]
 	})
 }
 
@@ -42,9 +42,12 @@ func rankMatches(n int, score func(int) (int, bool)) []int {
 	sort.SliceStable(matches, func(a, b int) bool {
 		return matches[a].score > matches[b].score
 	})
-	var results []int
-	for _, mt := range matches {
-		results = append(results, mt.idx)
+	if len(matches) == 0 {
+		return nil
+	}
+	results := make([]int, len(matches))
+	for i, mt := range matches {
+		results[i] = mt.idx
 	}
 	return results
 }

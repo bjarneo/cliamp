@@ -111,7 +111,7 @@ func (m Model) renderMetadataPane(rows int) []string {
 		return nil
 	}
 	w := m.layout.settingsWidth
-	lines := []string{fillSeparator(sepHeader("Metadata [Ctrl+I]", m.layout.panelWidth), w)}
+	lines := []string{fillSeparator(sepHeader("Metadata [Ctrl+I]", w), w)}
 	fields := m.metadataFields()
 	if len(fields) == 0 {
 		return append(lines, dimStyle.Render(truncate("No metadata available", w)))

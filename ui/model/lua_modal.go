@@ -26,13 +26,37 @@ type SetVisMsg struct {
 	Name string
 }
 
+// luaSelectBoxStyle holds the shared border and padding style for plugin selectors.
+var luaSelectBoxStyle = lipgloss.NewStyle().
+	Border(lipgloss.RoundedBorder()).
+	BorderForeground(lipgloss.Color("240")).
+	Padding(0, 1)
+
 // luaSelectState is the open plugin selector.
 type luaSelectState struct {
-	title    string
-	options  []string
-	cursor   int
-	onDone   func(index int)
-	onCancel func()
+	title          string
+	options        []string
+	cursor         int
+	maxOptionWidth int
+	widthComputed  bool
+	onDone         func(index int)
+	onCancel       func()
+}
+
+func newLuaSelectState(msg LuaSelectMsg, cursor int) *luaSelectState {
+	maxOptionWidth := 0
+	for _, option := range msg.Options {
+		maxOptionWidth = max(maxOptionWidth, lipgloss.Width(option))
+	}
+	return &luaSelectState{
+		title:          msg.Title,
+		options:        msg.Options,
+		cursor:         cursor,
+		maxOptionWidth: maxOptionWidth,
+		widthComputed:  true,
+		onDone:         msg.OnDone,
+		onCancel:       msg.OnCancel,
+	}
 }
 
 // handleLuaSelectKey drives the open selector. It returns true when the key was
@@ -77,11 +101,13 @@ func (m Model) renderLuaSelect() string {
 	if sel == nil {
 		return ""
 	}
-	width := 0
-	for _, option := range sel.options {
-		width = max(width, lipgloss.Width(option))
+	optWidth := sel.maxOptionWidth
+	if !sel.widthComputed {
+		for _, option := range sel.options {
+			optWidth = max(optWidth, lipgloss.Width(option))
+		}
 	}
-	width = min(max(width+6, 24), max(20, m.layout.frameWidth-4))
+	width := min(max(optWidth+6, 24), max(20, m.layout.frameWidth-4))
 
 	title := truncate(sel.title, width-2)
 	// The list can be longer than the screen (the visualizer picker lists every
@@ -126,13 +152,7 @@ func (m Model) renderLuaSelect() string {
 	b.WriteString("\n\n")
 	b.WriteString(dimStyle.Render("  ↑/↓ move   enter select   esc cancel"))
 
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("240")).
-		Padding(0, 1).
-		Width(width).
-		Render(b.String())
-	return box
+	return luaSelectBoxStyle.Width(width).Render(b.String())
 }
 
 // overlayCentered places box over frame, centered. Whole frame lines are

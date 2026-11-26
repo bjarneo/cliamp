@@ -34,7 +34,7 @@ type layoutInputs struct {
 	visDisabled    bool
 	screen         topLevelScreen
 	providerCount  int
-	builtinCols    int
+	paneGen        uint64
 }
 
 type frameLayout struct {
@@ -49,6 +49,7 @@ type frameLayout struct {
 	visualizerRows     int
 	baseVisualizerRows int
 	fullVisualizerRows int
+	builtinVisCols     int
 	// twoColumn splits the body region into the playlist (left) and the
 	// settings pane (right); the two widths are zero when it is off.
 	twoColumn     bool
@@ -133,17 +134,10 @@ func (l frameLayout) frameStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Padding(l.paddingV, l.paddingH).Width(l.frameWidth)
 }
 
-func (m Model) cachedFrameStyle() lipgloss.Style {
-	if m.frameStyleReady {
-		return m.frameStyleCache
-	}
-	return m.layout.frameStyle()
-}
-
 // builtinVisualizerWidth returns the column width of the built-in visualizer
 // pane within panelWidth.
 func (m Model) builtinVisualizerWidth(panelWidth int) int {
-	if m.panes == nil || panelWidth <= 0 {
+	if m.panes == nil || panelWidth <= 0 || m.panes.IsBuiltinOnly(ui.RegionVisualizer) {
 		return panelWidth
 	}
 	panes := m.panes.RegionPanes(ui.RegionVisualizer)
@@ -186,7 +180,7 @@ func (m *Model) recomputeLayout() {
 	simplified := m.usesSimplifiedLayout()
 	visDisabled := m.visualizerDisabled()
 	screen := m.activeScreen()
-	builtinCols := m.builtinVisualizerWidth(panelWidth)
+	paneGen := m.panes.Generation()
 
 	key := layoutInputs{
 		width:          m.width,
@@ -207,18 +201,20 @@ func (m *Model) recomputeLayout() {
 		visDisabled:    visDisabled,
 		screen:         screen,
 		providerCount:  len(m.providers),
-		builtinCols:    builtinCols,
+		paneGen:        paneGen,
 	}
-	if m.layoutValid && key == m.layoutKey && (m.vis == nil || m.vis.Cols == builtinCols || (m.width <= 0 && !m.headless && m.vis.Cols == 0)) {
+	if m.layoutValid && key == m.layoutKey && (m.vis == nil || m.vis.Cols == m.layout.builtinVisCols || (m.width <= 0 && !m.headless && m.vis.Cols == 0)) {
 		return
 	}
+	builtinCols := m.builtinVisualizerWidth(panelWidth)
 
 	layout := frameLayout{
-		frameWidth: width,
-		panelWidth: panelWidth,
-		paddingH:   paddingH,
-		paddingV:   paddingV,
-		footerRows: 1,
+		frameWidth:     width,
+		panelWidth:     panelWidth,
+		paddingH:       paddingH,
+		paddingV:       paddingV,
+		footerRows:     1,
+		builtinVisCols: builtinCols,
 	}
 	switch {
 	case width < 40 || height < 10:
@@ -321,8 +317,6 @@ func (m *Model) recomputeLayout() {
 	m.layout = layout
 	m.layoutKey = key
 	m.layoutValid = true
-	m.frameStyleCache = layout.frameStyle()
-	m.frameStyleReady = true
 	if m.vis != nil {
 		m.vis.Cols = builtinCols
 		if m.width <= 0 && !m.headless {

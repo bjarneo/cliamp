@@ -6,6 +6,7 @@ package model
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -117,13 +118,17 @@ type seekState struct {
 // providerPane holds the playlist list of the active provider on the left
 // of the main screen.
 type providerPane struct {
-	lists   []playlist.PlaylistInfo
-	cursor  int
-	scroll  int
-	loading bool
-	signIn  bool   // true when provider needs interactive sign-in
-	askLoc  bool   // true while the location question is on screen
-	authURL string // OAuth URL to display while interactive auth is in flight
+	lists          []playlist.PlaylistInfo
+	hasSections    bool
+	sectionsCached bool
+	sectionsLen    int
+	sectionsFirst  *playlist.PlaylistInfo
+	cursor         int
+	scroll         int
+	loading        bool
+	signIn         bool   // true when provider needs interactive sign-in
+	askLoc         bool   // true while the location question is on screen
+	authURL        string // OAuth URL to display while interactive auth is in flight
 
 	// Chat picker: the pane swaps its rows for every dialog of the provider
 	// and marks the current filter.
@@ -133,6 +138,32 @@ type providerPane struct {
 	pickPrev []playlist.PlaylistInfo
 	pickCur  int
 	pickScr  int
+}
+
+func (p *providerPane) setLists(lists []playlist.PlaylistInfo) {
+	p.lists = lists
+	p.hasSections = slices.ContainsFunc(lists, func(item playlist.PlaylistInfo) bool {
+		return item.Section != ""
+	})
+	p.sectionsCached = true
+	p.sectionsLen = len(lists)
+	if len(lists) > 0 {
+		p.sectionsFirst = &lists[0]
+	} else {
+		p.sectionsFirst = nil
+	}
+}
+
+func (p providerPane) listHasSections() bool {
+	if len(p.lists) == 0 {
+		return false
+	}
+	if p.sectionsCached && p.sectionsLen == len(p.lists) && p.sectionsFirst == &p.lists[0] {
+		return p.hasSections
+	}
+	return slices.ContainsFunc(p.lists, func(item playlist.PlaylistInfo) bool {
+		return item.Section != ""
+	})
 }
 
 // jumpState holds the jump-to-time input.

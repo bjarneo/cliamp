@@ -172,6 +172,7 @@ func (m *Model) togglePlaylistTrackFavorite(track playlist.Track, savedPlaylist 
 	if err != nil {
 		return nil, err
 	}
+	m.favGen++
 	if added {
 		m.status.Showf(statusTTLMedium, "Favorited station: %s", station.Name)
 	} else {

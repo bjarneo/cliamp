@@ -82,7 +82,12 @@ func (m *Model) visualizerTickContext(now time.Time) ui.VisTickContext {
 	sampled := false
 	samplesRead := 0
 	sampledSize := 0
-	cache := map[ui.VisAnalysisSpec][]float64{}
+	scratch := m.visTick
+	if scratch == nil {
+		scratch = &visTickScratch{}
+	} else {
+		scratch.reset()
+	}
 
 	return ui.VisTickContext{
 		Now:     now,
@@ -98,6 +103,9 @@ func (m *Model) visualizerTickContext(now time.Time) ui.VisTickContext {
 				gain = math.Pow(10, m.player.Volume()/20)
 			}
 			mono := m.player.Mono()
+			if gain == 1.0 && !mono {
+				return n
+			}
 			for i := range n {
 				if mono {
 					mixed := (dst[i][0] + dst[i][1]) / 2
@@ -113,7 +121,7 @@ func (m *Model) visualizerTickContext(now time.Time) ui.VisTickContext {
 			if m.player == nil || m.vis == nil || m.vis.Mode == ui.VisNone {
 				return nil
 			}
-			if bands, ok := cache[spec]; ok {
+			if bands, ok := scratch.get(spec); ok {
 				return bands
 			}
 			if m.player.IsPaused() {
@@ -121,7 +129,7 @@ func (m *Model) visualizerTickContext(now time.Time) ui.VisTickContext {
 				// spectrum content eases down to rest instead of freezing on
 				// the last played frame held in the audio tap.
 				bands := m.vis.Analyze(nil, spec)
-				cache[spec] = bands
+				scratch.put(spec, bands)
 				return bands
 			}
 			buf := m.vis.EnsureSampleBuf(spec.FFTSize)
@@ -133,8 +141,10 @@ func (m *Model) visualizerTickContext(now time.Time) ui.VisTickContext {
 				}
 				if m.visVolumeLinked {
 					gain := math.Pow(10, m.player.Volume()/20)
-					for i := range samplesRead {
-						buf[i] *= gain
+					if gain != 1.0 {
+						for i := range samplesRead {
+							buf[i] *= gain
+						}
 					}
 				}
 				sampled = true
@@ -142,7 +152,7 @@ func (m *Model) visualizerTickContext(now time.Time) ui.VisTickContext {
 			}
 			start := max(0, samplesRead-spec.FFTSize)
 			bands := m.vis.Analyze(buf[start:samplesRead], spec)
-			cache[spec] = bands
+			scratch.put(spec, bands)
 			return bands
 		},
 	}
@@ -275,13 +285,20 @@ func (m *Model) tickVisualizer(now time.Time) {
 	ctx := m.visualizerTickContext(now)
 	m.vis.Tick(ctx)
 	if m.panes != nil {
-		active := m.panes.List()
-		if m.slotVis != nil {
-			m.slotVis.prune(active)
-			m.slotVis.tickAll(ctx, m.vis.WaveSamples())
+		gen := m.panes.Generation()
+		if !m.panePruned || m.lastPrunedPaneGen != gen {
+			active := m.panes.List()
+			if m.slotVis != nil {
+				m.slotVis.prune(active)
+			}
+			if m.paneCache != nil {
+				m.paneCache.prune(active)
+			}
+			m.lastPrunedPaneGen = gen
+			m.panePruned = true
 		}
-		if m.paneCache != nil {
-			m.paneCache.prune(active)
+		if m.slotVis != nil {
+			m.slotVis.tickAll(ctx, m.vis.WaveSamples())
 		}
 	} else if m.slotVis != nil {
 		m.slotVis.tickAll(ctx, m.vis.WaveSamples())
@@ -375,16 +392,24 @@ func (m *Model) handleTick(msg tickMsg) tea.Cmd {
 	}
 	m.tickResumeSave(now)
 	if !gaplessAdvanced {
-		cmds = append(cmds, m.tickDrain(now))
+		if cmd := m.tickDrain(now); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 	if !m.headless {
 		m.advanceTitleScroll(now)
 	}
-	cmds = append(cmds, m.tickPreloadRetry())
+	if cmd := m.tickPreloadRetry(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	if !m.headless {
 		m.advanceTerminalTitle()
 	}
-	cmds = append(cmds, tickCmdAt(m.tickInterval()))
+	nextTick := tickCmdAt(m.tickInterval())
+	if len(cmds) == 0 {
+		return nextTick
+	}
+	cmds = append(cmds, nextTick)
 	return tea.Batch(cmds...)
 }
 
@@ -404,13 +429,51 @@ func (m *Model) cachedClock() (time.Duration, time.Duration) {
 	if m.clockFresh && !m.buffering && !m.seek.active {
 		return m.cachedPos, m.cachedDur
 	}
-	return m.playbackClock()
+	pos, dur := m.playbackClock()
+	if !m.buffering && !m.seek.active {
+		m.cachedPos = pos
+		m.cachedDur = dur
+		if m.player != nil {
+			m.cachedSeekable = m.player.Seekable()
+			m.cachedStreamErr = m.player.StreamErr()
+		} else {
+			m.cachedSeekable = false
+			m.cachedStreamErr = nil
+		}
+		m.clockFresh = true
+	}
+	return pos, dur
 }
 
-// tickSampleClock caches the position and duration once per tick, so that
-// the View render functions do not take speaker.Lock() several times.
-// PositionAndDuration() batches both reads under one speaker lock.
+func (m Model) playerSeekable() bool {
+	if m.clockFresh {
+		return m.cachedSeekable
+	}
+	return m.player != nil && m.player.Seekable()
+}
+
+func (m Model) playerStreamErr() error {
+	if m.clockFresh {
+		return m.cachedStreamErr
+	}
+	if m.player == nil {
+		return nil
+	}
+	return m.player.StreamErr()
+}
+
+// tickSampleClock caches the position, duration, seekable flag, and stream
+// error once per tick so View and post-update checks avoid extra player locks.
 func (m *Model) tickSampleClock() {
+	if m.player == nil {
+		m.cachedPos, m.cachedDur = 0, 0
+		m.cachedSeekable = false
+		m.cachedStreamErr = nil
+		m.clockFresh = true
+		return
+	}
+	m.cachedSeekable = m.player.Seekable()
+	m.cachedStreamErr = m.player.StreamErr()
 	if m.buffering {
 		m.cachedPos, m.cachedDur = m.playbackClock()
 		m.clockFresh = true
@@ -423,7 +486,7 @@ func (m *Model) tickSampleClock() {
 		return
 	}
 	m.cachedPos, m.cachedDur = m.player.PositionAndDuration()
-	// Piped SSH streams report 0 duration — use metadata fallback.
+	// Piped SSH streams report 0 duration. Use the metadata duration instead.
 	if m.cachedDur == 0 {
 		if track, _ := m.currentPlaybackTrack(); track.DurationSecs > 0 && strings.HasPrefix(track.Path, "ssh://") {
 			m.cachedDur = time.Duration(track.DurationSecs) * time.Second
@@ -466,7 +529,7 @@ func (m *Model) tickExpire(now time.Time, dt time.Duration) {
 // its grace period, because killing the old pipeline triggers a transient
 // error that can persist for a few ticks.
 func (m *Model) tickStreamHealth(now time.Time) {
-	err := m.player.StreamErr()
+	err := m.playerStreamErr()
 	if err == nil || m.seek.active || m.seek.grace != 0 {
 		return
 	}
@@ -544,6 +607,7 @@ func (m *Model) tickReconnect(now time.Time) (tea.Cmd, bool) {
 	m.reconnect.at = time.Time{}
 	track, idx := m.currentPlaybackTrack()
 	m.player.Stop()
+	m.clockFresh = false
 	if idx < 0 {
 		return nil, false
 	}
@@ -578,6 +642,7 @@ func (m *Model) tickGapless() (cmds []tea.Cmd, playing bool) {
 		return nil, false
 	}
 	newTrack, startCmd := m.beginPlaybackTrack(newTrack)
+	m.clockFresh = false
 	// The preload that just fired is consumed — clear the in-flight flag
 	// so the next track can be preloaded.
 	m.preloading = false

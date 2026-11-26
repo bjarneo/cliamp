@@ -41,19 +41,16 @@ func (m Model) renderSubsBody() string {
 	if len(visible) == 0 {
 		body = bodyMessage("(no shows match)", budget)
 	} else {
-		items := make([]string, len(visible))
-		for i, idx := range visible {
-			show := m.subs.shows[idx]
+		body = windowListFunc(len(visible), m.subs.cursor, m.subs.scroll, budget, func(i int) string {
+			show := m.subs.shows[visible[i]]
 			label := show.Name
 			if show.Author != "" {
 				label += " · " + show.Author
 			}
 			label = terminalText(label)
-			// cursorLine styles the whole row, so keep this plain: truncate
-			// counts characters and would cut an escape sequence in half.
-			items[i] = truncate(label, m.layout.panelWidth-4)
-		}
-		body = windowList(items, m.subs.cursor, m.subs.scroll, budget)
+			// cursorLine styles the whole row, so keep this plain.
+			return truncate(label, m.layout.panelWidth-4)
+		})
 	}
 	if notice == "" {
 		return body

@@ -93,16 +93,16 @@ func TestPreviousEQPresetRegistryEntry(t *testing.T) {
 				t.Fatalf("previous EQ preset command = %+v", command)
 			}
 			m := keybindingTestModel()
-			if !command.enabled(m) {
+			if !command.enabled(&m) {
 				t.Fatal("previous EQ preset command is disabled in a full model")
 			}
 			m.layout.tier = layoutMinimal
-			if command.enabled(m) {
+			if command.enabled(&m) {
 				t.Fatal("previous EQ preset command is enabled in minimal layout")
 			}
 			m.layout.tier = layoutFull
 			m.simplified = true
-			if command.enabled(m) {
+			if command.enabled(&m) {
 				t.Fatal("previous EQ preset command is enabled in simplified mode")
 			}
 			return

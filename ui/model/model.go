@@ -6,8 +6,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"charm.land/lipgloss/v2"
-
 	"github.com/bjarneo/cliamp/external/radio"
 	"github.com/bjarneo/cliamp/favorites"
 	"github.com/bjarneo/cliamp/history"
@@ -314,6 +312,14 @@ type Model struct {
 	luaSelect          *luaSelectState
 	artRef             *artRef
 	slotVis            *slotVisualizers
+	lastPrunedPaneGen  uint64
+	panePruned         bool
+	helpCache          *helpRenderCache
+	playlistCache      *playlistRenderCache
+	settingsCache      *settingsRenderCache
+	titleCache         *titleRenderCache
+	bodyCache          *bodyRenderCache
+	visTick            *visTickScratch
 	downloadsDirectory string
 	// audioDevice names the output device that the last device switch or
 	// list reported. The runtime snapshot shows it.
@@ -354,8 +360,6 @@ type Model struct {
 	layout          frameLayout
 	layoutKey       layoutInputs
 	layoutValid     bool
-	frameStyleCache lipgloss.Style
-	frameStyleReady bool
 	clockFresh      bool
 	textInput       textEditor
 	layoutText      string // what the layout typed for the key physicalKey rewrote, while it is handled
@@ -559,6 +563,7 @@ type Model struct {
 	// favSet is a cached set of favorited paths for O(1) lookup during
 	// rendering. Refreshed on init and after every toggle.
 	favSet map[string]struct{}
+	favGen uint64
 
 	// initialDir is the starting path for the file browser ('o' key).
 	initialDir string
@@ -599,9 +604,11 @@ type Model struct {
 	heightExpanded bool // tracks whether manual 'x' expansion is active
 
 	// Cached per-tick to avoid repeated speaker.Lock() calls in View().
-	cachedPos  time.Duration
-	cachedDur  time.Duration
-	lastTickAt time.Time // wall time of previous tickMsg; used for tick delta
+	cachedPos       time.Duration
+	cachedDur       time.Duration
+	cachedSeekable  bool
+	cachedStreamErr error
+	lastTickAt      time.Time // wall time of previous tickMsg; used for tick delta
 
 }
 

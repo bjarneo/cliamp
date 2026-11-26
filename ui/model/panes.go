@@ -32,8 +32,9 @@ type slotVisKey struct {
 // They share the primary analysis through SetBands, so a second pane costs a
 // driver render, not a second FFT.
 type slotVisualizers struct {
-	mu     sync.Mutex
-	bySlot map[slotVisKey]*ui.Visualizer
+	mu       sync.Mutex
+	bySlot   map[slotVisKey]*ui.Visualizer
+	hasSlots atomic.Bool
 }
 
 func newSlotVisualizers() *slotVisualizers {
@@ -42,9 +43,13 @@ func newSlotVisualizers() *slotVisualizers {
 
 // prune removes visualizers for panes no longer registered in active.
 func (s *slotVisualizers) prune(active []ui.PaneSpec) {
+	if !s.hasSlots.Load() {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.bySlot) == 0 {
+		s.hasSlots.Store(false)
 		return
 	}
 	for key := range s.bySlot {
@@ -59,12 +64,16 @@ func (s *slotVisualizers) prune(active []ui.PaneSpec) {
 			delete(s.bySlot, key)
 		}
 	}
+	s.hasSlots.Store(len(s.bySlot) > 0)
 }
 
 // tickAll advances every pane visualizer with the primary's context, so drivers
 // that keep their own state (stereo levels, rain, peak holds) animate instead of
 // staying at rest.
 func (s *slotVisualizers) tickAll(ctx ui.VisTickContext, samples []float64) {
+	if !s.hasSlots.Load() {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, v := range s.bySlot {
@@ -82,6 +91,7 @@ func (s *slotVisualizers) get(key slotVisKey, mode ui.VisMode, sampleRate float6
 	if !ok {
 		v = ui.NewVisualizer(sampleRate)
 		s.bySlot[key] = v
+		s.hasSlots.Store(true)
 	}
 	v.Mode = mode
 	return v
@@ -135,6 +145,7 @@ func (c *paneCache) prune(active []ui.PaneSpec) {
 // SetPaneSet wires the runtime layout registry.
 func (m *Model) SetPaneSet(panes *ui.PaneSet) {
 	m.panes = panes
+	m.panePruned = false
 	if m.paneCache == nil {
 		m.paneCache = newPaneCache()
 	}

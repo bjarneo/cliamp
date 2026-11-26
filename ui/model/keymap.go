@@ -87,7 +87,7 @@ func (m Model) buildKeymapEntries() []keymapEntry {
 	seen := make(map[string]bool)
 	mode, screen := m.keymapContext()
 	add := func(command commandSpec) {
-		label := command.label(m)
+		label := command.label(&m)
 		id := command.KeyLabel + "\x00" + label
 		if seen[id] {
 			return
@@ -108,14 +108,14 @@ func (m Model) buildKeymapEntries() []keymapEntry {
 	if mode != commandModeMain {
 		out = append(out, keymapEntry{action: "— current: " + screen + " —", divider: true})
 		for _, command := range commandRegistry {
-			if command.Mode != commandModeAny && (command.Keymap || command.ContextHelp) && command.enabled(m) && command.Mode&mode != 0 {
+			if command.Mode != commandModeAny && (command.Keymap || command.ContextHelp) && command.enabled(&m) && command.Mode&mode != 0 {
 				add(command)
 			}
 		}
 		out = append(out, keymapEntry{action: "— player & library —", divider: true})
 	}
 	for _, command := range commandRegistry {
-		if command.Keymap && command.enabled(m) {
+		if command.Keymap && command.enabled(&m) {
 			add(command)
 		}
 	}
@@ -322,8 +322,9 @@ func (m Model) renderKeymapList() string {
 		return ""
 	}
 
-	visible := shownRows(&m.keymap.filterList, m.keymap.entries)
-	if len(visible) == 0 {
+	total := len(m.keymap.entries)
+	count := m.keymap.viewCount(total)
+	if count == 0 {
 		msg := "(empty)"
 		if m.keymap.filter != "" {
 			msg = "No matches"
@@ -332,8 +333,12 @@ func (m Model) renderKeymapList() string {
 	}
 
 	lines := make([]string, 0, budget)
-	for i := m.keymap.scroll; i < len(visible) && len(lines) < budget; i++ {
-		entry := visible[i]
+	for i := m.keymap.scroll; i < count && len(lines) < budget; i++ {
+		raw, ok := m.keymap.rawIndex(i, total)
+		if !ok {
+			continue
+		}
+		entry := m.keymap.entries[raw]
 		if entry.divider {
 			lines = append(lines, dimStyle.Render("  "+entry.action))
 			continue

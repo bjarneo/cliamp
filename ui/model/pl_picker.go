@@ -95,12 +95,6 @@ func (m Model) renderPlaylistPickerBody() string {
 		return bodyLines(lines, budget)
 	}
 
-	items := make([]string, len(m.plPicker.playlists)+1)
-	for i, pl := range m.plPicker.playlists {
-		items[i] = playlistLabel("", pl)
-	}
-	items[len(items)-1] = "+ New Playlist..."
-
 	var head string
 	switch n := len(m.plPicker.tracks); {
 	case m.plPicker.title != "":
@@ -113,7 +107,13 @@ func (m Model) renderPlaylistPickerBody() string {
 		head = fmt.Sprintf("%d tracks selected", n)
 	}
 	head = dimStyle.Render("  " + truncate(terminalText(head), max(1, m.layout.panelWidth-2)))
-	list := windowList(items, m.plPicker.cursor, m.plPicker.scroll, max(0, budget-1))
+	count := len(m.plPicker.playlists) + 1
+	list := windowListFunc(count, m.plPicker.cursor, m.plPicker.scroll, max(0, budget-1), func(i int) string {
+		if i < len(m.plPicker.playlists) {
+			return playlistLabel("", m.plPicker.playlists[i])
+		}
+		return "+ New Playlist..."
+	})
 	return strings.Join([]string{head, list}, "\n")
 }
 

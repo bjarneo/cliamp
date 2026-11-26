@@ -95,7 +95,7 @@ func (m *Model) playbackState() (playlist.Track, playback.State) {
 		VolumeDB:    m.player.Volume(),
 		VolumeMinDB: m.player.VolumeMin(),
 		Position:    position,
-		Seekable:    m.player.Seekable(),
+		Seekable:    m.playerSeekable(),
 	}
 }
 

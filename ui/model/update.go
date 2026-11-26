@@ -129,13 +129,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cursor < 0 || cursor >= len(msg.Options) {
 			cursor = 0
 		}
-		m.luaSelect = &luaSelectState{
-			title:    msg.Title,
-			options:  msg.Options,
-			cursor:   cursor,
-			onDone:   msg.OnDone,
-			onCancel: msg.OnCancel,
-		}
+		m.luaSelect = newLuaSelectState(msg, cursor)
 		return m, nil
 
 	case tea.WindowSizeMsg:

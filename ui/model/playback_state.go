@@ -17,6 +17,9 @@ func (m Model) currentPlaybackTrack() (playlist.Track, int) {
 }
 
 func (m Model) currentPlaybackIsLive(track playlist.Track) bool {
+	if m.clockFresh && !m.buffering && track.IsLive() && playlist.IsYTDL(track.Path) {
+		return m.cachedDur <= 0
+	}
 	return playsLive(track, m.player)
 }
 
@@ -71,6 +74,7 @@ func (m *Model) stopPlayback() (playlist.Track, bool) {
 	nextRequest(&m.requests.stream)
 	m.player.SetPlaybackGeneration(m.requests.stream)
 	m.player.Stop()
+	m.clockFresh = false
 	// The refused stream result would have cleared this; nothing else will.
 	m.buffering = false
 	// A pending reconnect would restart the playlist's current track when its

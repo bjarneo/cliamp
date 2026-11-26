@@ -1284,3 +1284,626 @@ func TestBrowsePeekingPreservesMainAlbumHeaders(t *testing.T) {
 		})
 	}
 }
+
+type perfCountingEngine struct {
+	playbackFakeEngine
+	streamErr         error
+	posDurCalls       int
+	durationCalls     int
+	seekableCalls     int
+	streamErrCalls    int
+	stereoSampleCalls int
+}
+
+func (e *perfCountingEngine) PositionAndDuration() (time.Duration, time.Duration) {
+	e.posDurCalls++
+	return e.position, e.duration
+}
+
+func (e *perfCountingEngine) Duration() time.Duration {
+	e.durationCalls++
+	return e.duration
+}
+
+func (e *perfCountingEngine) Seekable() bool {
+	e.seekableCalls++
+	return e.seekable
+}
+
+func (e *perfCountingEngine) StreamErr() error {
+	e.streamErrCalls++
+	return e.streamErr
+}
+
+func (e *perfCountingEngine) StereoSamplesInto(dst [][2]float64) int {
+	e.stereoSampleCalls++
+	if len(dst) == 0 {
+		return 0
+	}
+	dst[0] = [2]float64{0.5, -0.5}
+	return 1
+}
+
+func TestTerminalTextASCIIFastPath(t *testing.T) {
+	tests := []struct {
+		name      string
+		in        string
+		want      string
+		zeroAlloc bool
+	}{
+		{name: "empty", in: "", want: "", zeroAlloc: true},
+		{name: "printable ASCII", in: "Artist - Song Title (2026) [FLAC]", want: "Artist - Song Title (2026) [FLAC]", zeroAlloc: true},
+		{name: "ANSI escape stripped", in: "\x1b[31mRed\x1b[0m Text", want: "Red Text"},
+		{name: "newlines and tabs normalized", in: "Line1\nLine2\r\tEnd", want: "Line1 Line2  End"},
+		{name: "control chars dropped", in: "Safe\x00\x07\x7fText", want: "SafeText"},
+		{name: "non-ASCII UTF-8 preserved", in: "山下達郎 - 東京ナイトドライブ", want: "山下達郎 - 東京ナイトドライブ"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := terminalText(tt.in); got != tt.want {
+				t.Fatalf("terminalText(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+			if tt.zeroAlloc {
+				allocs := testing.AllocsPerRun(50, func() {
+					if got := terminalText(tt.in); got != tt.want {
+						t.Fatalf("terminalText(%q) = %q, want %q", tt.in, got, tt.want)
+					}
+				})
+				if allocs != 0 {
+					t.Fatalf("terminalText(%q) allocs = %v, want 0", tt.in, allocs)
+				}
+			}
+		})
+	}
+}
+
+func TestRenderFramedParityAndBounds(t *testing.T) {
+	tests := []struct {
+		name           string
+		width, height  int
+		padH, padV     int
+		content        string
+		wantTopBlanks  int
+		wantFirstBlank bool
+	}{
+		{
+			name:          "centered frame matches lipgloss top padding",
+			width:         80,
+			height:        20,
+			padH:          3,
+			padV:          1,
+			content:       "line1\nline2\nline3\nline4",
+			wantTopBlanks: (20 - (4 + 2)) / 2,
+		},
+		{
+			name:          "exact height has no centering blanks",
+			width:         80,
+			height:        6,
+			padH:          2,
+			padV:          1,
+			content:       "a\nb\nc\nd",
+			wantTopBlanks: 0,
+		},
+		{
+			name:          "zero horizontal padding still marks vertical padding row",
+			width:         40,
+			height:        10,
+			padH:          0,
+			padV:          1,
+			content:       "one\ntwo",
+			wantTopBlanks: (10 - 4) / 2,
+		},
+		{
+			name:          "overflow lines stop at terminal height and truncate wide lines",
+			width:         40,
+			height:        5,
+			padH:          2,
+			padV:          1,
+			content:       strings.Repeat("界", 30) + "\n2\n3\n4\n5\n6",
+			wantTopBlanks: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				width:  tt.width,
+				height: tt.height,
+				layout: frameLayout{
+					frameWidth: tt.width,
+					panelWidth: max(1, tt.width-2*tt.padH),
+					paddingH:   tt.padH,
+					paddingV:   tt.padV,
+				},
+			}
+			out := m.renderFramed(tt.content)
+			lines := strings.Split(out, "\n")
+			if len(lines) > tt.height {
+				t.Fatalf("renderFramed height = %d, want <= %d", len(lines), tt.height)
+			}
+			for i, line := range lines {
+				if w := lipgloss.Width(line); w > tt.width {
+					t.Fatalf("line %d width = %d, want <= %d: %q", i, w, tt.width, line)
+				}
+			}
+			gotBlanks := 0
+			for _, line := range lines {
+				if line != "" {
+					break
+				}
+				gotBlanks++
+			}
+			if gotBlanks != tt.wantTopBlanks {
+				t.Fatalf("leading blanks = %d, want %d\n%q", gotBlanks, tt.wantTopBlanks, out)
+			}
+		})
+	}
+}
+
+func TestTitleIntroFrameMatchesPaddedSlice(t *testing.T) {
+	intro := []rune("Hello, 世界!")
+	for _, viewport := range []int{0, 4, 10, 18} {
+		maxOff := titleIntroMaxOffset(viewport, len(intro))
+		for offset := -2; offset <= maxOff+2; offset++ {
+			got := titleIntroFrame(offset, viewport, intro)
+			if viewport == 0 {
+				if got != "" {
+					t.Fatalf("titleIntroFrame(%d, 0) = %q, want empty", offset, got)
+				}
+				continue
+			}
+			clamped := min(max(offset, 0), maxOff)
+			padded := make([]rune, 0, 2*viewport+len(intro))
+			for range viewport {
+				padded = append(padded, ' ')
+			}
+			padded = append(padded, intro...)
+			for range viewport {
+				padded = append(padded, ' ')
+			}
+			want := string(padded[clamped : clamped+viewport])
+			if got != want {
+				t.Fatalf("titleIntroFrame(%d, %d) = %q, want %q", offset, viewport, got, want)
+			}
+		}
+	}
+}
+
+func TestRenderCachesHitInvalidateAndHandleNil(t *testing.T) {
+	t.Run("zero-value model with nil caches renders safely", func(t *testing.T) {
+		pl := playlist.New()
+		pl.Add(playlist.Track{Path: "/music/a.flac", Title: "Song A"})
+		m := Model{
+			player:   &playbackFakeEngine{playing: true},
+			playlist: pl,
+			vis:      ui.NewVisualizer(44100),
+			width:    100,
+			height:   30,
+		}
+		m.recomputeLayout()
+		view := m.View()
+		if view.Content == "" {
+			t.Fatal("View() returned empty content for zero-value caches")
+		}
+	})
+
+	t.Run("help, playlist, settings, and title caches hit and invalidate", func(t *testing.T) {
+		pl := playlist.New()
+		for i := range 20 {
+			pl.Add(playlist.Track{
+				Path:         fmt.Sprintf("/music/%02d.flac", i),
+				Title:        fmt.Sprintf("Track %d", i+1),
+				Artist:       "Artist",
+				Album:        "Album",
+				DurationSecs: 200,
+			})
+		}
+		engine := &playbackFakeEngine{playing: true, seekable: true, duration: 200 * time.Second}
+		providers := []provider.Entry{
+			{Key: "local", Name: "Local", Provider: &commandsTestProvider{name: "Local"}},
+			{Key: "radio", Name: "Radio", Provider: &commandsTestProvider{name: "Radio"}},
+		}
+		m := New(engine, pl, providers, "local", nil, nil, nil, []theme.Theme{{Name: "Dracula", Accent: "#bd93f9"}}, nil, nil)
+		m.termTitle.introActive = false
+		m.width, m.height = 120, 36
+		m.recomputeLayout()
+		m.setPlaybackTrack(pl.Tracks()[0])
+
+		// Populate all four caches.
+		firstHelp := m.renderHelp()
+		firstPlaylist := m.renderPlaylist()
+		firstSettings := m.renderSettingsBuiltin(m.effectivePlaylistVisible())
+		firstTitle := m.cachedWindowTitle()
+
+		if !m.helpCache.valid || !m.playlistCache.valid || !m.settingsCache.valid || !m.titleCache.valid {
+			t.Fatal("expected all four render caches to populate")
+		}
+
+		// Sentinel value proves subsequent calls return the cached string.
+		m.helpCache.value = "CACHED_HELP"
+		if got := m.renderHelp(); got != "CACHED_HELP" {
+			t.Fatalf("helpCache missed on identical state: got %q", got)
+		}
+		m.simplified = true
+		if got := m.renderHelp(); got == "CACHED_HELP" {
+			t.Fatal("helpCache served stale value after simplified toggle")
+		}
+		m.simplified = false
+		if got := m.renderHelp(); got != firstHelp {
+			t.Fatalf("help mismatch after restore: got %q, want %q", got, firstHelp)
+		}
+
+		m.playlistCache.value = "CACHED_PLAYLIST"
+		if got := m.renderPlaylist(); got != "CACHED_PLAYLIST" {
+			t.Fatalf("playlistCache missed on identical state: got %q", got)
+		}
+		m.plCursor = 1
+		if got := m.renderPlaylist(); got == "CACHED_PLAYLIST" || got == firstPlaylist {
+			t.Fatal("playlistCache served stale value after cursor move")
+		}
+		m.plCursor = 0
+
+		m.settingsCache.value = "CACHED_SETTINGS"
+		if got := m.renderSettingsBuiltin(m.effectivePlaylistVisible()); got != "CACHED_SETTINGS" {
+			t.Fatalf("settingsCache missed on identical state: got %q", got)
+		}
+		engine.volume = -3
+		if got := m.renderSettingsBuiltin(m.effectivePlaylistVisible()); got == "CACHED_SETTINGS" || got == firstSettings {
+			t.Fatal("settingsCache served stale value after volume change")
+		}
+		engine.volume = 0
+
+		m.titleCache.value = "CACHED_TITLE"
+		if got := m.cachedWindowTitle(); got != "CACHED_TITLE" {
+			t.Fatalf("titleCache missed on identical state: got %q", got)
+		}
+		engine.paused = true
+		if got := m.cachedWindowTitle(); got == "CACHED_TITLE" || got == firstTitle {
+			t.Fatal("titleCache served stale value after pause change")
+		}
+	})
+
+	t.Run("playlist cache bypasses when PlaybackStateReporter has active state", func(t *testing.T) {
+		pl := playlist.New()
+		track := playlist.Track{Path: "/pod/ep1.mp3", Title: "Episode 1"}
+		pl.Add(track)
+		reporter := &perfPlaybackStateProvider{
+			commandsTestProvider: commandsTestProvider{name: "Podcasts"},
+			hasState:             true,
+			states:               map[string]provider.PlaybackState{track.Path: {Position: 30 * time.Second}},
+		}
+		m := New(&playbackFakeEngine{}, pl, []provider.Entry{{Key: "pod", Name: "Podcasts", Provider: reporter}}, "pod", nil, nil, nil, nil, nil, nil)
+		m.width, m.height = 100, 30
+		m.recomputeLayout()
+
+		before := ansi.Strip(m.renderPlaylist())
+		if !strings.Contains(before, partialMarker) {
+			t.Fatalf("initial render missing partial marker: %q", before)
+		}
+		reporter.states[track.Path] = provider.PlaybackState{Played: true}
+		after := ansi.Strip(m.renderPlaylist())
+		if !strings.Contains(after, playedMarker) {
+			t.Fatalf("updated render missing played marker: %q", after)
+		}
+	})
+}
+
+func TestProviderPaneNonSectionedListWithSectionHeadersScrolls(t *testing.T) {
+	prov := commandsTestProvider{name: "Plain"}
+	lists := []playlist.PlaylistInfo{
+		{ID: "1", Name: "Item 1", Section: "Alpha"},
+		{ID: "2", Name: "Item 2", Section: "Alpha"},
+		{ID: "3", Name: "Item 3", Section: "Beta"},
+		{ID: "4", Name: "Item 4", Section: "Beta"},
+		{ID: "5", Name: "Item 5", Section: "Gamma"},
+		{ID: "6", Name: "Item 6", Section: "Gamma"},
+	}
+
+	m := Model{
+		provider:  prov,
+		focus:     focusProvider,
+		plVisible: 4,
+		layout:    frameLayout{panelWidth: 60},
+	}
+	m.replaceProviderLists(lists)
+	if !m.provPane.hasSections || !m.provPane.sectionsCached {
+		t.Fatalf("replaceProviderLists did not cache hasSections: %+v", m.provPane)
+	}
+
+	for cursor := range lists {
+		m.provPane.cursor = cursor
+		out := ansi.Strip(m.renderProviderList())
+		wantRow := "> " + lists[cursor].Name
+		if !strings.Contains(out, wantRow) {
+			t.Fatalf("cursor %d (%s) scrolled out of view:\n%s", cursor, wantRow, out)
+		}
+	}
+}
+
+func TestCommandRegistryModeGroupingMatchesFullScan(t *testing.T) {
+	m := keybindingTestModel()
+	m.layout.panelWidth = 120
+	for bit := commandModeMain; bit <= commandModeFullVis; bit <<= 1 {
+		want := 0
+		for _, cmd := range commandRegistry {
+			if cmd.ContextHelp && cmd.Mode&bit != 0 {
+				want++
+			}
+		}
+		got := contextHelpByMode[bit]
+		if len(got) != want {
+			t.Fatalf("mode %#x grouped %d context help commands, want %d", uint64(bit), len(got), want)
+		}
+	}
+}
+
+func TestCachedClockSeekableStreamErrAndLiveCheck(t *testing.T) {
+	engine := &perfCountingEngine{
+		playbackFakeEngine: playbackFakeEngine{
+			playing:  true,
+			seekable: true,
+			position: 45 * time.Second,
+			duration: 180 * time.Second,
+		},
+		streamErr: errors.New("dropped"),
+	}
+	pl := playlist.New()
+	ytTrack := playlist.Track{Path: "https://www.youtube.com/watch?v=abc", Title: "VOD", Stream: true, Realtime: true}
+	pl.Add(ytTrack)
+
+	m := New(engine, pl, nil, "", nil, nil, nil, nil, nil, nil)
+	m.setPlaybackTrack(ytTrack)
+
+	// Non-tick cachedClock miss populates clock, seekable, and stream error.
+	pos, dur := m.cachedClock()
+	if pos != 45*time.Second || dur != 180*time.Second || !m.clockFresh {
+		t.Fatalf("cachedClock() = (%v, %v) fresh=%t, want (45s, 180s) fresh=true", pos, dur, m.clockFresh)
+	}
+	if engine.posDurCalls != 1 || engine.seekableCalls != 1 || engine.streamErrCalls != 1 {
+		t.Fatalf("engine calls after first miss = posDur:%d seekable:%d streamErr:%d, want 1/1/1",
+			engine.posDurCalls, engine.seekableCalls, engine.streamErrCalls)
+	}
+
+	// Second read hits cache and currentPlaybackIsLive uses cachedDur.
+	_, _ = m.cachedClock()
+	_ = m.playerSeekable()
+	_ = m.playerStreamErr()
+	if live := m.currentPlaybackIsLive(ytTrack); live {
+		t.Fatal("currentPlaybackIsLive() = true for finite cached duration, want false")
+	}
+	if engine.posDurCalls != 1 || engine.durationCalls != 0 || engine.seekableCalls != 1 || engine.streamErrCalls != 1 {
+		t.Fatalf("cache hit called engine unexpectedly: posDur:%d dur:%d seekable:%d streamErr:%d",
+			engine.posDurCalls, engine.durationCalls, engine.seekableCalls, engine.streamErrCalls)
+	}
+
+	// tickSampleClock refreshes all cached fields once.
+	m.clockFresh = false
+	m.tickSampleClock()
+	if engine.posDurCalls != 2 || engine.seekableCalls != 2 || engine.streamErrCalls != 2 {
+		t.Fatalf("tickSampleClock calls = posDur:%d seekable:%d streamErr:%d, want 2/2/2",
+			engine.posDurCalls, engine.seekableCalls, engine.streamErrCalls)
+	}
+}
+
+func TestCompleteV2JobComputesSingleRuntimeSnapshot(t *testing.T) {
+	engine := &perfCountingEngine{
+		playbackFakeEngine: playbackFakeEngine{
+			playing:  true,
+			seekable: true,
+			position: 10 * time.Second,
+			duration: 120 * time.Second,
+		},
+	}
+	pl := playlist.New()
+	pl.Add(playlist.Track{Path: "/music/a.flac", Title: "A"})
+	m := New(engine, pl, nil, "", nil, nil, nil, nil, nil, nil)
+	m.SetIPCBroker(ipc.NewBroker())
+
+	jobs := ipc.NewJobStore()
+	t.Cleanup(jobs.CancelAll)
+	job, err := jobs.Create("volume")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := jobs.Start(job.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	m.tickSampleClock()
+	beforePosDur := engine.posDurCalls
+	m.completeV2Job(jobs, job.ID, ipc.Response{OK: true})
+
+	// runtimeSnapshot calls playbackClock once. A duplicate snapshot calls it twice.
+	if got := engine.posDurCalls - beforePosDur; got != 1 {
+		t.Fatalf("PositionAndDuration calls in completeV2Job = %d, want 1", got)
+	}
+	done, ok := jobs.Get(job.ID)
+	if !ok || done.State != ipc.JobSucceeded || done.Snapshot == nil || done.Snapshot.Revision != 1 {
+		t.Fatalf("completed job = %+v, want succeeded with revision 1", done)
+	}
+}
+
+func TestPaneGenTracksMutationsInLayoutAndTick(t *testing.T) {
+	engine := &playbackFakeEngine{playing: true}
+	m := New(engine, playlist.New(), nil, "", nil, nil, nil, nil, nil, nil)
+	panes := ui.NewPaneSet()
+	m.SetPaneSet(panes)
+	m.width, m.height = 100, 30
+	m.recomputeLayout()
+
+	if m.layoutKey.paneGen != 0 || m.vis.Cols != m.layout.panelWidth {
+		t.Fatalf("initial layout paneGen=%d cols=%d, want 0 and %d", m.layoutKey.paneGen, m.vis.Cols, m.layout.panelWidth)
+	}
+	m.tickVisualizer(time.Unix(1, 0))
+	if !m.panePruned || m.lastPrunedPaneGen != 0 {
+		t.Fatalf("after first tick: pruned=%t gen=%d, want true and 0", m.panePruned, m.lastPrunedPaneGen)
+	}
+
+	if err := panes.Add(string(ui.RegionVisualizer), "extra", 1); err != nil {
+		t.Fatal(err)
+	}
+	m.recomputeLayout()
+	if m.layoutKey.paneGen != panes.Generation() {
+		t.Fatalf("layout paneGen = %d, want %d", m.layoutKey.paneGen, panes.Generation())
+	}
+	if m.vis.Cols >= m.layout.panelWidth {
+		t.Fatalf("builtin vis cols = %d, want narrowed below %d after pane add", m.vis.Cols, m.layout.panelWidth)
+	}
+	m.tickVisualizer(time.Unix(2, 0))
+	if m.lastPrunedPaneGen != panes.Generation() {
+		t.Fatalf("lastPrunedPaneGen = %d, want %d", m.lastPrunedPaneGen, panes.Generation())
+	}
+}
+
+func TestWindowListFuncParityAndBoundedCalls(t *testing.T) {
+	items := make([]string, 50)
+	for i := range items {
+		items[i] = fmt.Sprintf("Item %02d", i)
+	}
+	tests := []struct {
+		name           string
+		cursor, scroll int
+		budget         int
+		wantCalls      int
+	}{
+		{name: "top window", cursor: 2, scroll: 0, budget: 5, wantCalls: 5},
+		{name: "mid window", cursor: 22, scroll: 20, budget: 6, wantCalls: 6},
+		{name: "tail window padded", cursor: 49, scroll: 47, budget: 8, wantCalls: 3},
+		{name: "zero budget", cursor: 0, scroll: 0, budget: 0, wantCalls: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			got := windowListFunc(len(items), tt.cursor, tt.scroll, tt.budget, func(i int) string {
+				calls++
+				return items[i]
+			})
+			want := windowList(items, tt.cursor, tt.scroll, tt.budget)
+			if got != want {
+				t.Fatalf("windowListFunc mismatch:\ngot:  %q\nwant: %q", got, want)
+			}
+			if calls != tt.wantCalls {
+				t.Fatalf("label calls = %d, want %d", calls, tt.wantCalls)
+			}
+		})
+	}
+}
+
+func TestLuaSelectPrecomputesWidthOnOpen(t *testing.T) {
+	m := New(&playbackFakeEngine{}, playlist.New(), nil, "", nil, nil, nil, nil, nil, nil)
+	m.width, m.height = 80, 24
+	m.recomputeLayout()
+
+	updated, _ := m.Update(LuaSelectMsg{
+		Title:   "Choose",
+		Options: []string{"Short", "A Much Longer Option Name"},
+	})
+	m = updated.(Model)
+	if m.luaSelect == nil || !m.luaSelect.widthComputed {
+		t.Fatal("luaSelect did not precompute width on LuaSelectMsg")
+	}
+	if want := lipgloss.Width("A Much Longer Option Name"); m.luaSelect.maxOptionWidth != want {
+		t.Fatalf("maxOptionWidth = %d, want %d", m.luaSelect.maxOptionWidth, want)
+	}
+	if box := m.renderLuaSelect(); !strings.Contains(ansi.Strip(box), "A Much Longer Option Name") {
+		t.Fatalf("renderLuaSelect() = %q, missing longest option", ansi.Strip(box))
+	}
+}
+
+func TestStereoSamplesIntoEarlyReturnPassthrough(t *testing.T) {
+	engine := &perfCountingEngine{
+		playbackFakeEngine: playbackFakeEngine{playing: true, mono: false, volume: 0},
+	}
+	m := New(engine, playlist.New(), nil, "", nil, nil, nil, nil, nil, nil)
+	m.vis.Mode = ui.VisStereo
+	m.visVolumeLinked = false
+
+	dst := make([][2]float64, 1)
+	n := m.visualizerTickContext(time.Now()).StereoSamplesInto(dst)
+	if n != 1 || dst[0] != [2]float64{0.5, -0.5} {
+		t.Fatalf("StereoSamplesInto = (%d, %v), want (1, [0.5 -0.5])", n, dst[0])
+	}
+}
+
+func newBenchmarkPlaybackModel(trackCount int) Model {
+	pl := playlist.New()
+	tracks := make([]playlist.Track, trackCount)
+	for i := range trackCount {
+		tracks[i] = playlist.Track{
+			Path:         fmt.Sprintf("/music/album-%02d/track-%03d.flac", i/10, i),
+			Title:        fmt.Sprintf("Track Title %03d", i+1),
+			Artist:       fmt.Sprintf("Artist %02d", i/10+1),
+			Album:        fmt.Sprintf("Album %02d", i/10+1),
+			DurationSecs: 215,
+			ProviderMeta: map[string]string{"id": fmt.Sprintf("track-%d", i)},
+		}
+	}
+	pl.Replace(tracks)
+	engine := &samplingFakeEngine{
+		playbackFakeEngine: &playbackFakeEngine{
+			playing:  true,
+			seekable: true,
+			position: 63 * time.Second,
+			duration: 215 * time.Second,
+		},
+	}
+	providers := []provider.Entry{
+		{Key: "local", Name: "Local", Provider: &commandsTestProvider{name: "Local"}},
+		{Key: "radio", Name: "Radio", Provider: &commandsTestProvider{name: "Radio"}},
+	}
+	m := New(engine, pl, providers, "local", nil, nil, nil, nil, nil, nil)
+	m.SetPaneSet(ui.NewPaneSet())
+	m.SetIPCBroker(ipc.NewBroker())
+	m.termTitle.introActive = false
+	m.vis.Mode = ui.VisBars
+	m.width, m.height = 120, 40
+	m.recomputeLayout()
+	m.setPlaybackTrack(tracks[0])
+	m.tickSampleClock()
+	m.tickVisualizer(time.Unix(1, 0))
+	return m
+}
+
+func BenchmarkModelView(b *testing.B) {
+	b.Run("two_column_200_tracks", func(b *testing.B) {
+		m := newBenchmarkPlaybackModel(200)
+		// Warm caches before measuring steady-state frame rendering.
+		_ = m.View()
+		b.ReportAllocs()
+		b.ResetTimer()
+		for range b.N {
+			_ = m.View()
+		}
+	})
+
+	b.Run("pure_full_vis", func(b *testing.B) {
+		m := newBenchmarkPlaybackModel(200)
+		m.fullVis = true
+		m.pureVis = true
+		m.recomputeLayout()
+		m.tickVisualizer(time.Unix(2, 0))
+		_ = m.View()
+		b.ReportAllocs()
+		b.ResetTimer()
+		for range b.N {
+			_ = m.View()
+		}
+	})
+}
+
+func BenchmarkModelUpdateTick(b *testing.B) {
+	m := newBenchmarkPlaybackModel(200)
+	now := time.Unix(10, 0)
+	// Warm initial IPC state and layout.
+	next, _ := m.Update(tickMsg(now))
+	m = next.(Model)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := range b.N {
+		next, _ = m.Update(tickMsg(now.Add(time.Duration(i+1) * ui.TickFast)))
+		m = next.(Model)
+	}
+}

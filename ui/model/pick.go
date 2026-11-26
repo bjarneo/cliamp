@@ -27,7 +27,7 @@ func (m *Model) startChatPicker() tea.Cmd {
 	m.provPane.pickPrev = m.provPane.lists
 	m.provPane.pickCur = m.provPane.cursor
 	m.provPane.pickScr = m.provPane.scroll
-	m.provPane.lists = nil
+	m.provPane.setLists(nil)
 	m.provPane.cursor, m.provPane.scroll = 0, 0
 	m.provPane.picking = true
 	m.provPane.pickLoad = true
@@ -63,7 +63,7 @@ func (m *Model) handleChatPickerLoaded(msg providerPickLoadedMsg) {
 		m.cancelChatPicker()
 		return
 	}
-	m.provPane.lists = msg.dialogs
+	m.provPane.setLists(msg.dialogs)
 	m.provPane.cursor, m.provPane.scroll = 0, 0
 	for _, info := range msg.selected {
 		m.provPane.picked[info.ID] = true
@@ -125,7 +125,7 @@ func (m *Model) cancelChatPicker() {
 	m.provPane.picking = false
 	m.provPane.pickLoad = false
 	m.provPane.loading = false
-	m.provPane.lists = m.provPane.pickPrev
+	m.provPane.setLists(m.provPane.pickPrev)
 	m.provPane.cursor = m.provPane.pickCur
 	m.provPane.scroll = m.provPane.pickScr
 	m.provPane.picked = nil

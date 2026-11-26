@@ -36,6 +36,7 @@ type Playlist struct {
 	revision       uint64
 	tracks         []Track
 	order          []int // indices into tracks, shuffled or sequential
+	orderPos       []int // inverse map from track index to position in order
 	pos            int   // current position in order
 	shuffle        bool
 	repeat         RepeatMode
@@ -91,6 +92,41 @@ func (p *Playlist) rebuildQueuePositions() {
 			p.queuePositions[idx] = i + 1
 		}
 	}
+}
+
+func (p *Playlist) rebuildOrderPos() {
+	if len(p.order) == 0 {
+		p.orderPos = nil
+		return
+	}
+	if cap(p.orderPos) < len(p.tracks) {
+		p.orderPos = make([]int, len(p.tracks))
+	} else {
+		p.orderPos = p.orderPos[:len(p.tracks)]
+	}
+	for i := range p.orderPos {
+		p.orderPos[i] = -1
+	}
+	for pos, idx := range p.order {
+		if idx >= 0 && idx < len(p.orderPos) {
+			p.orderPos[idx] = pos
+		}
+	}
+}
+
+func (p *Playlist) orderPositionLocked(idx int) int {
+	if idx < 0 || idx >= len(p.tracks) {
+		return -1
+	}
+	if !p.shuffle && idx < len(p.order) && p.order[idx] == idx {
+		return idx
+	}
+	if idx < len(p.orderPos) {
+		if pos := p.orderPos[idx]; pos >= 0 && pos < len(p.order) && p.order[pos] == idx {
+			return pos
+		}
+	}
+	return slices.Index(p.order, idx)
 }
 
 func cloneTrack(track Track) Track {
@@ -190,8 +226,14 @@ func (p *Playlist) ReplaceAt(tracks []Track, start int) {
 
 	p.tracks = cloneTracks(tracks)
 	p.order = make([]int, len(tracks))
-	for i := range tracks {
-		p.order[i] = i
+	if len(tracks) == 0 {
+		p.orderPos = nil
+	} else {
+		p.orderPos = make([]int, len(tracks))
+		for i := range tracks {
+			p.order[i] = i
+			p.orderPos[i] = i
+		}
 	}
 	if start < 0 || start >= len(tracks) {
 		start = 0
@@ -224,8 +266,17 @@ func (p *Playlist) Add(tracks ...Track) {
 	start := len(p.tracks)
 	p.tracks = append(p.tracks, tracks...)
 	if !p.shuffle {
-		for i := start; i < len(p.tracks); i++ {
-			p.order = append(p.order, i)
+		if len(p.orderPos) == start {
+			p.orderPos = slices.Grow(p.orderPos, len(tracks))
+			for i := start; i < len(p.tracks); i++ {
+				p.order = append(p.order, i)
+				p.orderPos = append(p.orderPos, i)
+			}
+		} else {
+			for i := start; i < len(p.tracks); i++ {
+				p.order = append(p.order, i)
+			}
+			p.rebuildOrderPos()
 		}
 		p.revision++
 		return
@@ -254,11 +305,25 @@ func (p *Playlist) Add(tracks ...Track) {
 		p.revision++
 		return
 	}
+	inSync := len(p.orderPos) == start
+	if inSync {
+		p.orderPos = slices.Grow(p.orderPos, len(tracks))
+	}
 	for i := start; i < len(p.tracks); i++ {
 		end := len(p.order)
 		p.order = append(p.order, i)
+		if inSync {
+			p.orderPos = append(p.orderPos, end)
+		}
 		j := p.pos + 1 + rand.Intn(end-p.pos)
 		p.order[end], p.order[j] = p.order[j], p.order[end]
+		if inSync {
+			p.orderPos[p.order[end]] = end
+			p.orderPos[p.order[j]] = j
+		}
+	}
+	if !inSync {
+		p.rebuildOrderPos()
 	}
 	p.revision++
 }
@@ -342,6 +407,7 @@ func (p *Playlist) nextShuffleWrap() (orderPos int, trackIdx int, ok bool) {
 	}
 	p.order = origOrder
 	p.pos = origPos
+	p.rebuildOrderPos()
 	return -1, -1, false
 }
 
@@ -643,11 +709,8 @@ func (p *Playlist) SetIndex(i int) {
 	origPos := p.pos
 	origQueuedIdx := p.queuedIdx
 	p.queuedIdx = -1
-	for pos, idx := range p.order {
-		if idx == i {
-			p.pos = pos
-			break
-		}
+	if pos := p.orderPositionLocked(i); pos >= 0 {
+		p.pos = pos
 	}
 	if p.pos != origPos || p.queuedIdx != origQueuedIdx {
 		p.revision++
@@ -785,6 +848,7 @@ func (p *Playlist) Restore(snapshot Snapshot) {
 	p.repeat = snapshot.repeat
 	p.queue = slices.Clone(snapshot.queue)
 	p.queuedIdx = snapshot.queuedIdx
+	p.rebuildOrderPos()
 	p.rebuildQueuePositions()
 	p.revision++
 }
@@ -859,6 +923,7 @@ func (p *Playlist) Move(from, to int) bool {
 		}
 		p.pos = cur
 	}
+	p.rebuildOrderPos()
 
 	p.revision++
 	return true
@@ -892,6 +957,7 @@ func (p *Playlist) Reverse() {
 		}
 		p.pos = cur
 	}
+	p.rebuildOrderPos()
 	p.revision++
 }
 
@@ -921,6 +987,7 @@ func (p *Playlist) Remove(idx int) bool {
 		newOrder = append(newOrder, ord)
 	}
 	p.order = newOrder
+	p.rebuildOrderPos()
 
 	if removedOrderPos >= 0 && removedOrderPos < p.pos {
 		p.pos--
@@ -1012,19 +1079,45 @@ func (p *Playlist) OrderWindow(start, limit int) ([]int, []Track) {
 	return indices, p.cloneTracksAt(indices)
 }
 
+// OrderWindowShallow returns the track indices and shallow track copies for at
+// most count play order positions from start. The returned tracks share
+// ProviderMeta maps with the playlist and are for read-only rendering.
+func (p *Playlist) OrderWindowShallow(start, count int) ([]int, []Track) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	start, end := windowBounds(len(p.order), start, count)
+	if start == end {
+		return nil, nil
+	}
+	indices := slices.Clone(p.order[start:end])
+	tracks := make([]Track, len(indices))
+	for i, idx := range indices {
+		tracks[i] = p.tracks[idx]
+	}
+	return indices, tracks
+}
+
+// DisplayNames returns the display name of every track in track order without
+// cloning ProviderMeta maps.
+func (p *Playlist) DisplayNames() []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if len(p.tracks) == 0 {
+		return nil
+	}
+	names := make([]string, len(p.tracks))
+	for i := range p.tracks {
+		names[i] = p.tracks[i].DisplayName()
+	}
+	return names
+}
+
 // OrderPosition returns the play order position of the track at index idx.
 // It returns -1 if idx is out of range.
 func (p *Playlist) OrderPosition(idx int) int {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	if idx < 0 || idx >= len(p.tracks) {
-		return -1
-	}
-	if !p.shuffle {
-		// Without shuffle, the play order is the track order.
-		return idx
-	}
-	return slices.Index(p.order, idx)
+	return p.orderPositionLocked(idx)
 }
 
 // ToggleShuffle enables or disables shuffle mode.
@@ -1042,8 +1135,10 @@ func (p *Playlist) ToggleShuffle() {
 	} else {
 		cur := p.order[p.pos]
 		p.order = make([]int, len(p.tracks))
+		p.orderPos = make([]int, len(p.tracks))
 		for i := range p.order {
 			p.order[i] = i
+			p.orderPos[i] = i
 		}
 		p.pos = cur
 	}
@@ -1066,6 +1161,7 @@ func (p *Playlist) doShuffle() {
 	p.order = append(p.order, cur)
 	p.order = append(p.order, others...)
 	p.pos = 0
+	p.rebuildOrderPos()
 }
 
 // CycleRepeat cycles through Off -> All -> One.

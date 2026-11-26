@@ -616,8 +616,11 @@ func (m *Model) completeV2Job(jobs *ipc.JobStore, jobID string, result any) {
 	if !ok || ctx.Err() != nil {
 		return
 	}
-	m.publishIPCRuntimeState()
-	_ = jobs.SucceedWithSnapshot(jobID, marshalV2Result(result), m.runtimeSnapshot())
+	snapshot, published := m.publishIPCRuntimeStateWithSnapshot()
+	if !published {
+		snapshot = m.runtimeSnapshot()
+	}
+	_ = jobs.SucceedWithSnapshot(jobID, marshalV2Result(result), snapshot)
 }
 
 func (m *Model) failV2Job(jobs *ipc.JobStore, jobID string, err *ipc.V2Error) {
@@ -719,14 +722,18 @@ func (m *Model) runtimeSnapshot() ipc.RuntimeSnapshot {
 }
 
 func (m *Model) publishIPCRuntimeState() {
+	_, _ = m.publishIPCRuntimeStateWithSnapshot()
+}
+
+func (m *Model) publishIPCRuntimeStateWithSnapshot() (ipc.RuntimeSnapshot, bool) {
 	if m.ipcRuntime == nil || m.ipcRuntime.broker == nil || m.player == nil || m.playlist == nil {
-		return
+		return ipc.RuntimeSnapshot{}, false
 	}
 	fingerprint := m.runtimeFingerprint()
 	wasInit := m.ipcRuntime.initialized
 	prev := m.ipcRuntime.last
 	if wasInit && fingerprint == prev {
-		return
+		return ipc.RuntimeSnapshot{}, false
 	}
 	m.ipcRuntime.initialized = true
 	m.ipcRuntime.last = fingerprint
@@ -734,7 +741,7 @@ func (m *Model) publishIPCRuntimeState() {
 	snapshot := m.runtimeSnapshot()
 	payload, err := json.Marshal(snapshot)
 	if err != nil {
-		return
+		return snapshot, true
 	}
 	_ = m.ipcRuntime.broker.Publish(ipcRuntimeEventState, payload, true)
 	if !wasInit || playbackFingerprintChanged(prev, fingerprint) {
@@ -746,6 +753,7 @@ func (m *Model) publishIPCRuntimeState() {
 	if !wasInit || settingsFingerprintChanged(prev, fingerprint) {
 		_ = m.ipcRuntime.broker.Publish(ipcRuntimeEventSettings, payload, true)
 	}
+	return snapshot, true
 }
 
 func playbackFingerprintChanged(a, b ipcRuntimeFingerprint) bool {
@@ -805,7 +813,7 @@ func (m *Model) runtimeFingerprint() ipcRuntimeFingerprint {
 	fingerprint.buffering = m.buffering
 	_, duration := m.cachedClock()
 	fingerprint.durationSecs = int64(duration / time.Second)
-	fingerprint.seekable = m.player.Seekable()
+	fingerprint.seekable = m.playerSeekable()
 	if m.player.IsPlaying() && !m.player.IsPaused() {
 		fingerprint.state = "playing"
 	} else if m.player.IsPaused() {
@@ -821,7 +829,7 @@ func (m *Model) runtimeFingerprint() ipcRuntimeFingerprint {
 		fingerprint.visualizer = m.vis.ModeName()
 	}
 	fingerprint.theme = m.ThemeName()
-	if err := m.player.StreamErr(); err != nil {
+	if err := m.playerStreamErr(); err != nil {
 		fingerprint.streamError = err.Error()
 	}
 	return fingerprint

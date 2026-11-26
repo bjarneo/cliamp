@@ -57,7 +57,7 @@ func (m *Model) switchProvider(idx int) tea.Cmd {
 	}
 	m.provPillIdx = idx
 	m.provider = m.providers[idx].Provider
-	m.provPane.lists = nil
+	m.provPane.setLists(nil)
 	m.provPane.signIn = false
 	m.catalogBatch = catalogBatchState{}
 	m.activeProviderPlaylistID = ""
@@ -152,7 +152,7 @@ func (m *Model) replaceProviderLists(lists []playlist.PlaylistInfo) {
 	if m.provPane.cursor >= 0 && m.provPane.cursor < len(m.provPane.lists) {
 		selectedID = m.provPane.lists[m.provPane.cursor].ID
 	}
-	m.provPane.lists = providerListsWithBrowse(m.provider, lists)
+	m.provPane.setLists(providerListsWithBrowse(m.provider, lists))
 	m.provPane.cursor = max(0, min(m.provPane.cursor, len(m.provPane.lists)-1))
 	if selectedID != "" {
 		for i, item := range m.provPane.lists {

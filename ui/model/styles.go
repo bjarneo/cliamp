@@ -1,10 +1,16 @@
 package model
 
 import (
+	"sync/atomic"
+
 	"charm.land/lipgloss/v2"
 
 	"github.com/bjarneo/cliamp/ui"
 )
+
+// styleGen increments on every theme rebuild so render caches invalidate when
+// styles change outside SetTheme.
+var styleGen atomic.Uint64
 
 // Model-specific lipgloss styles. They have no initializers: rebuildModelStyles
 // builds them from init for the default palette and again on every theme
@@ -73,4 +79,5 @@ func rebuildModelStyles() {
 	activeToggle = lipgloss.NewStyle().Foreground(ui.ColorAccent).Bold(true)
 	favMarkerStyle = lipgloss.NewStyle().Foreground(ui.ColorError)
 	favRemovedStyle = lipgloss.NewStyle().Foreground(ui.ColorDim)
+	styleGen.Add(1)
 }
