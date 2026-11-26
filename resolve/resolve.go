@@ -745,9 +745,13 @@ func ResolveYTDLBatchPageContext(ctx context.Context, pageURL string, start, cou
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	stdout, err := cmd.Output()
+	tracks, entries, parseErr := parseYTDLTracks(bytes.NewReader(stdout))
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, 0, fmt.Errorf("yt-dlp: resolve %s: %w", pageURL, ctxErr)
+		}
+		if parseErr == nil && len(tracks) > 0 {
+			return tracks, entries, nil
 		}
 		msg := strings.TrimSpace(stderr.String())
 		if msg != "" {
@@ -755,7 +759,7 @@ func ResolveYTDLBatchPageContext(ctx context.Context, pageURL string, start, cou
 		}
 		return nil, 0, fmt.Errorf("yt-dlp: %w", err)
 	}
-	return parseYTDLTracks(bytes.NewReader(stdout))
+	return tracks, entries, parseErr
 }
 
 // isBilibiliMedialist reports whether pageURL is a Bilibili favorite list.

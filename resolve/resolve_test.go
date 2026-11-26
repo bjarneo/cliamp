@@ -372,6 +372,29 @@ func TestResolveYTDLBatchCookieSelection(t *testing.T) {
 	}
 }
 
+func TestResolveYTDLKeepsEntriesBeforeFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping Unix shell script test on Windows")
+	}
+	tmpDir := t.TempDir()
+	script := "#!/bin/sh\n" +
+		"echo '{\"webpage_url\":\"https://www.bilibili.com/video/BV1xx\",\"title\":\"Playable\",\"uploader\":\"Uploader\",\"duration\":123}'\n" +
+		"echo 'one favorite unavailable' >&2\n" +
+		"exit 1\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "yt-dlp"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", tmpDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	tracks, err := ResolveYTDLBatch("https://www.bilibili.com/medialist/detail/ml123", 0, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tracks) != 1 || tracks[0].Title != "Playable" {
+		t.Fatalf("tracks = %+v, want the playable entry", tracks)
+	}
+}
+
 func TestResolveYTDLBilibiliFavoriteMetadata(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("skipping Unix shell script test on Windows")
