@@ -445,7 +445,7 @@ title = "My Radio"
 | `o` | Add files to the open playlist (tracks screen) |
 | `D` | List: open the file browser to add `[[dir]]` sources to the selected playlist. Tracks: open the directory-sources screen for the open playlist. |
 | `[` `]` | Move track up/down and save (tracks screen) |
-| `d` | Delete a playlist after confirmation. `Recently Played` cannot be deleted. In tracks, remove marked tracks or the selected track if none are marked. |
+| `d` | Delete a playlist after confirmation. `Recently Played` cannot be deleted. In tracks, remove marked tracks or the selected track if none are marked, after confirmation (`y` removes, any other key cancels). |
 | `u` | Undo the last playlist edit |
 | `←` / `Backspace` | Go back from tracks screen to list |
 

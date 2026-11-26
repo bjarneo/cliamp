@@ -381,7 +381,7 @@ var unlistedKeys = map[string][]string{
 	"handlePlMgrDirsKey":            {"y", "Y"},
 	"handlePlMgrFilterKey":          {"backspace"},
 	"handlePlMgrListKey":            {"y", "Y", "/", "l", "right", "r"},
-	"handlePlMgrTracksKey":          {"ctrl+h", "/", "backspace", "h", "left"},
+	"handlePlMgrTracksKey":          {"y", "Y", "ctrl+h", "/", "backspace", "h", "left"},
 	"handlePlaylistManagerKey":      {"S", "N", "P", "J", "E", "B", "Y", "C", "X", "M", "Q", "T", "K", "U", "L", "R", "O"},
 	"handlePlaylistPickerKey":       {"backspace"},
 	"handleProvPillKey":             {"left", "h", "right", "l", "space"},

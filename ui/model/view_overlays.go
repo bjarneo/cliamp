@@ -211,6 +211,10 @@ func (m Model) renderPlMgrTracksBody() string {
 		lines := make([]string, 0, budget)
 		for i := scroll; i < visibleN && len(lines) < budget; i++ {
 			realIdx := m.plMgrTrackRealIndex(i)
+			if m.plManager.confirmDel && i == m.plManager.cursor {
+				lines = append(lines, playlistSelectedStyle.Render(m.plMgrRemoveTracksPrompt()))
+				continue
+			}
 			label := m.plMgrTrackLabel(realIdx)
 			lines = append(lines, cursorLine(label, i == m.plManager.cursor))
 		}
@@ -224,6 +228,10 @@ func (m Model) renderPlMgrTracksBody() string {
 		}
 		if row.Index < 0 {
 			lines = append(lines, m.albumSeparator(row.Album, row.Year))
+			continue
+		}
+		if m.plManager.confirmDel && row.Index == m.plManager.cursor {
+			lines = append(lines, playlistSelectedStyle.Render(m.plMgrRemoveTracksPrompt()))
 			continue
 		}
 		lines = append(lines, cursorLine(m.plMgrTrackLabel(row.Index), row.Index == m.plManager.cursor))

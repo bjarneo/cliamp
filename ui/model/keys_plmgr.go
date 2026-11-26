@@ -309,6 +309,19 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.handlePlMgrFilterKey(msg)
 	}
 
+	// A remove armed by d waits for y/n: y removes, any other key cancels,
+	// as deleting a playlist or a directory source does.
+	if m.plManager.confirmDel {
+		m.plManager.confirmDel = false
+		switch msg.String() {
+		case "y", "Y":
+			m.plMgrRemoveSelectedTracks()
+		default:
+			m.status.Show("Remove cancelled.", statusTTLShort)
+		}
+		return nil
+	}
+
 	count := m.plMgrTracksViewCount()
 	switch msg.String() {
 	case "ctrl+h":
@@ -431,7 +444,11 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 			}
 		}
 	case "d":
-		m.plMgrRemoveSelectedTracks()
+		// Ask first: d used to open the device picker here, so a habit
+		// press must not drop a track.
+		if m.plMgrCanRemoveSelectedTracks() {
+			m.plManager.confirmDel = true
+		}
 	case "u":
 		return m.plMgrUndoLast()
 	case "esc", "backspace", "h", "left", "q":
@@ -853,25 +870,47 @@ func (m *Model) plMgrSaveOrder(status string) bool {
 	})
 }
 
-// plMgrRemoveSelectedTracks removes the selected tracks from the open playlist.
-func (m *Model) plMgrRemoveSelectedTracks() {
+// plMgrCanRemoveSelectedTracks reports whether the selected tracks can be
+// removed from the open playlist, and says why not on the status line.
+func (m *Model) plMgrCanRemoveSelectedTracks() bool {
 	indices := m.plMgrSelectedTrackIndices()
 	if len(indices) == 0 {
-		return
+		return false
 	}
 	if m.plManager.selPlaylist == favorites.PlaylistName {
 		m.status.Warning("Use f to remove tracks from Favorites", statusTTLDefault)
-		return
+		return false
 	}
 	if m.plManager.selPlaylist == history.PlaylistName {
 		m.status.Warning("Recently Played tracks cannot be removed", statusTTLDefault)
-		return
+		return false
 	}
 	for _, i := range indices {
 		if m.plManager.tracks[i].DirSourced {
 			m.status.Warningf(statusTTLDefault, "Can't remove %q: it's supplied by the playlist's directory source", m.plManager.tracks[i].DisplayName())
-			return
+			return false
 		}
+	}
+	return true
+}
+
+// plMgrRemoveTracksPrompt is the y/n question d puts on the cursor row.
+func (m Model) plMgrRemoveTracksPrompt() string {
+	if n := len(m.plManager.marked); n > 0 {
+		return fmt.Sprintf("> Remove %d marked track(s) from %q? [y/n]", n, m.plManager.selPlaylist)
+	}
+	name := ""
+	if i := m.plMgrTrackRealIndex(m.plManager.cursor); i >= 0 && i < len(m.plManager.tracks) {
+		name = m.plManager.tracks[i].DisplayName()
+	}
+	return fmt.Sprintf("> Remove %q from %q? [y/n]", name, m.plManager.selPlaylist)
+}
+
+// plMgrRemoveSelectedTracks removes the selected tracks from the open playlist.
+func (m *Model) plMgrRemoveSelectedTracks() {
+	indices := m.plMgrSelectedTrackIndices()
+	if !m.plMgrCanRemoveSelectedTracks() {
+		return
 	}
 	m.plMgrSetTrackUndo()
 	rows := pathRowsOf(m.plManager.tracks)

@@ -245,7 +245,7 @@ reordered, so `p` leaves them alone and reports them as skipped.
 | `D` | List: open the file browser to add `[[dir]]` sources to the selected playlist. Tracks: open the directory-sources screen. |
 | `a` | List: create a playlist. After naming it, the file browser opens at `~`. Use `Enter` to enter a directory, `Space` to select folders or files, `Enter` to confirm, or `Esc` to finish. Tracks: mark or unmark all visible tracks. |
 | `r` | List: rename the playlist (`Recently Played` cannot be renamed) |
-| `d` | List: delete playlist (confirms; `Recently Played` cannot be deleted). Tracks: remove marked tracks, or highlighted track when none are marked |
+| `d` | List: delete playlist (confirms; `Recently Played` cannot be deleted). Tracks: remove marked tracks, or highlighted track when none are marked (confirms with `y`; any other key cancels) |
 | `A` | List: append the selected playlist to the current one, keeping what is loaded. Tracks: append the marked tracks, or the highlighted one. |
 | `u` | Undo the last manager edit |
 | `←` `Backspace` `h` `q` | Tracks screen: go back to the list |
