@@ -425,13 +425,14 @@ func (m *Model) handleNavAlbumListKey(msg tea.KeyPressMsg, artistAlbums bool) te
 			rawIdx = m.navBrowser.searchIdx[m.navBrowser.cursor]
 		}
 		album := m.navBrowser.albums[rawIdx]
+		l, ok := m.navBrowser.prov.(provider.AlbumTrackLoader)
+		if !ok {
+			return nil
+		}
 		m.navBrowser.selAlbum = album
 		m.navBrowser.loading = true
 		m.navClearSearchKeepingCursor(rawIdx)
-		if l, ok := m.navBrowser.prov.(provider.AlbumTrackLoader); ok {
-			return fetchNavAlbumTracksCmd(l, album.ID, m.nextNavRequest())
-		}
-		return nil
+		return fetchNavAlbumTracksCmd(l, album.ID, m.nextNavRequest())
 	case "f":
 		if m.navBrowser.loading || m.navBrowser.albumLoading {
 			return nil

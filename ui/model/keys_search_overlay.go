@@ -249,6 +249,10 @@ func (m *Model) handleSearchOverlayPlaylistKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.searchOverlay.cursor = 0
 		m.searchOverlay.scroll = 0
 	case "esc", "backspace":
+		m.cancelSearchOverlayRequest()
+		nextRequest(&m.requests.searchOverlayLists)
+		nextRequest(&m.requests.searchOverlayMutation)
+		m.searchOverlay.loading = false
 		m.searchOverlay.screen = searchOverlayResults
 		m.searchOverlay.cursor = 0
 		m.searchOverlay.scroll = 0
@@ -261,6 +265,9 @@ func (m *Model) handleSearchOverlayPlaylistKey(msg tea.KeyPressMsg) tea.Cmd {
 func (m *Model) handleSearchOverlayNewNameKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.Code {
 	case tea.KeyEscape:
+		m.cancelSearchOverlayRequest()
+		nextRequest(&m.requests.searchOverlayMutation)
+		m.searchOverlay.loading = false
 		m.searchOverlay.screen = searchOverlayPlaylist
 		m.searchOverlay.cursor = len(m.searchOverlay.playlists)
 		m.searchOverlayPlaylistMaybeAdjustScroll(m.effectivePlaylistVisible())

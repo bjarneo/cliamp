@@ -69,6 +69,9 @@ func (m *Model) handleFeedTrackResolved(msg feedTrackResolvedMsg) tea.Cmd {
 // handleFeedsLoaded appends the tracks that URLs resolved to. It can start
 // playback and the batch load of a YouTube radio playlist.
 func (m *Model) handleFeedsLoaded(msg feedsLoadedMsg) tea.Cmd {
+	if msg.gen != 0 && msg.gen != m.feedRequest {
+		return nil
+	}
 	m.feedLoading = false
 	if msg.err != nil {
 		m.err = withRetryHint(msg.err)

@@ -139,6 +139,9 @@ const maxLyricsOffset = 10 * time.Second
 // user's synced-lyrics offset. A positive offset advances the position, so
 // a later lyric line becomes active sooner.
 func (m Model) lyricsPlaybackPosition() time.Duration {
+	if m.clockFresh {
+		return m.cachedPos + m.lyrics.offset
+	}
 	return m.player.Position() + m.lyrics.offset
 }
 

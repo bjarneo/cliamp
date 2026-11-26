@@ -494,6 +494,7 @@ func renderCommandHelp(commands []commandSpec, width int, m Model) string {
 	}
 	narrow := width < 48
 	var b strings.Builder
+	curWidth := 0
 	dropped := 0
 	for _, command := range commands {
 		label := command.label(m)
@@ -519,15 +520,17 @@ func renderCommandHelp(commands []commandSpec, width int, m Model) string {
 		if b.Len() > 0 {
 			hint = " " + hint
 		}
-		if lipgloss.Width(b.String()+hint) > width {
+		hintWidth := lipgloss.Width(hint)
+		if curWidth+hintWidth > width {
 			dropped++
 			continue
 		}
 		b.WriteString(hint)
+		curWidth += hintWidth
 	}
 	if narrow && dropped > 0 {
 		more := helpStyle.Render(" +…")
-		if lipgloss.Width(b.String()+more) <= width {
+		if curWidth+lipgloss.Width(more) <= width {
 			b.WriteString(more)
 		}
 	}

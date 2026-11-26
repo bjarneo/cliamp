@@ -418,8 +418,7 @@ func (m Model) renderAuthCodeBody() string {
 
 func (m Model) renderJumpBody() string {
 	budget := m.effectivePlaylistVisible()
-	pos := m.player.Position()
-	dur := m.player.Duration()
+	pos, dur := m.cachedClock()
 	inputLine := dimStyle.Render("  " + formatJumpPlaceholder(dur))
 	if m.jump.input != "" {
 		inputLine = playlistSelectedStyle.Render("  " + m.textWithCursor("jump", m.jump.input))

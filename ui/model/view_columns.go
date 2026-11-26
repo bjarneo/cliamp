@@ -109,7 +109,7 @@ func (m Model) renderSettingsPane(rows int) string {
 			// A pane can show any visualizer, in either region. In a narrow
 			// column the frame is tall instead of wide, so the built-in modes
 			// that assume a band look cramped, but they render.
-			block = m.renderPaneVis(pane.Vis, heights[i], m.layout.settingsWidth)
+			block = m.renderPaneVis(pane.Region, pane.Pane, pane.Vis, heights[i], m.layout.settingsWidth)
 		case pane.Pane == ui.PaneBuiltin:
 			block = m.renderSettingsBuiltin(heights[i])
 		default:

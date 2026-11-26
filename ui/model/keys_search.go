@@ -22,6 +22,7 @@ func (m *Model) openProviderSearchWith(prov playlist.Provider) {
 	if _, ok := prov.(provider.Searcher); ok {
 		m.cancelSearchOverlayRequest()
 		nextRequest(&m.requests.searchOverlay)
+		nextRequest(&m.requests.searchOverlayAlbum)
 		nextRequest(&m.requests.searchOverlayLists)
 		nextRequest(&m.requests.searchOverlayMutation)
 		m.searchOverlay = searchOverlayState{

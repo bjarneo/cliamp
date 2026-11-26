@@ -22,6 +22,7 @@ import (
 // devicesListedMsg carries the result of listing audio output devices.
 type devicesListedMsg struct {
 	devices []player.AudioDevice
+	gen     uint64
 	err     error
 }
 
@@ -78,6 +79,7 @@ type feedsLoadedMsg struct {
 	tracks   []playlist.Track
 	urls     []string // original source URLs that produced these tracks
 	autoPlay bool     // whether to start playback automatically
+	gen      uint64
 	err      error
 }
 
@@ -192,10 +194,10 @@ func AttachNotifier(notifier playback.Notifier) tea.Msg {
 	return attachNotifierMsg{notifier: notifier}
 }
 
-func listDevicesCmd() tea.Cmd {
+func listDevicesCmd(gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		devices, err := player.ListAudioDevices()
-		return devicesListedMsg{devices: devices, err: err}
+		return devicesListedMsg{devices: devices, gen: gen, err: err}
 	}
 }
 
@@ -283,12 +285,16 @@ func resolveRemoteCmd(urls []string, autoPlay bool) tea.Cmd {
 // input the same way command-line arguments are classified, so raw stream and
 // audio-file addresses load as tracks instead of being parsed as feeds.
 func resolveURLCmd(rawURL string, autoPlay bool) tea.Cmd {
+	return resolveURLCmdGen(rawURL, autoPlay, 0)
+}
+
+func resolveURLCmdGen(rawURL string, autoPlay bool, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		tracks, err := resolve.URL(rawURL)
 		if err != nil {
-			return feedsLoadedMsg{err: fmt.Errorf("resolving URL: %w", err)}
+			return feedsLoadedMsg{gen: gen, err: fmt.Errorf("resolving URL: %w", err)}
 		}
-		return feedsLoadedMsg{tracks: tracks, urls: []string{rawURL}, autoPlay: autoPlay}
+		return feedsLoadedMsg{tracks: tracks, urls: []string{rawURL}, autoPlay: autoPlay, gen: gen}
 	}
 }
 

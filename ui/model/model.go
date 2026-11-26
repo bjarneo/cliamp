@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/bjarneo/cliamp/external/radio"
 	"github.com/bjarneo/cliamp/favorites"
 	"github.com/bjarneo/cliamp/history"
@@ -359,6 +361,11 @@ type Model struct {
 	width           int
 	height          int
 	layout          frameLayout
+	layoutKey       layoutInputs
+	layoutValid     bool
+	frameStyleCache lipgloss.Style
+	frameStyleReady bool
+	clockFresh      bool
 	textInput       textEditor
 	layoutText      string // what the layout typed for the key physicalKey rewrote, while it is handled
 	layoutKeysOff   bool   // the terminal can't send the typed text with key positions; see handleKeyboardEnhancements

@@ -215,6 +215,9 @@ func (m *Model) plMgrTracksMaybeAdjustScroll(visible int) {
 	if m.plManager.cursor < m.plManager.scroll {
 		m.plManager.scroll = m.plManager.cursor
 	}
+	if visible > 0 {
+		m.plManager.scroll = max(m.plManager.scroll, m.plManager.cursor-visible+1)
+	}
 	m.plManager.scroll = m.fitHeaderScroll(tracks, m.plManager.scroll, m.plManager.cursor, visible, true)
 }
 

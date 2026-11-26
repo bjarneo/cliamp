@@ -39,7 +39,8 @@ type luaSelectState struct {
 // consumed.
 func (m *Model) handleLuaSelectKey(msg tea.KeyPressMsg) bool {
 	sel := m.luaSelect
-	if sel == nil {
+	if sel == nil || len(sel.options) == 0 {
+		m.luaSelect = nil
 		return false
 	}
 	switch msg.String() {
@@ -49,11 +50,15 @@ func (m *Model) handleLuaSelectKey(msg tea.KeyPressMsg) bool {
 			sel.onCancel()
 			return true
 		}
-		sel.onDone(-1)
+		if sel.onDone != nil {
+			sel.onDone(-1)
+		}
 	case "enter", " ":
 		index := sel.cursor
 		m.luaSelect = nil
-		sel.onDone(index)
+		if sel.onDone != nil {
+			sel.onDone(index)
+		}
 	case "up", "k":
 		sel.cursor = (sel.cursor - 1 + len(sel.options)) % len(sel.options)
 	case "down", "j":

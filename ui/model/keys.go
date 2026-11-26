@@ -85,6 +85,9 @@ func (m *Model) providerMaybeAdjustScroll() {
 
 	// Provider lists can add radio-prefix or PlaylistInfo.Section headers. Keep
 	// the logical cursor visible in their rendered-row viewport.
+	if visible > 0 {
+		m.provPane.scroll = max(m.provPane.scroll, m.provPane.cursor-visible+1)
+	}
 	for m.provPane.scroll < total && m.providerRowsFromScroll(m.provPane.scroll, m.provPane.cursor) > visible {
 		m.provPane.scroll++
 	}
@@ -196,6 +199,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	msg = normalizeShiftedLetter(msg)
 
 	if m.luaSelect != nil {
+		if msg.String() == "ctrl+c" {
+			return m.quit()
+		}
 		m.handleLuaSelectKey(msg)
 		return nil
 	}
@@ -534,10 +540,12 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.refreshActiveProvider(true)
 	case "esc", "backspace", "b":
 		if m.focus == focusPlaylist {
-			// Keep current expanded/collapsed height mode when switching focus.
-			m.focus = focusProvider
-			// The Local source has no provider pane list; show its manager.
-			m.ensureLocalManager()
+			if m.provider != nil {
+				// Keep current expanded/collapsed height mode when switching focus.
+				m.focus = focusProvider
+				// The Local source has no provider pane list; show its manager.
+				m.ensureLocalManager()
+			}
 		} else {
 			m.focus = m.previousMainFocus(m.focus)
 		}
@@ -1058,8 +1066,9 @@ func (m *Model) handleURLInputKey(msg tea.KeyPressMsg) tea.Cmd {
 		input := strings.TrimSpace(m.urlInput.input)
 		if input != "" {
 			m.feedLoading = true
+			m.feedRequest = nextRequest(&m.requests.queue)
 			m.status.Activity("Loading URL...", statusTTLLong)
-			return resolveURLCmd(input, true)
+			return resolveURLCmdGen(input, true, m.feedRequest)
 		}
 		m.urlInput.active = true
 		m.urlInput.err = "Enter a stream, track, or playlist URL."
@@ -1079,7 +1088,7 @@ func (m *Model) openDevicePicker() tea.Cmd {
 	m.devicePicker.scroll = 0
 	if len(m.devicePicker.devices) == 0 {
 		m.devicePicker.loading = true
-		return listDevicesCmd()
+		return listDevicesCmd(nextRequest(&m.requests.devices))
 	}
 	return nil
 }

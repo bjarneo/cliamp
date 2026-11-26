@@ -418,7 +418,7 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 	// A stream, a yt-dlp page, a provider URI, or a local file can block
 	// the Update goroutine. A file on a network share can block for minutes.
 	// Start those opens in a command.
-	if track.Stream || playlist.IsYTDL(track.Path) || m.isCustomStreamURI(track.Path) || plainLocalPath(track.Path) {
+	if track.Stream || playlist.IsYTDL(track.Path) || m.isCustomStreamURI(track.Path) || plainLocalPath(track.Path) || strings.HasPrefix(track.Path, "ssh://") {
 		m.buffering = true
 		m.bufferingAt = time.Now()
 		m.err = nil
@@ -440,9 +440,9 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 		// Async starts resume after streamPlayedMsg. A native local file
 		// started at the hint, so applyResume seeks here only when that
 		// start seek failed.
-		m.applyResume()
+		resumeCmd := m.applyResume()
 		m.nowPlaying(track)
-		return tea.Batch(m.preloadNext(), fetchCmd, m.backfillLoadedPlaylistDuration(track))
+		return tea.Batch(resumeCmd, m.preloadNext(), fetchCmd, m.backfillLoadedPlaylistDuration(track))
 	}
 
 	if fetchCmd != nil {

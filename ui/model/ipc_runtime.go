@@ -97,15 +97,23 @@ type ipcV2ResponseMsg struct {
 	Response  ipc.Response
 }
 
-func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
+func (m *Model) handleReadOnlyV2Request(msg V2RequestMsg) bool {
 	switch strings.ToLower(strings.TrimSpace(msg.Request.Method)) {
 	case "state.get":
 		snapshot := m.runtimeSnapshot()
 		m.replyV2(msg.Reply, ipc.V2Result{Snapshot: &snapshot}, nil)
-		return nil
+		return true
 	case "spectrum.get":
 		response := m.v2BandsResponse()
 		m.replyV2(msg.Reply, ipc.V2Result{Result: marshalV2Result(response)}, nil)
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
+	if m.handleReadOnlyV2Request(msg) {
 		return nil
 	}
 
@@ -702,7 +710,9 @@ func (m *Model) publishIPCRuntimeState() {
 		return
 	}
 	fingerprint := m.runtimeFingerprint()
-	if m.ipcRuntime.initialized && fingerprint == m.ipcRuntime.last {
+	wasInit := m.ipcRuntime.initialized
+	prev := m.ipcRuntime.last
+	if wasInit && fingerprint == prev {
 		return
 	}
 	m.ipcRuntime.initialized = true
@@ -713,9 +723,50 @@ func (m *Model) publishIPCRuntimeState() {
 	if err != nil {
 		return
 	}
-	for _, topic := range []string{ipcRuntimeEventState, ipcRuntimeEventPlayback, ipcRuntimeEventPlaylist, ipcRuntimeEventSettings} {
-		_ = m.ipcRuntime.broker.Publish(topic, payload, true)
+	_ = m.ipcRuntime.broker.Publish(ipcRuntimeEventState, payload, true)
+	if !wasInit || playbackFingerprintChanged(prev, fingerprint) {
+		_ = m.ipcRuntime.broker.Publish(ipcRuntimeEventPlayback, payload, true)
 	}
+	if !wasInit || playlistFingerprintChanged(prev, fingerprint) {
+		_ = m.ipcRuntime.broker.Publish(ipcRuntimeEventPlaylist, payload, true)
+	}
+	if !wasInit || settingsFingerprintChanged(prev, fingerprint) {
+		_ = m.ipcRuntime.broker.Publish(ipcRuntimeEventSettings, payload, true)
+	}
+}
+
+func playbackFingerprintChanged(a, b ipcRuntimeFingerprint) bool {
+	return a.state != b.state ||
+		a.detached != b.detached ||
+		a.trackPath != b.trackPath ||
+		a.favorite != b.favorite ||
+		a.streamTitle != b.streamTitle ||
+		a.streamError != b.streamError ||
+		a.buffering != b.buffering ||
+		a.durationSecs != b.durationSecs ||
+		a.seekable != b.seekable
+}
+
+func playlistFingerprintChanged(a, b ipcRuntimeFingerprint) bool {
+	return a.playlist != b.playlist ||
+		a.playlistRevision != b.playlistRevision ||
+		a.index != b.index ||
+		a.total != b.total ||
+		a.playNextTotal != b.playNextTotal ||
+		a.shuffle != b.shuffle ||
+		a.repeat != b.repeat ||
+		a.logicalPath != b.logicalPath
+}
+
+func settingsFingerprintChanged(a, b ipcRuntimeFingerprint) bool {
+	return a.volume != b.volume ||
+		a.mono != b.mono ||
+		a.speed != b.speed ||
+		a.eq != b.eq ||
+		a.eqPreset != b.eqPreset ||
+		a.device != b.device ||
+		a.visualizer != b.visualizer ||
+		a.theme != b.theme
 }
 
 func (m *Model) runtimeFingerprint() ipcRuntimeFingerprint {
@@ -734,7 +785,7 @@ func (m *Model) runtimeFingerprint() ipcRuntimeFingerprint {
 	fingerprint.detached = m.playbackDetached
 	fingerprint.streamTitle = m.streamTitle
 	fingerprint.buffering = m.buffering
-	_, duration := m.playbackClock()
+	_, duration := m.cachedClock()
 	fingerprint.durationSecs = int64(duration / time.Second)
 	fingerprint.seekable = m.player.Seekable()
 	if m.player.IsPlaying() && !m.player.IsPaused() {

@@ -264,10 +264,18 @@ func (m Model) View() tea.View {
 		content = strings.Join(m.mainSections(body, true, contentFirst), "\n")
 	}
 
-	// Every screen now renders within the main frame, so frame and center
-	// uniformly.
-	rendered := m.centerFrame(m.layout.frameStyle().Render(content))
-	rendered = ui.FitRect(rendered, m.layout.frameWidth, max(1, m.height))
+	// Fast path for pure fullscreen visualizer: the visualizer already produces
+	// exact frameWidth x height output with zero padding, so skip redundant
+	// frameStyle wrapping, centering width scans, and FitRect passes.
+	var rendered string
+	if screen == screenFullVisualizer && m.pureVis && m.layout.paddingH == 0 && m.layout.paddingV == 0 && m.width == m.layout.frameWidth && m.height > 0 && m.isSingleBuiltinVisPane() {
+		rendered = content
+	} else {
+		// Every screen now renders within the main frame, so frame and center
+		// uniformly.
+		rendered = m.centerFrame(m.cachedFrameStyle().Render(content))
+		rendered = ui.FitRect(rendered, m.layout.frameWidth, max(1, m.height))
+	}
 
 	if box := m.renderLuaSelect(); box != "" {
 		rendered = overlayCentered(rendered, box, m.layout.frameWidth, m.height)
@@ -580,12 +588,18 @@ func (m Model) renderCompactSource() string {
 
 // centerFrame centers a pre-rendered frame in the terminal.
 func (m Model) centerFrame(frame string) string {
-	frameW := lipgloss.Width(frame)
-	frameH := lipgloss.Height(frame)
-	padLeft := max(0, (m.width-frameW)/2)
+	frameH := strings.Count(frame, "\n") + 1
 	padTop := max(0, (m.height-frameH)/2)
+	padLeft := 0
+	if m.width > m.layout.frameWidth {
+		frameW := lipgloss.Width(frame)
+		padLeft = max(0, (m.width-frameW)/2)
+	}
 
 	if padLeft == 0 {
+		if padTop == 0 {
+			return frame
+		}
 		return strings.Repeat("\n", padTop) + frame
 	}
 	// Indent every line by padLeft spaces.
@@ -666,6 +680,14 @@ func (m Model) renderTimeStatus() string {
 	return left + strings.Repeat(" ", gap) + status
 }
 
+func (m Model) isSingleBuiltinVisPane() bool {
+	if m.panes == nil {
+		return true
+	}
+	panes := m.panes.RegionPanes(ui.RegionVisualizer)
+	return len(panes) == 1 && panes[0].Pane == ui.PaneBuiltin && panes[0].Vis == ""
+}
+
 func (m Model) renderSpectrum() string {
 	if m.visualizerDisabled() {
 		return ""
@@ -680,11 +702,15 @@ func (m Model) renderSpectrum() string {
 	blocks := make([]string, len(panes))
 	for i, pane := range panes {
 		if pane.Vis != "" {
-			blocks[i] = m.renderPaneVis(pane.Vis, m.vis.Rows, widths[i])
+			blocks[i] = m.renderPaneVis(pane.Region, pane.Pane, pane.Vis, m.vis.Rows, widths[i])
 			continue
 		}
 		if pane.Pane == ui.PaneBuiltin {
-			blocks[i] = m.vis.RenderAt(widths[i])
+			if m.vis.Cols == widths[i] {
+				blocks[i] = m.vis.Render()
+			} else {
+				blocks[i] = m.vis.RenderAt(widths[i])
+			}
 			continue
 		}
 		blocks[i] = m.renderPluginPane(pane.Pane, m.vis.Rows, widths[i])
@@ -1076,6 +1102,7 @@ func (m Model) renderProviderList() string {
 		})
 
 		if sectioned {
+			scroll = max(scroll, m.provPane.cursor-visibleBudget+1)
 			for scroll < len(m.provPane.lists)-1 && m.providerRowsFromScroll(scroll, m.provPane.cursor) > visibleBudget {
 				scroll++
 			}
@@ -1291,24 +1318,36 @@ func (m Model) renderPlaylist() string {
 			stateMarker = "▶"
 		}
 		markers := cursorMarker + stateMarker
-		styledMarkers := dimStyle.Render(cursorMarker) + stateStyle.Render(stateMarker)
+		styledMarkers := " "
+		if cursorMarker != " " {
+			styledMarkers = dimStyle.Render(cursorMarker)
+		}
+		if stateMarker != " " {
+			styledMarkers += stateStyle.Render(stateMarker)
+		} else {
+			styledMarkers += " "
+		}
 
 		queuePosition := m.playlist.QueuePosition(i)
 		if cols.queue {
 			mark := " "
 			if queuePosition > 0 {
 				mark = "Q"
+				styledMarkers += activeToggle.Render(mark)
+			} else {
+				styledMarkers += " "
 			}
 			markers += mark
-			styledMarkers += activeToggle.Render(mark)
 		}
 		if cols.favorite {
 			mark := " "
 			if m.playlistTrackFavorited(t) {
 				mark = favHeart
+				styledMarkers += favMarkerStyle.Render(mark)
+			} else {
+				styledMarkers += " "
 			}
 			markers += mark
-			styledMarkers += favMarkerStyle.Render(mark)
 		}
 		if cols.played {
 			mark, markStyle := " ", dimStyle
@@ -1321,7 +1360,11 @@ func (m Model) renderPlaylist() string {
 				}
 			}
 			markers += mark
-			styledMarkers += markStyle.Render(mark)
+			if mark != " " {
+				styledMarkers += markStyle.Render(mark)
+			} else {
+				styledMarkers += " "
+			}
 		}
 		markers += " "
 		styledMarkers += " "

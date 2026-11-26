@@ -31,10 +31,11 @@ const subsLatestWorkers = 6
 
 // subsEpisodesMsg carries one show's episodes back to the update loop.
 type subsEpisodesMsg struct {
-	mode   subsLoadMode
-	name   string
-	tracks []playlist.Track
-	err    error
+	mode      subsLoadMode
+	name      string
+	tracks    []playlist.Track
+	streamGen uint64
+	err       error
 }
 
 // subsLatestAllMsg carries the newest episode of every subscribed show.
@@ -110,6 +111,7 @@ func (m *Model) loadShowEpisodesWith(loader provider.AlbumTrackLoader, id, name 
 		// player's one has to carry the wait.
 		m.status.Activityf(statusTTLLong, "Loading the latest from %s...", name)
 	}
+	streamGen := m.requests.stream
 	return func() tea.Msg {
 		tracks, err := loader.AlbumTracks(id)
 		if err == nil && mode == subsLoadLatest {
@@ -119,7 +121,7 @@ func (m *Model) loadShowEpisodesWith(loader provider.AlbumTrackLoader, id, name 
 				tracks = nil
 			}
 		}
-		return subsEpisodesMsg{mode: mode, name: name, tracks: tracks, err: err}
+		return subsEpisodesMsg{mode: mode, name: name, tracks: tracks, streamGen: streamGen, err: err}
 	}
 }
 
@@ -192,6 +194,9 @@ func (m *Model) handleSubsEpisodes(msg subsEpisodesMsg) tea.Cmd {
 		if !m.subs.visible {
 			m.status.Errorf(statusTTLDefault, "%s: %s", msg.name, msg.err)
 		}
+		return nil
+	}
+	if msg.mode == subsLoadPlay && msg.streamGen != 0 && msg.streamGen != m.requests.stream {
 		return nil
 	}
 	return m.appendSubscriptionTracks(msg.tracks, msg.mode, msg.name)

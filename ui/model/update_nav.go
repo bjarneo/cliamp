@@ -80,6 +80,7 @@ func (m *Model) handleNavTracksLoaded(msg navTracksLoadedMsg) {
 			m.status.Warning("No tracks found", statusTTLDefault)
 			return
 		}
+		m.navBrowser.visible = false
 		m.retireTracksPaging()
 		m.replacePlayerPlaylist(msg.tracks)
 		m.activeProviderPlaylistID = ""
@@ -87,7 +88,6 @@ func (m *Model) handleNavTracksLoaded(msg navTracksLoadedMsg) {
 			m.isActiveProvider(m.navBrowser.prov.Name()) && pr.CanRefreshPlaylist(m.navBrowser.selAlbum.ID) {
 			m.activeProviderPlaylistID = m.navBrowser.selAlbum.ID
 		}
-		m.navBrowser.visible = false
 		m.status.Successf(statusTTLDefault, "Replaced queue with %d tracks", len(msg.tracks))
 		return
 	}

@@ -60,13 +60,22 @@ func (m *Model) visualizerPaused() bool {
 // stays above the idle cadence so the bars fall; once settled the model can
 // return to the fully-idle cadence.
 func (m *Model) visualizerSettlingPaused() bool {
-	if m.player == nil || !m.player.IsPaused() {
+	if m.headless || m.player == nil || !m.player.IsPaused() {
 		return false
 	}
 	if !m.visualizerVisible() {
 		return false
 	}
-	return m.vis.PausedDecayPending(m.visualizerTickContext(time.Time{}))
+	return m.vis.PausedDecayPending(m.visualizerMetaContext())
+}
+
+// visualizerMetaContext builds a zero-allocation tick context for cadence and
+// decay checks that do not run FFT analysis or sample reads.
+func (m *Model) visualizerMetaContext() ui.VisTickContext {
+	return ui.VisTickContext{
+		Playing: m.visualizerPlaying(),
+		Paused:  m.visualizerPaused(),
+	}
 }
 
 func (m *Model) visualizerTickContext(now time.Time) ui.VisTickContext {
@@ -184,7 +193,7 @@ func (m *Model) tickInterval() time.Duration {
 	}
 	d := ui.TickSlow
 	if m.visualizerVisible() {
-		d = m.vis.TickInterval(m.visualizerTickContext(time.Time{}))
+		d = m.vis.TickInterval(m.visualizerMetaContext())
 	}
 	if m.spinnerVisible() {
 		d = min(d, spinnerInterval)
@@ -243,6 +252,9 @@ func (m *Model) isFullyIdle() bool {
 // spinnerVisible reports whether a loading spinner is on the screen. The tick
 // then redraws at least every spinnerInterval so that the frames advance.
 func (m *Model) spinnerVisible() bool {
+	if m.headless {
+		return false
+	}
 	return m.provPane.loading || m.provSearch.loading || m.catalogBatch.loading || m.feedLoading ||
 		(m.lyrics.visible && m.lyrics.loading) ||
 		(m.netSearch.active && m.netSearch.loading) ||
@@ -262,7 +274,16 @@ func (m *Model) tickVisualizer(now time.Time) {
 	}
 	ctx := m.visualizerTickContext(now)
 	m.vis.Tick(ctx)
-	if m.slotVis != nil {
+	if m.panes != nil {
+		active := m.panes.List()
+		if m.slotVis != nil {
+			m.slotVis.prune(active)
+			m.slotVis.tickAll(ctx, m.vis.WaveSamples())
+		}
+		if m.paneCache != nil {
+			m.paneCache.prune(active)
+		}
+	} else if m.slotVis != nil {
 		m.slotVis.tickAll(ctx, m.vis.WaveSamples())
 	}
 }
@@ -321,7 +342,9 @@ func (m *Model) handleTick(msg tickMsg) tea.Cmd {
 	dt := m.tickDelta(now)
 
 	m.tickSampleClock()
-	m.tickVisualizer(now)
+	if !m.headless {
+		m.tickVisualizer(now)
+	}
 	m.tickProgressReport(now)
 	var cmds []tea.Cmd
 	// Process debounced yt-dlp seek.
@@ -333,7 +356,9 @@ func (m *Model) handleTick(msg tickMsg) tea.Cmd {
 	if cmd := m.tickStreamTitle(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
-	m.tickNetwork(dt)
+	if !m.headless {
+		m.tickNetwork(dt)
+	}
 	if playCmd, restarted := m.tickReconnect(now); restarted {
 		// Preserve any seek/lyric commands already queued this tick
 		// rather than dropping them on the early return.
@@ -352,9 +377,13 @@ func (m *Model) handleTick(msg tickMsg) tea.Cmd {
 	if !gaplessAdvanced {
 		cmds = append(cmds, m.tickDrain(now))
 	}
-	m.advanceTitleScroll(now)
+	if !m.headless {
+		m.advanceTitleScroll(now)
+	}
 	cmds = append(cmds, m.tickPreloadRetry())
-	m.advanceTerminalTitle()
+	if !m.headless {
+		m.advanceTerminalTitle()
+	}
 	cmds = append(cmds, tickCmdAt(m.tickInterval()))
 	return tea.Batch(cmds...)
 }
@@ -371,17 +400,26 @@ func (m *Model) playbackClock() (time.Duration, time.Duration) {
 	return m.player.PositionAndDuration()
 }
 
+func (m *Model) cachedClock() (time.Duration, time.Duration) {
+	if m.clockFresh && !m.buffering && !m.seek.active {
+		return m.cachedPos, m.cachedDur
+	}
+	return m.playbackClock()
+}
+
 // tickSampleClock caches the position and duration once per tick, so that
 // the View render functions do not take speaker.Lock() several times.
 // PositionAndDuration() batches both reads under one speaker lock.
 func (m *Model) tickSampleClock() {
 	if m.buffering {
 		m.cachedPos, m.cachedDur = m.playbackClock()
+		m.clockFresh = true
 		return
 	}
 	if m.seek.active {
 		m.cachedPos = m.seek.targetPos
 		m.cachedDur = m.player.Duration()
+		m.clockFresh = true
 		return
 	}
 	m.cachedPos, m.cachedDur = m.player.PositionAndDuration()
@@ -391,6 +429,7 @@ func (m *Model) tickSampleClock() {
 			m.cachedDur = time.Duration(track.DurationSecs) * time.Second
 		}
 	}
+	m.clockFresh = true
 }
 
 // tickExpire ends the timed states: the status message, old log lines, the

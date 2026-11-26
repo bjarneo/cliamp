@@ -19,10 +19,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, spinnerTickCmd()
 	}
+	if req, ok := msg.(V2RequestMsg); ok && req.JobID == "" {
+		if m.ipcRuntime == nil || m.ipcRuntime.initialized {
+			if m.handleReadOnlyV2Request(req) {
+				return m, nil
+			}
+		}
+	}
+	wasScreen := m.activeScreen()
+	wasVisualizerVisible := m.visualizerVisible()
+	wasMode := ui.VisNone
+	if m.vis != nil {
+		wasMode = m.vis.Mode
+	}
+	wasPlaying := false
+	wasPaused := false
+	if m.player != nil {
+		wasPlaying = m.player.IsPlaying()
+		wasPaused = m.player.IsPaused()
+	}
 	spinning := m.spinnerVisible()
+	m.clockFresh = false
 	next, cmd := m.update(msg)
 	if nm, ok := next.(Model); ok {
-		nm.recomputeLayout()
+		if !nm.headless {
+			nm.recomputeLayout()
+			nm.maybeRequestVisualizerRefresh(msg, wasScreen, wasVisualizerVisible, wasMode, wasPlaying, wasPaused)
+		}
 		nm.dropStalePreload()
 		nm.notifyPlaybackChange()
 		// A load that starts now gets its own redraws at once. The main tick
@@ -40,20 +63,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // preload, tells the media controls and plugins about a playback change and
 // starts the spinner tick.
 func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	wasScreen := m.activeScreen()
-	wasVisualizerVisible := m.visualizerVisible()
-	wasMode := ui.VisNone
-	if m.vis != nil {
-		wasMode = m.vis.Mode
-	}
-	wasPlaying := false
-	wasPaused := false
-	if m.player != nil {
-		wasPlaying = m.player.IsPlaying()
-		wasPaused = m.player.IsPaused()
-	}
 	defer func() {
-		m.maybeRequestVisualizerRefresh(msg, wasScreen, wasVisualizerVisible, wasMode, wasPlaying, wasPaused)
 		m.emitPluginEvents()
 		m.publishIPCRuntimeState()
 		m.publishPluginState()
@@ -95,12 +105,20 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case LuaSelectMsg:
+		if len(msg.Options) == 0 {
+			if msg.OnCancel != nil {
+				msg.OnCancel()
+			} else if msg.OnDone != nil {
+				msg.OnDone(-1)
+			}
+			return m, nil
+		}
 		if prev := m.luaSelect; prev != nil {
 			// A second request replaces the first: cancel it so its plugin gets
 			// a result instead of losing both callbacks.
 			if prev.onCancel != nil {
 				prev.onCancel()
-			} else {
+			} else if prev.onDone != nil {
 				prev.onDone(-1)
 			}
 		}
@@ -283,6 +301,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case devicesListedMsg:
+		if (msg.gen != 0 && msg.gen != m.requests.devices) || !m.devicePicker.visible {
+			return m, nil
+		}
 		m.devicePicker.loading = false
 		if msg.err != nil {
 			m.status.Errorf(statusTTLDefault, "Device list failed: %s", msg.err)

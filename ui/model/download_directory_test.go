@@ -17,11 +17,18 @@ func TestSaveUsesConfiguredDirectory(t *testing.T) {
 			name = "ipc"
 		}
 		t.Run(name, func(t *testing.T) {
-			source := filepath.Join(t.TempDir(), "source.mp3")
+			root := t.TempDir()
+			for _, env := range []string{"TMPDIR", "TMP", "TEMP"} {
+				t.Setenv(env, filepath.Join(root, "tmp"))
+			}
+			source := filepath.Join(root, "tmp", "source.mp3")
+			if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
+				t.Fatal(err)
+			}
 			if err := os.WriteFile(source, []byte("synthetic audio"), 0600); err != nil {
 				t.Fatal(err)
 			}
-			destination := filepath.Join(t.TempDir(), "downloads")
+			destination := filepath.Join(root, "downloads")
 			tracks := playlist.New()
 			tracks.Add(playlist.Track{Path: source, Title: "Song", Artist: "Artist"})
 			m := Model{playlist: tracks}

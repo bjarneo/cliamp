@@ -40,7 +40,9 @@ func (m *Model) notifyPlaybackChange() {
 		return
 	}
 	track, state := m.playbackState()
-	m.artRef.set(state.Track.ArtURL)
+	if m.artRef != nil && m.artRef.get() != state.Track.ArtURL {
+		m.artRef.set(state.Track.ArtURL)
+	}
 	key := state
 	key.Position = key.Position.Truncate(time.Second)
 	if m.notice.sent && key == m.notice.state {
@@ -76,7 +78,7 @@ func (m *Model) playbackState() (playlist.Track, playback.State) {
 	}
 	track, _ := m.currentPlaybackTrack()
 	artist, title := m.resolveTrackDisplay(track)
-	position, duration := m.playbackClock()
+	position, duration := m.cachedClock()
 	return track, playback.State{
 		Status: status,
 		Track: playback.Track{

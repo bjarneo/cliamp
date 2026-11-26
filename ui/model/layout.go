@@ -15,6 +15,28 @@ const (
 	layoutFull
 )
 
+type layoutInputs struct {
+	width          int
+	height         int
+	paddingH       int
+	paddingV       int
+	paddingSet     bool
+	fullVis        bool
+	pureVis        bool
+	visRows        int
+	hideSettings   bool
+	hideHelpBar    bool
+	showMetadata   bool
+	heightExpanded bool
+	simplified     bool
+	headless       bool
+	contentFirst   bool
+	visDisabled    bool
+	screen         topLevelScreen
+	providerCount  int
+	builtinCols    int
+}
+
 type frameLayout struct {
 	tier               layoutTier
 	frameWidth         int
@@ -111,6 +133,32 @@ func (l frameLayout) frameStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Padding(l.paddingV, l.paddingH).Width(l.frameWidth)
 }
 
+func (m Model) cachedFrameStyle() lipgloss.Style {
+	if m.frameStyleReady {
+		return m.frameStyleCache
+	}
+	return m.layout.frameStyle()
+}
+
+// builtinVisualizerWidth returns the column width of the built-in visualizer
+// pane within panelWidth.
+func (m Model) builtinVisualizerWidth(panelWidth int) int {
+	if m.panes == nil || panelWidth <= 0 {
+		return panelWidth
+	}
+	panes := m.panes.RegionPanes(ui.RegionVisualizer)
+	if len(panes) == 1 && panes[0].Pane == ui.PaneBuiltin {
+		return panelWidth
+	}
+	widths := ui.SplitWeights(panelWidth, paneWeights(panes))
+	for i, pane := range panes {
+		if pane.Pane == ui.PaneBuiltin && pane.Vis == "" {
+			return widths[i]
+		}
+	}
+	return panelWidth
+}
+
 // recomputeLayout picks the layout tier for the current terminal size and
 // derives the row budget from it: fixed chrome, the visualizer, and whatever
 // is left for the body.
@@ -133,9 +181,41 @@ func (m *Model) recomputeLayout() {
 	paddingH = min(paddingH, max(0, (width-1)/2))
 	paddingV = min(paddingV, max(0, (height-1)/2))
 
+	panelWidth := max(1, width-2*paddingH)
+	contentFirst := m.usesContentFirstLayout()
+	simplified := m.usesSimplifiedLayout()
+	visDisabled := m.visualizerDisabled()
+	screen := m.activeScreen()
+	builtinCols := m.builtinVisualizerWidth(panelWidth)
+
+	key := layoutInputs{
+		width:          m.width,
+		height:         m.height,
+		paddingH:       paddingH,
+		paddingV:       paddingV,
+		paddingSet:     m.paddingSet,
+		fullVis:        m.fullVis,
+		pureVis:        m.pureVis,
+		visRows:        m.visRows,
+		hideSettings:   m.hideSettings,
+		hideHelpBar:    m.hideHelpBar,
+		showMetadata:   m.showMetadata,
+		heightExpanded: m.heightExpanded,
+		simplified:     simplified,
+		headless:       m.headless,
+		contentFirst:   contentFirst,
+		visDisabled:    visDisabled,
+		screen:         screen,
+		providerCount:  len(m.providers),
+		builtinCols:    builtinCols,
+	}
+	if m.layoutValid && key == m.layoutKey && (m.vis == nil || m.vis.Cols == builtinCols || (m.width <= 0 && !m.headless && m.vis.Cols == 0)) {
+		return
+	}
+
 	layout := frameLayout{
 		frameWidth: width,
-		panelWidth: max(1, width-2*paddingH),
+		panelWidth: panelWidth,
 		paddingH:   paddingH,
 		paddingV:   paddingV,
 		footerRows: 1,
@@ -163,8 +243,6 @@ func (m *Model) recomputeLayout() {
 		layout.fixedRows = 7
 	}
 	layout.baseVisualizerRows = layout.visualizerRows
-	contentFirst := m.usesContentFirstLayout()
-	simplified := m.usesSimplifiedLayout()
 	if contentFirst {
 		layout.visualizerRows = 0
 		if layout.tier == layoutMinimal {
@@ -175,7 +253,7 @@ func (m *Model) recomputeLayout() {
 	} else if simplified {
 		layout.visualizerRows = 0
 		layout.fixedRows = 3
-	} else if m.visualizerDisabled() {
+	} else if visDisabled {
 		layout.visualizerRows = 0
 		if layout.tier == layoutFull {
 			layout.fixedRows = 10
@@ -186,7 +264,6 @@ func (m *Model) recomputeLayout() {
 	// The settings pane, open or closed, belongs to the full-tier playback
 	// screen only: the denser tiers and the list-focused layouts have no room
 	// for a column and draw their own controls.
-	screen := m.activeScreen()
 	if layout.tier == layoutFull && !contentFirst && !simplified && (screen == screenMain || screen == screenQueue) {
 		if m.hideSettings {
 			layout.closedSettings = true
@@ -207,7 +284,7 @@ func (m *Model) recomputeLayout() {
 	if m.hideHelpBar && !simplified {
 		layout.fixedRows = max(0, layout.fixedRows-1)
 	}
-	if layout.twoColumn && m.showMetadata && !m.visualizerDisabled() {
+	if layout.twoColumn && m.showMetadata && !visDisabled {
 		// Opening details can borrow visualizer rows, never hide direct settings.
 		// The configured height stays intact and returns when details close.
 		bodyRows := height - 2*paddingV - layout.fixedRows - layout.footerRows
@@ -242,8 +319,12 @@ func (m *Model) recomputeLayout() {
 	}
 
 	m.layout = layout
+	m.layoutKey = key
+	m.layoutValid = true
+	m.frameStyleCache = layout.frameStyle()
+	m.frameStyleReady = true
 	if m.vis != nil {
-		m.vis.Cols = layout.panelWidth
+		m.vis.Cols = builtinCols
 		if m.width <= 0 && !m.headless {
 			// Bubbletea draws a frame before the first WindowSizeMsg. The
 			// visualizer stays unsized until then, so a mode never starts at
@@ -256,7 +337,7 @@ func (m *Model) recomputeLayout() {
 			m.vis.Rows = layout.fullVisualizerRows
 		} else {
 			rows := layout.visualizerRows
-			if contentFirst || m.visualizerDisabled() {
+			if contentFirst || visDisabled {
 				// Keep the normal canvas size cached while visualizer work is paused
 				// so modes resume with valid dimensions when the layout returns.
 				rows = max(1, layout.baseVisualizerRows)

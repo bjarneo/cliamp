@@ -58,25 +58,56 @@ func (m *Model) publishPluginState() {
 		return
 	}
 	track, _ := m.currentPlaybackTrack()
-	state := &PluginState{
-		Status:   m.playerStatus(),
-		Volume:   m.player.Volume(),
-		Speed:    m.player.Speed(),
-		Mono:     m.player.Mono(),
-		Repeat:   m.playlist.Repeat().String(),
-		Shuffle:  m.playlist.Shuffled(),
-		EQBands:  m.player.EQBands(),
-		Track:    pluginTrack(track),
-		Count:    m.playlist.Len(),
-		Index:    m.playlist.Index(),
-		HasNext:  m.playlist.HasNext(),
-		revision: m.playlist.Revision(),
-	}
-	state.Track.Artist, state.Track.Title = m.resolveTrackDisplay(track)
+	pTrack := pluginTrack(track)
+	pTrack.Artist, pTrack.Title = m.resolveTrackDisplay(track)
 	// Providers resolve the cover on demand, so the playlist row may not have it.
-	state.Track.ArtURL = m.artworkURL(track)
-	state.Track.Live = m.currentPlaybackIsLive(track)
-	if prev := m.pluginState.Load(); prev != nil && prev.revision == state.revision {
+	pTrack.ArtURL = m.artworkURL(track)
+	pTrack.Live = m.currentPlaybackIsLive(track)
+
+	status := m.playerStatus()
+	volume := m.player.Volume()
+	speed := m.player.Speed()
+	mono := m.player.Mono()
+	repeat := m.playlist.Repeat().String()
+	shuffle := m.playlist.Shuffled()
+	eqBands := m.player.EQBands()
+	count := m.playlist.Len()
+	index := m.playlist.Index()
+	hasNext := m.playlist.HasNext()
+	revision := m.playlist.Revision()
+
+	prev := m.pluginState.Load()
+	if prev != nil &&
+		prev.Status == status &&
+		prev.Volume == volume &&
+		prev.Speed == speed &&
+		prev.Mono == mono &&
+		prev.Repeat == repeat &&
+		prev.Shuffle == shuffle &&
+		prev.EQBands == eqBands &&
+		prev.Track == pTrack &&
+		prev.Count == count &&
+		prev.Index == index &&
+		prev.HasNext == hasNext &&
+		prev.revision == revision {
+		return
+	}
+
+	state := &PluginState{
+		Status:   status,
+		Volume:   volume,
+		Speed:    speed,
+		Mono:     mono,
+		Repeat:   repeat,
+		Shuffle:  shuffle,
+		EQBands:  eqBands,
+		Track:    pTrack,
+		Count:    count,
+		Index:    index,
+		HasNext:  hasNext,
+		revision: revision,
+	}
+	if prev != nil && prev.revision == state.revision {
 		state.Queue = prev.Queue
 	} else {
 		pl := m.playlist

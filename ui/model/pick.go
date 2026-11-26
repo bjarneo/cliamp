@@ -12,6 +12,7 @@ import (
 type providerPickLoadedMsg struct {
 	dialogs  []playlist.PlaylistInfo
 	selected []playlist.PlaylistInfo
+	gen      uint64
 	err      error
 }
 
@@ -35,23 +36,24 @@ func (m *Model) startChatPicker() tea.Cmd {
 	m.status.Show("Pick chats: space marks, enter saves, esc cancels.", statusTTLShort)
 
 	p := m.provider
+	gen := nextRequest(&m.requests.pick)
 	return func() tea.Msg {
 		dialogs, err := cf.Dialogs()
 		if err != nil {
-			return providerPickLoadedMsg{err: err}
+			return providerPickLoadedMsg{gen: gen, err: err}
 		}
 		var selected []playlist.PlaylistInfo
 		if len(cf.Chats()) > 0 {
 			selected, _ = p.Playlists()
 		}
-		return providerPickLoadedMsg{dialogs: dialogs, selected: selected}
+		return providerPickLoadedMsg{dialogs: dialogs, selected: selected, gen: gen}
 	}
 }
 
 // handleChatPickerLoaded fills the pane with the dialogs and marks the current
 // filter. A failure puts the pane back and reports the error.
 func (m *Model) handleChatPickerLoaded(msg providerPickLoadedMsg) {
-	if !m.provPane.picking {
+	if !m.provPane.picking || (msg.gen != 0 && msg.gen != m.requests.pick) {
 		return
 	}
 	m.provPane.pickLoad = false
@@ -82,21 +84,25 @@ func (m *Model) handleChatPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "up", "k":
 		if m.provPane.cursor > 0 {
 			m.provPane.cursor--
-		} else {
+		} else if len(m.provPane.lists) > 0 {
 			m.provPane.cursor = len(m.provPane.lists) - 1
 		}
+		m.providerMaybeAdjustScroll()
 	case "down", "j":
 		if m.provPane.cursor < len(m.provPane.lists)-1 {
 			m.provPane.cursor++
 		} else {
 			m.provPane.cursor = 0
 		}
+		m.providerMaybeAdjustScroll()
 	case "home", "g":
 		m.provPane.cursor = 0
+		m.providerMaybeAdjustScroll()
 	case "end", "G":
 		if len(m.provPane.lists) > 0 {
 			m.provPane.cursor = len(m.provPane.lists) - 1
 		}
+		m.providerMaybeAdjustScroll()
 	case "space", " ":
 		if len(m.provPane.lists) > 0 {
 			id := m.provPane.lists[m.provPane.cursor].ID

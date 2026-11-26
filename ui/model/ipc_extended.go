@@ -678,19 +678,20 @@ func (m *Model) handleIPCLyrics(request ipcLyricsRequest) tea.Cmd {
 
 func (m *Model) handleIPCHistory(request ipcHistoryRequest) tea.Cmd {
 	favorite := m.trackFavoriteLookup(false)
+	store := m.historyStore
 	return func() tea.Msg {
-		if m.historyStore == nil {
+		if store == nil {
 			request.Reply <- ipc.Response{OK: true}
 			return nil
 		}
 		if request.Op == "history.clear" {
-			if err := m.historyStore.Clear(); err != nil {
+			if err := store.Clear(); err != nil {
 				request.Reply <- ipcResponseError(err)
 				return nil
 			}
 			return ipcHistoryClearedMsg{reply: request.Reply}
 		}
-		entries, err := m.historyStore.Recent(request.Limit)
+		entries, err := store.Recent(request.Limit)
 		if err != nil {
 			request.Reply <- ipc.Response{OK: false, Error: err.Error()}
 			return nil

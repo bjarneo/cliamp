@@ -335,6 +335,8 @@ type requestState struct {
 	stream                uint64
 	preload               uint64
 	queue                 uint64
+	devices               uint64
+	pick                  uint64
 }
 
 func nextRequest(gen *uint64) uint64 {
