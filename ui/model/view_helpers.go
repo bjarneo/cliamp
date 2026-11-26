@@ -304,6 +304,23 @@ func (m *Model) toggleSettingsPane() {
 // the list looks like a fragmented mixtape and headers add noise.
 const minTracksPerAlbum = 3.0
 
+// tracksHaveAlbumCohesion reports whether tracks average at least
+// minTracksPerAlbum tracks in each contiguous album run.
+func tracksHaveAlbumCohesion(tracks []playlist.Track) bool {
+	if len(tracks) == 0 {
+		return false
+	}
+	segments := 0
+	lastAlbum := ""
+	for i, t := range tracks {
+		if i == 0 || t.Album != lastAlbum {
+			segments++
+		}
+		lastAlbum = t.Album
+	}
+	return float64(len(tracks))/float64(segments) >= minTracksPerAlbum
+}
+
 // setHeaderStateFromTracks resets the running counters and re-runs the
 // cohesion heuristic. A fresh load also clears any manual override.
 func (m *Model) setHeaderStateFromTracks(tracks []playlist.Track) {

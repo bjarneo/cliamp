@@ -39,6 +39,8 @@ func (m *Model) quit() tea.Cmd {
 	m.flushPendingEQSave()
 	// Quit leaves the track that plays, as s does, so it can scrobble.
 	m.leaveTrack(m.player.PositionAndDuration())
+	m.cancelLyricsRequest()
+	m.cancelNavContext()
 	m.player.Close()
 	m.clearPlaybackTrack()
 	m.quitting = true
@@ -763,10 +765,12 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.openThemePicker()
 
 	case "y":
-		m.lyrics.visible = !m.lyrics.visible
 		if m.lyrics.visible {
-			return m.retryLyrics()
+			m.closeLyrics()
+			return nil
 		}
+		m.lyrics.visible = true
+		return m.retryLyrics()
 
 	case "o":
 		m.openFileBrowser()
@@ -873,10 +877,7 @@ func (m *Model) handleInfoKey(msg tea.KeyPressMsg) tea.Cmd {
 func (m *Model) handleLyricsKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "esc", "y", "q":
-		nextRequest(&m.requests.lyrics)
-		m.lyrics.loading = false
-		m.lyrics.query = ""
-		m.lyrics.visible = false
+		m.closeLyrics()
 	case "r":
 		return m.retryLyrics()
 	case "[":

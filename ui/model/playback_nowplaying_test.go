@@ -110,10 +110,7 @@ func TestPlayTrackEmitsPluginTrackChange(t *testing.T) {
 						if cmd == nil {
 							t.Fatal("missing stream playback command")
 						}
-						msg, ok := cmd().(streamPlayedMsg)
-						if !ok {
-							t.Fatal("playback command did not return streamPlayedMsg")
-						}
+						msg := streamPlayedFrom(t, cmd)
 						updated, _ := m.Update(msg)
 						m = updated.(Model)
 					}

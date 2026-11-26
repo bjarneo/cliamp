@@ -577,7 +577,7 @@ func (m *Model) tickGapless() (cmds []tea.Cmd, playing bool) {
 	if !ok {
 		return nil, false
 	}
-	newTrack, lyricCmd := m.beginPlaybackTrack(newTrack)
+	newTrack, startCmd := m.beginPlaybackTrack(newTrack)
 	// The preload that just fired is consumed — clear the in-flight flag
 	// so the next track can be preloaded.
 	m.preloading = false
@@ -588,7 +588,7 @@ func (m *Model) tickGapless() (cmds []tea.Cmd, playing bool) {
 	m.err = nil
 	// Gapless advances without calling playTrack(), so emit now-playing here.
 	m.nowPlaying(newTrack)
-	return []tea.Cmd{lyricCmd, m.preloadNext()}, true
+	return []tea.Cmd{startCmd, m.preloadNext()}, true
 }
 
 // tickDrain handles a track that played to its end with no preloaded next

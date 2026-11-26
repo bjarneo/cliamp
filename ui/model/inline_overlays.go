@@ -128,12 +128,11 @@ func (m Model) renderSearchOverlayResults(budget int) string {
 	return strings.Join(padLines(lines, budget, len(lines)), "\n")
 }
 
-// renderTrackRowsBody renders a track list with album-header separators into
-// the playlist-region budget, highlighting the row at cursor. Shared by the
-// nav browser and playlist manager unfiltered track views.
-func (m Model) renderTrackRowsBody(tracks []playlist.Track, cursor, scroll, budget int) string {
+// renderTrackRowsBody renders a track list with optional album headers into
+// the playlist region budget and highlights the row at cursor.
+func (m Model) renderTrackRowsBody(tracks []playlist.Track, cursor, scroll, budget int, showHeaders bool) string {
 	lines := make([]string, 0, budget)
-	for row := range m.playlistRows(tracks, scroll, m.showAlbumHeaders) {
+	for row := range m.playlistRows(tracks, scroll, showHeaders) {
 		if len(lines) >= budget {
 			break
 		}
@@ -142,7 +141,7 @@ func (m Model) renderTrackRowsBody(tracks []playlist.Track, cursor, scroll, budg
 			continue
 		}
 		i, t := row.Index, row.Track
-		label := formatTrackRow(i+1, trackViewName(t)+trackAlbumSuffix(t, m.showAlbumHeaders), t.DurationSecs, m.layout.panelWidth)
+		label := formatTrackRow(i+1, trackViewName(t)+trackAlbumSuffix(t, showHeaders), t.DurationSecs, m.layout.panelWidth)
 		lines = append(lines, cursorLine(label, i == cursor))
 	}
 	return bodyLines(lines, budget)
@@ -265,9 +264,9 @@ func (m Model) renderQueueBody() string {
 		return bodyMessage(fmt.Sprintf("%d tracks will be removed from the queue. c confirms; Esc cancels.", total), budget)
 	}
 
-	var stateReporters []provider.PlaybackStateReporter
-	if m.hasPlaybackState() {
-		stateReporters = m.playbackStateReporters()
+	stateReporters := m.playbackStateReporters()
+	if !hasPlaybackStateFrom(stateReporters) {
+		stateReporters = nil
 	}
 	numWidth := len(fmt.Sprintf("%d", total))
 	scroll := clampedScroll(m.queue.scroll, m.queue.cursor, total, budget)

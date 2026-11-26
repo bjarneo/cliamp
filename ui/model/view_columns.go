@@ -168,6 +168,49 @@ func (m Model) settingsPaneRows(rows int) []paneRow {
 	return pane[:min(len(pane), max(0, rows))]
 }
 
+// settingsPaneFocusAreas returns the focusable controls that fit in budget rows.
+// It uses the same rank rules as settingsPaneRows with no text render.
+func (m Model) settingsPaneFocusAreas(budget int) []focusArea {
+	if budget <= 0 {
+		return nil
+	}
+	type rowSpec struct {
+		rank  int
+		focus focusArea
+	}
+	var buf [settingsPaneMaxRows]rowSpec
+	rows := buf[:0]
+	if len(m.providers) > 1 {
+		rows = append(rows, rowSpec{rank: rankControl, focus: focusProvPill})
+	}
+	rows = append(rows,
+		rowSpec{rank: rankControl, focus: focusVolume},
+		rowSpec{rank: rankControl, focus: focusEQ},
+	)
+	for range eqBandRows {
+		rows = append(rows, rowSpec{rank: rankDetail, focus: focusPlaylist})
+	}
+	rows = append(rows,
+		rowSpec{rank: rankMode, focus: focusShuffle},
+		rowSpec{rank: rankMode, focus: focusRepeat},
+		rowSpec{rank: rankControl, focus: focusSpeed},
+	)
+	if m.hasNetworkStats() {
+		rows = append(rows, rowSpec{rank: rankInfo, focus: focusPlaylist})
+	}
+	for rank := rankInfo; rank > rankControl && len(rows) > budget; rank-- {
+		rows = slices.DeleteFunc(rows, func(r rowSpec) bool { return r.rank == rank })
+	}
+	rows = rows[:min(len(rows), budget)]
+	areas := make([]focusArea, 0, len(rows))
+	for _, r := range rows {
+		if r.focus != focusPlaylist {
+			areas = append(areas, r.focus)
+		}
+	}
+	return areas
+}
+
 // settingsNetwork renders the live stream counters, or "" for local playback
 // where there is nothing to report.
 func (m Model) settingsNetwork(w int) string {

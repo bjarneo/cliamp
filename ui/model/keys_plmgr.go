@@ -314,7 +314,7 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 	count := m.plMgrTracksViewCount()
 	switch msg.String() {
 	case "ctrl+h":
-		m.toggleAlbumHeadersManual()
+		m.plManager.showAlbumHeaders = !m.plManager.showAlbumHeaders
 		m.plMgrTracksMaybeAdjustScroll(m.effectivePlaylistVisible())
 		return nil
 	case "/":

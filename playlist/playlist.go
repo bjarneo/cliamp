@@ -32,7 +32,7 @@ func (r RepeatMode) String() string {
 // All exported methods are safe for concurrent use: the Bubbletea UI loop
 // mutates the playlist while Lua plugin goroutines read state through it.
 type Playlist struct {
-	mu             sync.Mutex
+	mu             sync.RWMutex
 	revision       uint64
 	tracks         []Track
 	order          []int // indices into tracks, shuffled or sequential
@@ -42,6 +42,18 @@ type Playlist struct {
 	queue          []int       // track indices queued to play next
 	queuePositions map[int]int // first 1-based queue position by track index
 	queuedIdx      int         // track index currently playing from queue, -1 if none
+}
+
+// PlaylistMeta holds a consistent snapshot of playlist metadata fields.
+type PlaylistMeta struct {
+	Revision    uint64
+	Index       int
+	Len         int
+	QueueLen    int
+	Shuffled    bool
+	Repeat      RepeatMode
+	HasNext     bool
+	CurrentPath string
 }
 
 // Snapshot preserves the complete mutable playback state for later restoration.
@@ -253,15 +265,15 @@ func (p *Playlist) Add(tracks ...Track) {
 
 // Len returns the number of tracks.
 func (p *Playlist) Len() int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	return len(p.tracks)
 }
 
 // Revision returns the monotonic version of the playlist's mutable state.
 func (p *Playlist) Revision() uint64 {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	return p.revision
 }
 
@@ -364,8 +376,8 @@ func (p *Playlist) resolveSelectedPlayablePos() (orderPos int, trackIdx int, ok 
 
 // Current returns the currently selected track and its index.
 func (p *Playlist) Current() (Track, int) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	if len(p.tracks) == 0 {
 		return Track{}, -1
 	}
@@ -375,14 +387,14 @@ func (p *Playlist) Current() (Track, int) {
 
 // Index returns the track index of the current position.
 func (p *Playlist) Index() int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	return p.currentTrackIndex()
 }
 
 func (p *Playlist) CurrentIsQueued() bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	return p.queuedIdx >= 0
 }
 
@@ -400,8 +412,8 @@ type SelectionActivation struct {
 // PeekSelected returns the track that ActivateSelected would activate,
 // without a change to the playlist.
 func (p *Playlist) PeekSelected() (Track, bool) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	_, idx, ok := p.resolveSelectedPlayablePos()
 	if !ok {
 		return Track{}, false
@@ -508,14 +520,7 @@ func (p *Playlist) Next() (Track, bool) {
 	return cloneTrack(p.tracks[idx]), true
 }
 
-// HasNext reports whether a playable track follows the current one in play
-// order: the play-next queue first, then repeat-one, then the shuffled or
-// sequential order, wrapping to the start when repeat-all is on. Unlike
-// PeekNext it answers existence, so it stays true at a shuffle wrap where the
-// next track is not decided yet.
-func (p *Playlist) HasNext() bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (p *Playlist) hasNextLocked() bool {
 	if len(p.tracks) == 0 {
 		return false
 	}
@@ -535,11 +540,43 @@ func (p *Playlist) HasNext() bool {
 	return ok
 }
 
+// Meta returns playlist metadata under one read lock without track map clones.
+func (p *Playlist) Meta() PlaylistMeta {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	idx := p.currentTrackIndex()
+	currentPath := ""
+	if idx >= 0 && idx < len(p.tracks) {
+		currentPath = p.tracks[idx].Path
+	}
+	return PlaylistMeta{
+		Revision:    p.revision,
+		Index:       idx,
+		Len:         len(p.tracks),
+		QueueLen:    len(p.queue),
+		Shuffled:    p.shuffle,
+		Repeat:      p.repeat,
+		HasNext:     p.hasNextLocked(),
+		CurrentPath: currentPath,
+	}
+}
+
+// HasNext reports whether a playable track follows the current one in play
+// order: the play-next queue first, then repeat-one, then the shuffled or
+// sequential order, wrapping to the start when repeat-all is on. Unlike
+// PeekNext it answers existence, so it stays true at a shuffle wrap where the
+// next track is not decided yet.
+func (p *Playlist) HasNext() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.hasNextLocked()
+}
+
 // PeekNext returns the next track without advancing the playlist position.
 // Returns false when the next track can't be predicted (e.g., shuffle wrap).
 func (p *Playlist) PeekNext() (Track, bool) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	if len(p.tracks) == 0 {
 		return Track{}, false
 	}
@@ -652,29 +689,29 @@ func (p *Playlist) Dequeue(trackIdx int) bool {
 // QueuePosition returns the 1-based position of a track in the queue,
 // or 0 if the track is not queued.
 func (p *Playlist) QueuePosition(trackIdx int) int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	return p.queuePositions[trackIdx]
 }
 
 // QueueLen returns the number of tracks in the queue.
 func (p *Playlist) QueueLen() int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	return len(p.queue)
 }
 
 // QueueTracks returns copies of the tracks in queue order.
 func (p *Playlist) QueueTracks() []Track {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	return p.cloneTracksAt(p.queue)
 }
 
 // QueueEntries returns copies of play-next entries in their playback order.
 func (p *Playlist) QueueEntries() []QueueEntry {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	entries := make([]QueueEntry, len(p.queue))
 	for i, index := range p.queue {
 		entries[i] = QueueEntry{TrackIndex: index, Track: cloneTrack(p.tracks[index])}
@@ -684,8 +721,8 @@ func (p *Playlist) QueueEntries() []QueueEntry {
 
 // QueueWindow returns copies of at most limit queued tracks starting at start.
 func (p *Playlist) QueueWindow(start, limit int) []Track {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	start, end := windowBounds(len(p.queue), start, limit)
 	if start == end {
 		return nil
@@ -707,8 +744,8 @@ func (p *Playlist) ClearQueue() {
 
 // Snapshot returns an independent copy of the playlist's mutable state.
 func (p *Playlist) Snapshot() Snapshot {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	return p.snapshot()
 }
 
@@ -936,8 +973,8 @@ func (p *Playlist) SetTrack(i int, t Track) {
 // Tracks returns an independent snapshot of all tracks in the playlist.
 // Render paths should use OrderWindow to avoid copying the full playlist.
 func (p *Playlist) Tracks() []Track {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	return cloneTracks(p.tracks)
 }
 
@@ -945,15 +982,15 @@ func (p *Playlist) Tracks() []Track {
 // indices of the play-next queue in queue order. It reads both under one
 // lock, so the indices always refer to the returned tracks.
 func (p *Playlist) TracksAndQueue() ([]Track, []int) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	return cloneTracks(p.tracks), slices.Clone(p.queue)
 }
 
 // Track returns an independent copy of the track at index.
 func (p *Playlist) Track(index int) (Track, bool) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	if index < 0 || index >= len(p.tracks) {
 		return Track{}, false
 	}
@@ -965,8 +1002,8 @@ func (p *Playlist) Track(index int) (Track, bool) {
 // on, the play order is the shuffle order. Otherwise, it is the track order.
 // It is intended for bounded render windows.
 func (p *Playlist) OrderWindow(start, limit int) ([]int, []Track) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	start, end := windowBounds(len(p.order), start, limit)
 	if start == end {
 		return nil, nil
@@ -978,8 +1015,8 @@ func (p *Playlist) OrderWindow(start, limit int) ([]int, []Track) {
 // OrderPosition returns the play order position of the track at index idx.
 // It returns -1 if idx is out of range.
 func (p *Playlist) OrderPosition(idx int) int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	if idx < 0 || idx >= len(p.tracks) {
 		return -1
 	}
@@ -1051,14 +1088,14 @@ func (p *Playlist) SetRepeat(mode RepeatMode) {
 
 // Shuffled returns whether shuffle is enabled.
 func (p *Playlist) Shuffled() bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	return p.shuffle
 }
 
 // Repeat returns the current repeat mode.
 func (p *Playlist) Repeat() RepeatMode {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	return p.repeat
 }

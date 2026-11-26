@@ -80,6 +80,7 @@ func (m *Model) handleNavTracksLoaded(msg navTracksLoadedMsg) {
 			m.status.Warning("No tracks found", statusTTLDefault)
 			return
 		}
+		m.cancelNavContext()
 		m.navBrowser.visible = false
 		m.retireTracksPaging()
 		m.replacePlayerPlaylist(msg.tracks)
@@ -92,7 +93,7 @@ func (m *Model) handleNavTracksLoaded(msg navTracksLoadedMsg) {
 		return
 	}
 	m.navBrowser.tracks = msg.tracks
-	m.setHeaderStateFromTracks(m.navBrowser.tracks)
+	m.navBrowser.showAlbumHeaders = tracksHaveAlbumCohesion(m.navBrowser.tracks)
 	m.navBrowser.cursor = 0
 	m.navBrowser.scroll = 0
 	m.navBrowser.screen = navBrowseScreenTracks

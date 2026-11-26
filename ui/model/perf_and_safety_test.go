@@ -100,7 +100,8 @@ func TestPlMgrTracksScrollLargeListLinear(t *testing.T) {
 	for i := range tracks {
 		tracks[i] = playlist.Track{Path: "/a.mp3", Title: "Track", Album: "Album"}
 	}
-	m := Model{showAlbumHeaders: true}
+	m := Model{}
+	m.plManager.showAlbumHeaders = true
 	m.plManager.tracks = tracks
 	m.plManager.cursor = len(tracks) - 1
 	m.plManager.scroll = 0

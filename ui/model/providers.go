@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"time"
@@ -223,6 +224,7 @@ func (m *Model) refreshActiveProvider(tracksOnly bool) tea.Cmd {
 	if r, ok := m.provider.(playlist.Refresher); ok {
 		r.Refresh()
 	}
+	m.clearArtworkCache()
 	nextRequest(&m.requests.catalog)
 	m.catalogBatch = catalogBatchState{}
 	m.provPane.loading = true
@@ -768,7 +770,7 @@ func (m Model) canOpenProviderBrowser() bool {
 
 // openNavBrowserWith resets and opens the hierarchy for prov at its root menu.
 func (m *Model) openNavBrowserWith(prov playlist.Provider) {
-	nextRequest(&m.requests.nav)
+	m.cancelNavRequests()
 	m.navBrowser.prov = prov
 	m.navBrowser.genreBrowser, _ = prov.(provider.GenreBrowser)
 	m.navBrowser.visible = true
@@ -791,6 +793,7 @@ func (m *Model) openNavBrowserWith(prov playlist.Provider) {
 	m.navBrowser.directTrackJump = false
 	m.navBrowser.fromProvList = false
 	m.navBrowser.openInPlaylist = false
+	m.navBrowser.showAlbumHeaders = false
 	m.navBrowser.selArtist = provider.ArtistInfo{}
 	m.navBrowser.selAlbum = provider.AlbumInfo{}
 	m.navBrowser.selGenre = provider.GenreInfo{}
@@ -944,11 +947,28 @@ func (m *Model) openSelectedTrackArtistBrowser() (tea.Cmd, bool) {
 	return fetchNavArtistAlbumsCmd(target.browser, target.artist.ID, m.nextNavRequest()), true
 }
 
+func (m *Model) newNavContext() (context.Context, context.CancelFunc) {
+	if m.navCancel == nil {
+		m.navCancel = &cancelSlot{}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.navCancel.replace(cancel)
+	return ctx, cancel
+}
+
+func (m *Model) cancelNavContext() {
+	if m.navCancel != nil {
+		m.navCancel.cancelActive()
+	}
+}
+
 func (m *Model) nextNavRequest() uint64 {
+	m.cancelNavContext()
 	return nextRequest(&m.requests.nav)
 }
 
 func (m *Model) cancelNavRequests() {
+	m.cancelNavContext()
 	nextRequest(&m.requests.nav)
 	m.navBrowser.loading = false
 	m.navBrowser.albumLoading = false
@@ -1025,8 +1045,13 @@ func (m *Model) navClearSearchKeepingCursor(cursor int) {
 // The provider must implement both ArtistBrowser and AlbumTrackLoader.
 func (m *Model) fetchNavArtistAllTracksCmd(ab provider.ArtistBrowser, artistID string) tea.Cmd {
 	gen := m.nextNavRequest()
+	ctx, cancel := m.newNavContext()
 	loader, _ := m.navBrowser.prov.(provider.AlbumTrackLoader)
 	return func() tea.Msg {
+		defer cancel()
+		if err := ctx.Err(); err != nil {
+			return navTracksLoadedMsg{gen: gen, err: err}
+		}
 		albums, err := ab.ArtistAlbums(artistID)
 		if err != nil {
 			return navTracksLoadedMsg{gen: gen, err: err}
@@ -1036,6 +1061,9 @@ func (m *Model) fetchNavArtistAllTracksCmd(ab provider.ArtistBrowser, artistID s
 		}
 		var all []playlist.Track
 		for _, album := range albums {
+			if err := ctx.Err(); err != nil {
+				return navTracksLoadedMsg{gen: gen, err: err}
+			}
 			tracks, err := loader.AlbumTracks(album.ID)
 			if err != nil {
 				return navTracksLoadedMsg{gen: gen, err: err}

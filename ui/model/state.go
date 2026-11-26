@@ -4,8 +4,10 @@
 package model
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bjarneo/cliamp/applog"
@@ -14,6 +16,30 @@ import (
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
+
+// cancelSlot holds one active cancel function behind a pointer.
+// Value copies of Model share the slot and cancel the same request.
+type cancelSlot struct {
+	mu     sync.Mutex
+	cancel context.CancelFunc
+}
+
+func (s *cancelSlot) replace(cancel context.CancelFunc) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	prev := s.cancel
+	s.cancel = cancel
+	s.mu.Unlock()
+	if prev != nil {
+		prev()
+	}
+}
+
+func (s *cancelSlot) cancelActive() {
+	s.replace(nil)
+}
 
 // searchState holds state for the playlist search overlay.
 type searchState struct {
@@ -207,23 +233,24 @@ type subsOverlay struct {
 
 // plManagerState holds state for the playlist manager overlay.
 type plManagerState struct {
-	visible       bool
-	screen        plMgrScreenType
-	cursor        int // view-index: offset into filtered when filter != "", else direct index
-	scroll        int
-	playlists     []playlist.PlaylistInfo
-	selPlaylist   string               // playlist name open in screen 1
-	tracks        []playlist.Track     // tracks in the selected playlist
-	missingLocal  []bool               // cached missing-file state, indexed with tracks
-	dirs          []playlist.DirSource // [[dir]] sources for the selected playlist (screen 2)
-	newName       string
-	confirmDel    bool
-	renameOldName string
-	renameName    string
-	inputErr      string
-	marked        map[int]bool // real track indices marked on the tracks screen
-	sortMode      int
-	undo          plManagerUndo
+	visible          bool
+	screen           plMgrScreenType
+	cursor           int // view-index: offset into filtered when filter != "", else direct index
+	scroll           int
+	playlists        []playlist.PlaylistInfo
+	selPlaylist      string               // playlist name open in screen 1
+	tracks           []playlist.Track     // tracks in the selected playlist
+	missingLocal     []bool               // cached missing-file state, indexed with tracks
+	dirs             []playlist.DirSource // [[dir]] sources for the selected playlist (screen 2)
+	newName          string
+	confirmDel       bool
+	renameOldName    string
+	renameName       string
+	inputErr         string
+	marked           map[int]bool // real track indices marked on the tracks screen
+	sortMode         int
+	showAlbumHeaders bool
+	undo             plManagerUndo
 
 	// Filter (`/`) state. Reset on screen change. `filtered` indexes into
 	// `playlists` (list screen) or `tracks` (tracks screen).
@@ -285,34 +312,35 @@ type fileBrowserState struct {
 
 // navBrowserState holds state for the provider browser overlay.
 type navBrowserState struct {
-	prov            playlist.Provider
-	genreBrowser    provider.GenreBrowser
-	visible         bool
-	mode            navBrowseModeType
-	screen          navBrowseScreenType
-	cursor          int
-	scroll          int
-	artists         []provider.ArtistInfo
-	albums          []provider.AlbumInfo
-	tracks          []playlist.Track
-	genres          []provider.GenreInfo
-	genreSorts      []provider.SortType
-	selArtist       provider.ArtistInfo
-	selAlbum        provider.AlbumInfo
-	selGenre        provider.GenreInfo
-	selGenreSort    provider.SortType
-	genreQuery      string
-	sortType        string
-	albumLoading    bool
-	albumDone       bool
-	loading         bool
-	searching       bool
-	search          string
-	searchIdx       []int
-	confirmReplace  bool
-	directTrackJump bool
-	fromProvList    bool
-	openInPlaylist  bool
+	prov             playlist.Provider
+	genreBrowser     provider.GenreBrowser
+	visible          bool
+	mode             navBrowseModeType
+	screen           navBrowseScreenType
+	cursor           int
+	scroll           int
+	artists          []provider.ArtistInfo
+	albums           []provider.AlbumInfo
+	tracks           []playlist.Track
+	genres           []provider.GenreInfo
+	genreSorts       []provider.SortType
+	selArtist        provider.ArtistInfo
+	selAlbum         provider.AlbumInfo
+	selGenre         provider.GenreInfo
+	selGenreSort     provider.SortType
+	genreQuery       string
+	sortType         string
+	albumLoading     bool
+	albumDone        bool
+	loading          bool
+	searching        bool
+	search           string
+	searchIdx        []int
+	confirmReplace   bool
+	directTrackJump  bool
+	fromProvList     bool
+	openInPlaylist   bool
+	showAlbumHeaders bool
 }
 
 // requestState tracks the latest request in each independently asynchronous UI

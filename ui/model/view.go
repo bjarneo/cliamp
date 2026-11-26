@@ -959,7 +959,39 @@ func (m Model) renderPlaylistHeader() string {
 	return m.renderPlaybackHeader()
 }
 
-// renderPlaybackHeader is also used to probe playback focus beneath overlays.
+const (
+	playbackHeaderLabel        = "── Playlist ── "
+	playbackHeaderFocusedLabel = "▸─ Playlist ── "
+	playbackHeaderTrailer      = " ──"
+	playbackHeaderBaseWidth    = 15 + 3
+	shuffleBadgeWidth          = len("[Shuffle]")
+)
+
+// playbackHeaderBadgeFits reports whether area fits in renderPlaybackHeader when
+// focused. It matches renderPlaybackHeader widths with no ANSI styles.
+func (m Model) playbackHeaderBadgeFits(area focusArea) bool {
+	if m.layout.twoColumn || m.playlist == nil {
+		return false
+	}
+	switch area {
+	case focusShuffle:
+		valueLen := len("Off")
+		if m.playlist.Shuffled() {
+			valueLen = len("On")
+		}
+		// "[Shuffle ▸ " has 11 cells, plus value and "]".
+		return playbackHeaderBaseWidth+12+valueLen <= m.layout.panelWidth
+	case focusRepeat:
+		// Unfocused "[Shuffle]", one space, then "[Repeat ▸ <mode>]".
+		repeatLen := len(m.playlist.Repeat().String())
+		// "[Repeat ▸ " has 10 cells, plus value and "]".
+		return playbackHeaderBaseWidth+shuffleBadgeWidth+1+11+repeatLen <= m.layout.panelWidth
+	default:
+		return false
+	}
+}
+
+// renderPlaybackHeader renders the playback header and its status badges.
 func (m Model) renderPlaybackHeader() string {
 	// Badges in display order. A narrow pane drops whole badges off the tail
 	// rather than letting the separator slice one mid-token.
@@ -1002,15 +1034,14 @@ func (m Model) renderPlaybackHeader() string {
 	}
 
 	headerStyle := dimStyle
-	headerLabel := "── Playlist ── "
+	headerLabel := playbackHeaderLabel
 	if m.focus == focusPlaylist {
 		headerStyle = activeToggle
-		headerLabel = "▸─ Playlist ── "
+		headerLabel = playbackHeaderFocusedLabel
 	}
 
-	const trailer = " ──"
 	out := headerStyle.Render(headerLabel)
-	width := lipgloss.Width(headerLabel) + lipgloss.Width(trailer)
+	width := lipgloss.Width(headerLabel) + lipgloss.Width(playbackHeaderTrailer)
 	for i, badge := range badges {
 		w := lipgloss.Width(badge)
 		if i > 0 {
@@ -1025,7 +1056,7 @@ func (m Model) renderPlaybackHeader() string {
 		out += badge
 		width += w
 	}
-	return out + dimStyle.Render(trailer)
+	return out + dimStyle.Render(playbackHeaderTrailer)
 }
 
 func (m Model) renderProviderList() string {
@@ -1267,10 +1298,11 @@ func (m Model) renderPlaylist() string {
 
 	lines := make([]string, 0, budget)
 	numWidth := len(fmt.Sprintf("%d", trackCount))
-	cols := m.markerColumns()
-	var stateReporters []provider.PlaybackStateReporter
-	if cols.played {
-		stateReporters = m.playbackStateReporters()
+	stateReporters := m.playbackStateReporters()
+	cols := markerColumns{
+		queue:    m.playlist.QueueLen() > 0,
+		favorite: true,
+		played:   hasPlaybackStateFrom(stateReporters),
 	}
 
 	showHeaders := m.plShowsAlbumHeaders()
@@ -1405,14 +1437,17 @@ func (m Model) renderPlaylist() string {
 		numStr := fmt.Sprintf("%*d. ", numWidth, i+1)
 		line := styledMarkers + style.Render(numStr)
 		line += style.Render(name)
+		albumLen := 0
 		if albumSuffix != "" {
+			albumLen = lipgloss.Width(albumSuffix)
 			line += dimStyle.Render(albumSuffix)
 		}
 		if queueSuffix != "" {
 			line += activeToggle.Render(queueSuffix)
 		}
 		if duration != "" {
-			padding := max(1, m.layout.panelWidth-lipgloss.Width(line)-durationLen)
+			lineWidth := linePrefixWidth + nameLen + albumLen + queueLen
+			padding := max(1, m.layout.panelWidth-lineWidth-durationLen)
 			line += strings.Repeat(" ", padding) + dimStyle.Render(duration)
 		}
 		lines = append(lines, line)
@@ -1462,6 +1497,15 @@ func (m Model) renderBottomStatus() string {
 		return left
 	}
 	return left + strings.Repeat(" ", gap) + right
+}
+
+// hasNetworkStats reports whether the active engine has stream byte counters.
+func (m Model) hasNetworkStats() bool {
+	if m.player == nil {
+		return false
+	}
+	downloaded, total := m.player.StreamBytes()
+	return downloaded > 0 || total > 0
 }
 
 // networkStatsText formats the live stream download counters, or "" for local

@@ -64,17 +64,18 @@ func (m *Model) publishPluginState() {
 	pTrack.ArtURL = m.artworkURL(track)
 	pTrack.Live = m.currentPlaybackIsLive(track)
 
+	meta := m.playlist.Meta()
 	status := m.playerStatus()
 	volume := m.player.Volume()
 	speed := m.player.Speed()
 	mono := m.player.Mono()
-	repeat := m.playlist.Repeat().String()
-	shuffle := m.playlist.Shuffled()
+	repeat := meta.Repeat.String()
+	shuffle := meta.Shuffled
 	eqBands := m.player.EQBands()
-	count := m.playlist.Len()
-	index := m.playlist.Index()
-	hasNext := m.playlist.HasNext()
-	revision := m.playlist.Revision()
+	count := meta.Len
+	index := meta.Index
+	hasNext := meta.HasNext
+	revision := meta.Revision
 
 	prev := m.pluginState.Load()
 	if prev != nil &&

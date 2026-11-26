@@ -51,6 +51,7 @@ func (m *Model) detachPlaybackTrack() {
 }
 
 func (m *Model) clearPlaybackTrack() {
+	m.clearArtworkCache()
 	m.playingTrack = playlist.Track{}
 	m.playingTrackActive = false
 	m.playingTrackStarted = false

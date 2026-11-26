@@ -218,7 +218,7 @@ func (m Model) renderPlMgrTracksBody() string {
 	}
 
 	lines := make([]string, 0, budget)
-	for row := range m.playlistRows(m.plManager.tracks, scroll, m.showAlbumHeaders) {
+	for row := range m.playlistRows(m.plManager.tracks, scroll, m.plManager.showAlbumHeaders) {
 		if len(lines) >= budget {
 			break
 		}
@@ -271,7 +271,7 @@ func (m Model) plMgrTrackLabel(realIdx int) string {
 	if realIdx < len(m.plManager.missingLocal) && m.plManager.missingLocal[realIdx] {
 		missing = "! "
 	}
-	return mark + missing + formatTrackRow(realIdx+1, trackViewName(t)+trackAlbumSuffix(t, m.showAlbumHeaders), t.DurationSecs, m.layout.panelWidth)
+	return mark + missing + formatTrackRow(realIdx+1, trackViewName(t)+trackAlbumSuffix(t, m.plManager.showAlbumHeaders), t.DurationSecs, m.layout.panelWidth)
 }
 
 // renderSearchList renders the playlist-search results for the playlist region

@@ -188,12 +188,12 @@ func (m Model) renderNavTrackBody(budget int) string {
 	if m.navBrowser.search != "" {
 		items := m.navScrollItems(len(m.navBrowser.tracks), func(i int) string {
 			t := m.navBrowser.tracks[i]
-			return formatTrackRow(i+1, trackViewName(t)+trackAlbumSuffix(t, m.showAlbumHeaders), t.DurationSecs, m.layout.panelWidth)
+			return formatTrackRow(i+1, trackViewName(t)+trackAlbumSuffix(t, m.navBrowser.showAlbumHeaders), t.DurationSecs, m.layout.panelWidth)
 		})
 		return strings.Join(items, "\n")
 	}
 
-	return m.renderTrackRowsBody(m.navBrowser.tracks, m.navBrowser.cursor, m.navBrowser.scroll, budget)
+	return m.renderTrackRowsBody(m.navBrowser.tracks, m.navBrowser.cursor, m.navBrowser.scroll, budget, m.navBrowser.showAlbumHeaders)
 }
 
 // — file browser —

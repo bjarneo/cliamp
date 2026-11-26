@@ -40,6 +40,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	spinning := m.spinnerVisible()
 	m.clockFresh = false
+	if m.artworkCache == nil {
+		m.artworkCache = &artworkCache{}
+	}
 	next, cmd := m.update(msg)
 	if nm, ok := next.(Model); ok {
 		if !nm.headless {
@@ -244,6 +247,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ytdlArtistMsg:
 		return m, m.handleYTDLArtist(msg)
+
+	case embeddedMetaRefreshedMsg:
+		return m, m.handleEmbeddedMetaRefreshed(msg)
 
 	case fbTracksResolvedMsg:
 		cmd := m.handleFBTracksResolved(msg)

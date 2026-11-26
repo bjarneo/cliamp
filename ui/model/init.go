@@ -52,6 +52,9 @@ func New(p player.Engine, pl *playlist.Playlist, providers []provider.Entry, def
 		favStore:         favs,
 		showAlbumHeaders: false,
 		reports:          &reportQueue{},
+		artworkCache:     &artworkCache{},
+		lyricsCancel:     &cancelSlot{},
+		navCancel:        &cancelSlot{},
 	}
 	m.refreshFavSet()
 	if luaMgr != nil {

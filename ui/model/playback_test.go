@@ -519,9 +519,7 @@ func TestTogglePlayPauseRestartsQueuedCurrentTrack(t *testing.T) {
 		vis:      ui.NewVisualizer(float64(player.SampleRate())),
 	}
 
-	if cmd := m.togglePlayPause(); cmd != nil {
-		_ = cmd()
-	}
+	settlePlay(t, &m, m.togglePlayPause())
 
 	if len(player.playCalls) != 1 || player.playCalls[0] != "queued.mp3" {
 		t.Fatalf("playCalls = %v, want [queued.mp3]", player.playCalls)
@@ -802,10 +800,7 @@ func TestProviderPlaylistLoadWhilePlayingKeepsNowPlayingTrack(t *testing.T) {
 func TestNextAfterProviderPlaylistLoadStartsFirstNewTrack(t *testing.T) {
 	m, player := modelAfterProviderPlaylistLoadWhilePlaying(t)
 
-	cmd := m.nextTrack()
-	if cmd != nil {
-		_ = cmd()
-	}
+	settlePlay(t, &m, m.nextTrack())
 
 	if len(player.playCalls) == 0 || player.playCalls[0] != "new1.mp3" {
 		t.Fatalf("playCalls = %v, want first new track", player.playCalls)
