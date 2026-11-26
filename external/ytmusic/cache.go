@@ -6,15 +6,22 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/bjarneo/cliamp/internal/appdir"
+	"github.com/bjarneo/cliamp/internal/fileutil"
 	"github.com/bjarneo/cliamp/playlist"
 )
 
 // cacheTTL is how long cached playlist/track data is considered fresh.
 // After this, data is refetched from the API on next access.
-const cacheTTL = 24 * time.Hour
+const (
+	cacheTTL             = 24 * time.Hour
+	maxTrackCacheEntries = 1000
+)
+
+var snapshotMu sync.Mutex
 
 // ytCache stores playlists and tracks on disk for fast startup.
 // Path: ~/.config/cliamp/ytmusic_cache.json
@@ -86,7 +93,7 @@ func (c *ytCache) snapshot() []byte {
 	return data
 }
 
-// save writes previously-snapshotted data to disk. Safe to call without a lock.
+// saveSnapshot writes previously-snapshotted data atomically to disk.
 func saveSnapshot(data []byte) {
 	if data == nil {
 		return
@@ -95,8 +102,9 @@ func saveSnapshot(data []byte) {
 	if path == "" {
 		return
 	}
-	os.MkdirAll(filepath.Dir(path), 0o700)
-	os.WriteFile(path, data, 0o600)
+	snapshotMu.Lock()
+	defer snapshotMu.Unlock()
+	_ = fileutil.WriteFileAtomic(path, data, 0o600)
 }
 
 func (c *ytCache) playlistsFresh() bool {
@@ -120,6 +128,9 @@ func (c *ytCache) setPlaylists(pl []playlistEntry) {
 }
 
 func (c *ytCache) setTracks(playlistID string, tracks []playlist.Track) {
+	if _, exists := c.Tracks[playlistID]; !exists && len(c.Tracks) >= maxTrackCacheEntries {
+		clear(c.Tracks)
+	}
 	c.Tracks[playlistID] = cachedTrackList{
 		Items:     tracks,
 		FetchedAt: time.Now(),

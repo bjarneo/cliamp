@@ -1,10 +1,13 @@
 package telegram
 
 import (
+	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 	"github.com/gotd/td/tg"
 )
 
@@ -265,5 +268,98 @@ func TestTopMessageDateMatchesThePeer(t *testing.T) {
 	}
 	if got := topMessageDate(messages, &tg.PeerChat{ChatID: 3}, 7); got != 0 {
 		t.Fatalf("topMessageDate() = %d, want 0 when no message matches the peer", got)
+	}
+}
+
+func TestAuthenticateForwardsCode(t *testing.T) {
+	tests := []struct {
+		name    string
+		code    string
+		wantErr error
+	}{
+		{name: "valid numeric code", code: "12345"},
+		{name: "different code with rejection", code: "98765", wantErr: errors.New("invalid code")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			p := &Provider{
+				ctx:     ctx,
+				cancel:  cancel,
+				authReq: make(chan authRequest),
+			}
+			p.setNeedsAuth()
+
+			gotCode := make(chan string, 1)
+			go func() {
+				req := <-p.authReq
+				gotCode <- req.code
+				req.result <- tt.wantErr
+			}()
+
+			err := p.Authenticate(tt.code)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Authenticate(%q) error = %v, want %v", tt.code, err, tt.wantErr)
+			}
+			if got := <-gotCode; got != tt.code {
+				t.Fatalf("received code = %q, want %q", got, tt.code)
+			}
+		})
+	}
+}
+
+func TestWaitConcurrentStateTransition(t *testing.T) {
+	p := &Provider{authReq: make(chan authRequest)}
+	wantErr := errors.New("connect failed")
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for range 50 {
+			p.setFailed(wantErr)
+			p.setNeedsAuth()
+			p.setReady()
+		}
+		p.setFailed(wantErr)
+	}()
+	go func() {
+		defer wg.Done()
+		for range 50 {
+			_ = p.wait()
+		}
+	}()
+	wg.Wait()
+
+	if err := p.wait(); !errors.Is(err, wantErr) {
+		t.Fatalf("wait() = %v, want %v", err, wantErr)
+	}
+}
+
+func TestCloseCancelsContextAndWait(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	p := &Provider{
+		ctx:     ctx,
+		cancel:  cancel,
+		authReq: make(chan authRequest),
+	}
+	var closer provider.Closer = p
+
+	waitErr := make(chan error, 1)
+	go func() {
+		waitErr <- p.wait()
+	}()
+
+	closer.Close()
+	closer.Close()
+
+	select {
+	case <-ctx.Done():
+	default:
+		t.Fatal("Close did not cancel provider context")
+	}
+	if err := <-waitErr; err == nil {
+		t.Fatal("wait() should return an error after Close")
 	}
 }

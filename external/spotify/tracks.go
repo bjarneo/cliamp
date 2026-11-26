@@ -110,7 +110,7 @@ func (p *SpotifyProvider) fetchTracksPage(ctx context.Context, playlistID string
 	path := "/v1/me/tracks"
 	if playlistID != savedTracksPlaylistID {
 		query.Set("fields", "items(item(id,name,type,uri,artists(name),album(name,release_date,images),show(name,images),images,release_date,duration_ms,track_number,is_playable,restrictions(reason))),total")
-		path = fmt.Sprintf("/v1/playlists/%s/items", playlistID)
+		path = fmt.Sprintf("/v1/playlists/%s/items", url.PathEscape(playlistID))
 	}
 	resp, err := p.webAPI(ctx, "GET", path, query)
 	if err != nil {
@@ -174,7 +174,7 @@ func (p *SpotifyProvider) snapshotIDLocked(playlistID string) string {
 // untouched -- which an unchanged total and head cannot, since an ordinary
 // playlist can be edited anywhere.
 func (p *SpotifyProvider) playlistSnapshot(ctx context.Context, playlistID string) (string, error) {
-	resp, err := p.webAPI(ctx, "GET", "/v1/playlists/"+playlistID, url.Values{"fields": {"snapshot_id"}})
+	resp, err := p.webAPI(ctx, "GET", "/v1/playlists/"+url.PathEscape(playlistID), url.Values{"fields": {"snapshot_id"}})
 	if err != nil {
 		return "", fmt.Errorf("spotify: playlist snapshot %q: %w", playlistID, err)
 	}
@@ -197,12 +197,17 @@ func (p *SpotifyProvider) cachedTracksLocked(playlistID string) (tracks []playli
 	return slices.Clone(cached.tracks), cached.total, true
 }
 
+const maxTrackCacheEntries = 1000
+
 // cacheTracksLocked stores a fully loaded track list. p.mu must be held.
 func (p *SpotifyProvider) cacheTracksLocked(playlistID string, tracks []playlist.Track, total int) {
 	if cached, ok := p.trackCache[playlistID]; ok {
 		cached.tracks = tracks
 		cached.total = total
 		return
+	}
+	if len(p.trackCache) >= maxTrackCacheEntries {
+		clear(p.trackCache)
 	}
 	p.trackCache[playlistID] = &playlistCache{tracks: tracks, total: total}
 }

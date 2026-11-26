@@ -6,6 +6,7 @@ package embyapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -205,13 +206,17 @@ func (c *Client) Ping() error {
 
 // UserID returns the active user id, discovering it lazily when needed.
 func (c *Client) UserID() (string, error) {
+	return c.userIDContext(context.Background())
+}
+
+func (c *Client) userIDContext(ctx context.Context) (string, error) {
 	c.mu.Lock()
 	id := c.userID
 	c.mu.Unlock()
 	if id != "" {
 		return id, nil
 	}
-	if err := c.ensureAuth(); err != nil {
+	if err := c.ensureAuthContext(ctx); err != nil {
 		return "", err
 	}
 	c.mu.Lock()
@@ -220,7 +225,7 @@ func (c *Client) UserID() (string, error) {
 	if id != "" {
 		return id, nil
 	}
-	return c.dialect.discoverUserID(c)
+	return c.dialect.discoverUserID(ctx, c)
 }
 
 // MusicLibraries returns all user views whose collection type is music.
@@ -461,7 +466,12 @@ func (c *Client) Tracks(albumID string) ([]Track, error) {
 // Search searches the user's audio library for tracks matching query and
 // returns up to limit results.
 func (c *Client) Search(query string, limit int) ([]Track, error) {
-	userID, err := c.UserID()
+	return c.SearchContext(context.Background(), query, limit)
+}
+
+// SearchContext searches the user's audio library for tracks matching query under ctx.
+func (c *Client) SearchContext(ctx context.Context, query string, limit int) ([]Track, error) {
+	userID, err := c.userIDContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -480,7 +490,7 @@ func (c *Client) Search(query string, limit int) ([]Track, error) {
 	}
 
 	var resp itemsResponseDTO
-	if err := c.get("/Items", params, &resp); err != nil {
+	if err := c.getContext(ctx, "/Items", params, &resp); err != nil {
 		return nil, err
 	}
 
@@ -629,11 +639,18 @@ func (e *httpError) Error() string {
 // get executes a GET request against the endpoint, unmarshaling JSON into out
 // on success and returning a typed httpError for non-200 responses.
 func (c *Client) get(p string, params url.Values, out any) error {
-	if err := c.ensureAuth(); err != nil {
+	return c.getContext(context.Background(), p, params, out)
+}
+
+func (c *Client) getContext(ctx context.Context, p string, params url.Values, out any) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := c.ensureAuthContext(ctx); err != nil {
 		return err
 	}
 
-	req, err := c.newRequest(http.MethodGet, p, params)
+	req, err := c.newRequestContext(ctx, http.MethodGet, p, params)
 	if err != nil {
 		return err
 	}
@@ -697,8 +714,15 @@ func (c *Client) postJSON(p string, payload any) error {
 }
 
 func (c *Client) ensureAuth() error {
+	return c.ensureAuthContext(context.Background())
+}
+
+func (c *Client) ensureAuthContext(ctx context.Context) error {
 	if c.authToken() != "" {
 		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
 	c.authMu.Lock()
@@ -718,7 +742,7 @@ func (c *Client) ensureAuth() error {
 		return fmt.Errorf("%s: auth: %w", c.dialect.name(), err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/Users/AuthenticateByName", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/Users/AuthenticateByName", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("%s: auth: %w", c.dialect.name(), err)
 	}
@@ -752,17 +776,24 @@ func (c *Client) ensureAuth() error {
 	return nil
 }
 
-func (c *Client) newRequest(method, p string, params url.Values) (*http.Request, error) {
-	return c.newRequestWithBody(method, p, params, nil)
+func (c *Client) newRequestContext(ctx context.Context, method, p string, params url.Values) (*http.Request, error) {
+	return c.newRequestWithBodyContext(ctx, method, p, params, nil)
 }
 
 func (c *Client) newRequestWithBody(method, p string, params url.Values, body io.Reader) (*http.Request, error) {
+	return c.newRequestWithBodyContext(context.Background(), method, p, params, body)
+}
+
+func (c *Client) newRequestWithBodyContext(ctx context.Context, method, p string, params url.Values, body io.Reader) (*http.Request, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	u := c.baseURL + p
 	if len(params) > 0 {
 		u += "?" + params.Encode()
 	}
 
-	req, err := http.NewRequest(method, u, body)
+	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %s: %w", c.dialect.name(), p, err)
 	}

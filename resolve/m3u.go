@@ -112,7 +112,15 @@ func parseEXTINF(info string) (int, string) {
 
 // m3uEntryToTrack converts a parsed M3U entry to a playlist.Track.
 func m3uEntryToTrack(e m3uEntry) playlist.Track {
+	return m3uEntryToTrackWithOptions(e, true)
+}
+
+func m3uEntryToTrackWithOptions(e m3uEntry, allowLocalFS bool) playlist.Track {
 	isURL := playlist.IsURL(e.Path)
+	if !isURL {
+		scheme := URIScheme(e.Path)
+		isURL = scheme == "http" || scheme == "https"
+	}
 	duration := max(e.Duration, 0)
 	realtime := isURL && e.Duration <= 0
 
@@ -125,7 +133,12 @@ func m3uEntryToTrack(e m3uEntry) playlist.Track {
 			DurationSecs: duration,
 		}
 	}
-	t := playlist.TrackFromPath(e.Path)
+	var t playlist.Track
+	if allowLocalFS {
+		t = playlist.TrackFromPath(e.Path)
+	} else {
+		t = remoteTrackFromPath(e.Path)
+	}
 	t.Realtime = realtime
 	t.DurationSecs = duration
 	return t
@@ -135,7 +148,16 @@ func m3uEntryToTrack(e m3uEntry) playlist.Track {
 func entriesToTracks(entries []m3uEntry) []playlist.Track {
 	tracks := make([]playlist.Track, 0, len(entries))
 	for _, e := range entries {
-		tracks = append(tracks, m3uEntryToTrack(e))
+		tracks = append(tracks, m3uEntryToTrackWithOptions(e, true))
+	}
+	return tracks
+}
+
+// remoteM3UEntriesToTracks converts filtered remote M3U entries without local file reads.
+func remoteM3UEntriesToTracks(entries []m3uEntry) []playlist.Track {
+	tracks := make([]playlist.Track, 0, len(entries))
+	for _, e := range entries {
+		tracks = append(tracks, m3uEntryToTrackWithOptions(e, false))
 	}
 	return tracks
 }

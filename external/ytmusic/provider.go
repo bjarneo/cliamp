@@ -327,6 +327,9 @@ func (b *baseProvider) tracks(playlistID string) ([]playlist.Track, error) {
 	// Check disk cache — avoids API call and auth if fresh.
 	dc := b.ensureDiskCache()
 	if tracks, ok := dc.tracksFresh(playlistID); ok {
+		if _, exists := b.trackCache[playlistID]; !exists && len(b.trackCache) >= maxTrackCacheEntries {
+			clear(b.trackCache)
+		}
 		b.trackCache[playlistID] = tracks
 		b.mu.Unlock()
 		return tracks, nil
@@ -406,6 +409,9 @@ func (b *baseProvider) tracks(playlistID string) ([]playlist.Track, error) {
 
 	// Persist to in-memory and disk cache.
 	b.mu.Lock()
+	if _, exists := b.trackCache[playlistID]; !exists && len(b.trackCache) >= maxTrackCacheEntries {
+		clear(b.trackCache)
+	}
 	b.trackCache[playlistID] = tracks
 	dc = b.ensureDiskCache()
 	dc.setTracks(playlistID, tracks)

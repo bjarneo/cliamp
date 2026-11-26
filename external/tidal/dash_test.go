@@ -67,6 +67,11 @@ func TestDashSegmentsErrors(t *testing.T) {
 		{"no template", `<MPD><Period><AdaptationSet><Representation codecs="flac"/></AdaptationSet></Period></MPD>`},
 		{"empty timeline", `<MPD><Period><AdaptationSet><Representation codecs="flac"><SegmentTemplate media="https://x/$Number$"/></Representation></AdaptationSet></Period></MPD>`},
 		{"unsupported template", `<MPD><Period><AdaptationSet><Representation codecs="flac"><SegmentTemplate media="https://x/$Time$"><SegmentTimeline><S d="1"/></SegmentTimeline></SegmentTemplate></Representation></AdaptationSet></Period></MPD>`},
+		{"negative repeat count", `<MPD><Period><AdaptationSet><Representation codecs="flac"><SegmentTemplate media="https://x/s$Number$"><SegmentTimeline><S d="1" r="-1"/></SegmentTimeline></SegmentTemplate></Representation></AdaptationSet></Period></MPD>`},
+		{"exceeds max segments", `<MPD><Period><AdaptationSet><Representation codecs="flac"><SegmentTemplate media="https://x/s$Number$"><SegmentTimeline><S d="1" r="100000"/></SegmentTimeline></SegmentTemplate></Representation></AdaptationSet></Period></MPD>`},
+		{"file init url", `<MPD><Period><AdaptationSet><Representation codecs="flac"><SegmentTemplate initialization="file:///etc/passwd" media="https://x/s$Number$"><SegmentTimeline><S d="1"/></SegmentTimeline></SegmentTemplate></Representation></AdaptationSet></Period></MPD>`},
+		{"ssh media url", `<MPD><Period><AdaptationSet><Representation codecs="flac"><SegmentTemplate initialization="https://x/init" media="ssh://evil/s$Number$"><SegmentTimeline><S d="1"/></SegmentTimeline></SegmentTemplate></Representation></AdaptationSet></Period></MPD>`},
+		{"empty host media url", `<MPD><Period><AdaptationSet><Representation codecs="flac"><SegmentTemplate media="https:///s$Number$"><SegmentTimeline><S d="1"/></SegmentTimeline></SegmentTemplate></Representation></AdaptationSet></Period></MPD>`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

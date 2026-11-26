@@ -4,6 +4,7 @@ package audiobookshelf
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -29,6 +30,9 @@ type Client struct {
 	password   string
 	libraries  []string
 	httpClient *http.Client
+
+	// authMu serializes password login requests.
+	authMu sync.Mutex
 
 	// mu guards the lazily-populated fields below, which are read and written
 	// from concurrent tea.Cmd goroutines. It is never held across network I/O.
@@ -70,6 +74,10 @@ func (c *Client) Ping() error {
 // Libraries returns the libraries visible to the user, filtered by the
 // configured name list. Results are cached after the first successful call.
 func (c *Client) Libraries() ([]Library, error) {
+	return c.librariesContext(context.Background())
+}
+
+func (c *Client) librariesContext(ctx context.Context) ([]Library, error) {
 	c.mu.Lock()
 	cached := c.libraryCache
 	c.mu.Unlock()
@@ -78,7 +86,7 @@ func (c *Client) Libraries() ([]Library, error) {
 	}
 
 	var resp librariesResponse
-	if err := c.get("/api/libraries", nil, &resp); err != nil {
+	if err := c.getContext(ctx, "/api/libraries", nil, &resp); err != nil {
 		return nil, err
 	}
 
@@ -109,7 +117,7 @@ func (c *Client) allowed(name string) bool {
 
 // StreamURL returns an authenticated audio URL for one file of an item.
 func (c *Client) StreamURL(itemID, ino string) string {
-	_ = c.ensureAuth()
+	_ = c.ensureAuth(context.Background())
 	u := c.baseURL + "/api/items/" + url.PathEscape(itemID) + "/file/" + url.PathEscape(ino)
 	if token := c.authToken(); token != "" {
 		u += "?" + url.Values{"token": {token}}.Encode()
@@ -138,10 +146,17 @@ func (c *Client) authToken() string {
 // the cached token and credentials are configured. Password logins hand back a
 // token that can expire, so a 401 is recoverable without user action.
 func (c *Client) get(p string, params url.Values, out any) error {
-	code, err := c.getOnce(p, params, out)
+	return c.getContext(context.Background(), p, params, out)
+}
+
+func (c *Client) getContext(ctx context.Context, p string, params url.Values, out any) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	token, code, err := c.getOnce(ctx, p, params, out)
 	if code == http.StatusUnauthorized && c.canRelogin() {
-		c.clearToken()
-		_, err = c.getOnce(p, params, out)
+		c.clearTokenIf(token)
+		_, _, err = c.getOnce(ctx, p, params, out)
 	}
 	return err
 }
@@ -150,84 +165,95 @@ func (c *Client) get(p string, params url.Values, out any) error {
 // in again. A token from config cannot be renewed.
 func (c *Client) canRelogin() bool { return c.user != "" && c.password != "" }
 
-func (c *Client) clearToken() {
+func (c *Client) clearTokenIf(failed string) {
 	c.mu.Lock()
-	c.token = ""
+	if c.token == failed {
+		c.token = ""
+	}
 	c.mu.Unlock()
 }
 
-func (c *Client) getOnce(p string, params url.Values, out any) (int, error) {
-	if err := c.ensureAuth(); err != nil {
-		return 0, err
+func (c *Client) getOnce(ctx context.Context, p string, params url.Values, out any) (string, int, error) {
+	if err := c.ensureAuth(ctx); err != nil {
+		return "", 0, err
 	}
 
 	u := c.baseURL + p
 	if len(params) > 0 {
 		u += "?" + params.Encode()
 	}
-	req, err := http.NewRequest(http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", p, err)
+		return "", 0, fmt.Errorf("%s: %w", p, err)
 	}
+	token := c.authToken()
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.authToken())
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", p, netdiag.Explain(err))
+		return token, 0, fmt.Errorf("%s: %w", p, netdiag.Explain(err))
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return resp.StatusCode, fmt.Errorf("%s: http status %s", p, resp.Status)
+		return token, resp.StatusCode, fmt.Errorf("%s: http status %s", p, resp.Status)
 	}
 
 	if err := httpclient.ReadJSON(resp.Body, maxResponseBody, out); err != nil {
-		return resp.StatusCode, fmt.Errorf("%s: %w", p, err)
+		return token, resp.StatusCode, fmt.Errorf("%s: %w", p, err)
 	}
-	return resp.StatusCode, nil
+	return token, resp.StatusCode, nil
 }
 
 // sendJSON issues a request with a JSON body, retrying once with a fresh login
 // on a 401 when credentials are configured.
 func (c *Client) sendJSON(method, p string, payload any) error {
-	code, err := c.sendJSONOnce(method, p, payload)
+	return c.sendJSONContext(context.Background(), method, p, payload)
+}
+
+func (c *Client) sendJSONContext(ctx context.Context, method, p string, payload any) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	token, code, err := c.sendJSONOnce(ctx, method, p, payload)
 	if code == http.StatusUnauthorized && c.canRelogin() {
-		c.clearToken()
-		_, err = c.sendJSONOnce(method, p, payload)
+		c.clearTokenIf(token)
+		_, _, err = c.sendJSONOnce(ctx, method, p, payload)
 	}
 	return err
 }
 
-func (c *Client) sendJSONOnce(method, p string, payload any) (int, error) {
-	if err := c.ensureAuth(); err != nil {
-		return 0, err
+func (c *Client) sendJSONOnce(ctx context.Context, method, p string, payload any) (string, int, error) {
+	if err := c.ensureAuth(ctx); err != nil {
+		return "", 0, err
 	}
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", p, err)
+		return "", 0, fmt.Errorf("%s: %w", p, err)
 	}
 
-	req, err := http.NewRequest(method, c.baseURL+p, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+p, bytes.NewReader(body))
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", p, err)
+		return "", 0, fmt.Errorf("%s: %w", p, err)
 	}
+	token := c.authToken()
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.authToken())
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", p, netdiag.Explain(err))
+		return token, 0, fmt.Errorf("%s: %w", p, netdiag.Explain(err))
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return resp.StatusCode, fmt.Errorf("%s: http status %s", p, resp.Status)
+		return token, resp.StatusCode, fmt.Errorf("%s: http status %s", p, resp.Status)
 	}
 	io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBody))
-	return resp.StatusCode, nil
+	return token, resp.StatusCode, nil
 }
 
 const itemsPageLimit = 500
@@ -262,9 +288,13 @@ func (c *Client) Items(libraryID string) ([]LibraryItem, error) {
 // The expanded form is required: the plain response omits media.tracks and
 // media.duration, which books are built from.
 func (c *Client) Item(itemID string) (LibraryItem, error) {
+	return c.itemContext(context.Background(), itemID)
+}
+
+func (c *Client) itemContext(ctx context.Context, itemID string) (LibraryItem, error) {
 	var item LibraryItem
 	params := url.Values{"expanded": {"1"}}
-	if err := c.get("/api/items/"+url.PathEscape(itemID), params, &item); err != nil {
+	if err := c.getContext(ctx, "/api/items/"+url.PathEscape(itemID), params, &item); err != nil {
 		return LibraryItem{}, err
 	}
 	return item, nil
@@ -291,12 +321,16 @@ func (c *Client) Author(authorID string) (Author, error) {
 
 // Search returns library items matching query, books first.
 func (c *Client) Search(libraryID, query string, limit int) ([]LibraryItem, error) {
+	return c.searchContext(context.Background(), libraryID, query, limit)
+}
+
+func (c *Client) searchContext(ctx context.Context, libraryID, query string, limit int) ([]LibraryItem, error) {
 	if limit <= 0 {
 		limit = 10
 	}
 	params := url.Values{"q": {query}, "limit": {strconv.Itoa(limit)}}
 	var resp searchResponse
-	if err := c.get("/api/libraries/"+url.PathEscape(libraryID)+"/search", params, &resp); err != nil {
+	if err := c.getContext(ctx, "/api/libraries/"+url.PathEscape(libraryID)+"/search", params, &resp); err != nil {
 		return nil, err
 	}
 	out := make([]LibraryItem, 0, len(resp.Book)+len(resp.Podcast))
@@ -336,11 +370,14 @@ func (c *Client) UpdateProgress(itemID, episodeID string, currentTime, duration 
 	return c.sendJSON(http.MethodPatch, p, payload)
 }
 
-func (c *Client) ensureAuth() error {
-	c.mu.Lock()
-	have := c.token != ""
-	c.mu.Unlock()
-	if have {
+func (c *Client) ensureAuth(ctx context.Context) error {
+	if c.authToken() != "" {
+		return nil
+	}
+
+	c.authMu.Lock()
+	defer c.authMu.Unlock()
+	if c.authToken() != "" {
 		return nil
 	}
 	if c.user == "" || c.password == "" {
@@ -352,7 +389,10 @@ func (c *Client) ensureAuth() error {
 		return fmt.Errorf("login: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/login", bytes.NewReader(body))
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/login", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("login: %w", err)
 	}

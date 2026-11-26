@@ -10,24 +10,45 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/bjarneo/cliamp/internal/httpclient"
 )
 
-const repo = "bjarneo/cliamp"
+const (
+	repo         = "bjarneo/cliamp"
+	maxRedirects = 10
+)
+
+func httpsOnlyRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= maxRedirects {
+		return fmt.Errorf("stopped after %d redirects", maxRedirects)
+	}
+	if !strings.EqualFold(req.URL.Scheme, "https") {
+		return fmt.Errorf("refusing non-HTTPS redirect to %q", req.URL.Scheme)
+	}
+	return nil
+}
+
+func newUpgradeClient(timeout time.Duration) *http.Client {
+	c := httpclient.NewAPI(timeout)
+	c.CheckRedirect = httpsOnlyRedirect
+	return c
+}
 
 // httpClient serves the GitHub API and checksum requests.
-var httpClient = httpclient.NewAPI(30 * time.Second)
+var httpClient = newUpgradeClient(30 * time.Second)
 
 // downloadClient fetches the release binary. A client timeout also covers the
 // body read, so this client has none and a slow connection can finish the
 // download. downloadIdleTimeout ends a download that stops sending.
-var downloadClient = httpclient.NewAPI(0)
+var downloadClient = newUpgradeClient(0)
 
 // downloadIdleTimeout is the longest wait of the binary download for the
 // response headers or for the next body bytes.
@@ -79,7 +100,7 @@ func Run(currentVersion string, prerelease bool) error {
 		binaryName += ".exe"
 	}
 
-	baseURL := fmt.Sprintf("https://github.com/%s/releases/download/%s", repo, latest)
+	baseURL := fmt.Sprintf("https://github.com/%s/releases/download/%s", repo, url.PathEscape(latest))
 	checksumURL := baseURL + "/checksums.txt"
 	binaryURL := baseURL + "/" + binaryName
 
@@ -160,7 +181,10 @@ func newestRelease(releases []release) (string, error) {
 }
 
 func validTag(tag string) (string, error) {
-	if strings.TrimSpace(tag) == "" || strings.ContainsAny(tag, "/\\") {
+	if tag == "" || tag == "." || tag == ".." ||
+		strings.Contains(tag, "..") ||
+		strings.ContainsAny(tag, "/\\?#%") ||
+		strings.IndexFunc(tag, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
 		return "", errors.New("release response contains an invalid tag")
 	}
 	return tag, nil

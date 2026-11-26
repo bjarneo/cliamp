@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bjarneo/cliamp/internal/httpclient"
 	"github.com/bjarneo/cliamp/playlist"
 )
 
@@ -27,6 +28,9 @@ const maxChannelTracksBody = 16 << 20
 
 // channelTimeout bounds one request for the channel list or a song list.
 const channelTimeout = 30 * time.Second
+
+// channelClient runs channel and song list requests with channelTimeout.
+var channelClient = httpclient.NewAPI(channelTimeout)
 
 // Compile-time interface checks.
 var (
@@ -106,7 +110,7 @@ func (p *ChannelProvider) Tracks(id string) ([]playlist.Track, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), channelTimeout)
 	defer cancel()
-	tracks, err := fetchChannelTracks(ctx, catalogClient, channel.TracksURL)
+	tracks, err := fetchChannelTracks(ctx, channelClient, channel.TracksURL)
 	if err != nil {
 		return nil, fmt.Errorf("cliamp radio %s: %w", channel.Name, err)
 	}
@@ -136,7 +140,7 @@ func (p *ChannelProvider) loadedChannels() ([]Channel, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), channelTimeout)
 	defer cancel()
-	channels, err := fetchChannels(ctx, catalogClient, ChannelsURL)
+	channels, err := fetchChannels(ctx, channelClient, ChannelsURL)
 	if err != nil {
 		return nil, fmt.Errorf("cliamp radio channels: %w", err)
 	}

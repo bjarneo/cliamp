@@ -93,7 +93,7 @@ func validateNewName(name string) error {
 func (p *Provider) lock() (func(), error) {
 	p.mu.Lock()
 	path := p.dir + ".lock"
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		p.mu.Unlock()
 		return nil, fmt.Errorf("creating config dir: %w", err)
 	}
@@ -288,7 +288,7 @@ func (p *Provider) AddTracks(playlistName string, tracks []playlist.Track) (adde
 		return 0, 0, err
 	}
 	defer unlock()
-	if err := os.MkdirAll(p.dir, 0o755); err != nil {
+	if err := os.MkdirAll(p.dir, 0o700); err != nil {
 		return 0, 0, err
 	}
 	path, err := p.safePath(playlistName)
@@ -330,13 +330,13 @@ func (p *Provider) AddTracks(playlistName string, tracks []playlist.Track) (adde
 
 	if added == 0 {
 		if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-			return 0, skipped, p.savePlaylist(playlistName, existing)
+			return 0, skipped, p.savePlaylistWithDoc(playlistName, doc, existing)
 		} else if err != nil {
 			return 0, skipped, err
 		}
 		return 0, skipped, nil
 	}
-	return added, skipped, p.savePlaylist(playlistName, existing)
+	return added, skipped, p.savePlaylistWithDoc(playlistName, doc, existing)
 }
 
 // PrependTracks inserts tracks at the front of a playlist, in the order given.
@@ -358,7 +358,7 @@ func (p *Provider) PrependTracks(playlistName string, tracks []playlist.Track) (
 		return 0, 0, 0, err
 	}
 	defer unlock()
-	if err := os.MkdirAll(p.dir, 0o755); err != nil {
+	if err := os.MkdirAll(p.dir, 0o700); err != nil {
 		return 0, 0, 0, fmt.Errorf("creating playlist dir: %w", err)
 	}
 	path, err := p.safePath(playlistName)
@@ -461,7 +461,7 @@ func (p *Provider) CreatePlaylist(_ context.Context, name string) (string, error
 	if err := writable(name); err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(p.dir, 0o755); err != nil {
+	if err := os.MkdirAll(p.dir, 0o700); err != nil {
 		return "", err
 	}
 	if err := validateNewName(name); err != nil {
@@ -471,7 +471,7 @@ func (p *Provider) CreatePlaylist(_ context.Context, name string) (string, error
 	if err != nil {
 		return "", err
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		if errors.Is(err, fs.ErrExist) {
 			return "", fmt.Errorf("playlist %q already exists", name)
@@ -492,9 +492,6 @@ func (p *Provider) CreateDirPlaylist(name string, dirs []string) error {
 	if err := writable(name); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(p.dir, 0o755); err != nil {
-		return fmt.Errorf("creating playlist dir: %w", err)
-	}
 	if err := validateNewName(name); err != nil {
 		return err
 	}
@@ -502,6 +499,14 @@ func (p *Provider) CreateDirPlaylist(name string, dirs []string) error {
 		if err := validateDirSource(dir); err != nil {
 			return err
 		}
+	}
+	unlock, err := p.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if err := os.MkdirAll(p.dir, 0o700); err != nil {
+		return fmt.Errorf("creating playlist dir: %w", err)
 	}
 	path, err := p.safePath(name)
 	if err != nil {
@@ -521,20 +526,10 @@ func (p *Provider) CreateDirPlaylist(name string, dirs []string) error {
 		writeDir(&b, playlist.DirSource{Path: dir, Recursive: true})
 	}
 
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
-		return fmt.Errorf("writing playlist %q: %w", name, err)
-	}
-	// Link is atomic and fails when the final path already exists, preserving
-	// the create-only semantics without a partial-write window.
-	if err := os.Link(tmp, path); err != nil {
-		os.Remove(tmp)
-		if errors.Is(err, fs.ErrExist) {
-			return fmt.Errorf("playlist %q already exists", name)
-		}
+	if err := fileutil.WriteFileAtomic(path, []byte(b.String()), 0o600); err != nil {
 		return fmt.Errorf("creating playlist %q: %w", name, err)
 	}
-	return os.Remove(tmp)
+	return nil
 }
 
 // AddDirSources appends [[dir]] sections for every directory in dirs that the
@@ -555,7 +550,7 @@ func (p *Provider) AddDirSources(name string, dirs []string) ([]string, error) {
 		return nil, err
 	}
 	defer unlock()
-	if err := os.MkdirAll(p.dir, 0o755); err != nil {
+	if err := os.MkdirAll(p.dir, 0o700); err != nil {
 		return nil, fmt.Errorf("creating playlist dir: %w", err)
 	}
 	path, err := p.safePath(name)
@@ -715,7 +710,7 @@ func (p *Provider) SetDirRecursive(name, dir string, recursive bool) error {
 // The full document is rendered in memory before the atomic rename so a
 // partial write can never clobber the existing playlist.
 func (p *Provider) saveDoc(name string, doc *playlistDoc) error {
-	if err := os.MkdirAll(p.dir, 0o755); err != nil {
+	if err := os.MkdirAll(p.dir, 0o700); err != nil {
 		return fmt.Errorf("creating playlist dir: %w", err)
 	}
 	path, err := p.safePath(name)
@@ -746,7 +741,7 @@ func (p *Provider) saveDoc(name string, doc *playlistDoc) error {
 		sections++
 	}
 
-	if err := fileutil.WriteFileAtomicInExistingDir(path, []byte(b.String()), 0o644); err != nil {
+	if err := fileutil.WriteFileAtomicInExistingDir(path, []byte(b.String()), 0o600); err != nil {
 		return fmt.Errorf("saving playlist %q: %w", name, err)
 	}
 	return nil
@@ -777,7 +772,7 @@ func (p *Provider) Exists(name string) bool {
 // Tracks marked DirSourced are not persisted; they are re-derived from the
 // directory sources on the next load.
 func (p *Provider) savePlaylist(name string, tracks []playlist.Track) error {
-	if err := os.MkdirAll(p.dir, 0o755); err != nil {
+	if err := os.MkdirAll(p.dir, 0o700); err != nil {
 		return fmt.Errorf("creating playlist dir: %w", err)
 	}
 
@@ -799,7 +794,15 @@ func (p *Provider) savePlaylist(name string, tracks []playlist.Track) error {
 			return err
 		}
 	}
+	return p.savePlaylistWithDoc(name, existing, tracks)
+}
 
+// savePlaylistWithDoc saves tracks against an already-loaded document to avoid
+// reading and parsing the playlist TOML twice under the lock.
+func (p *Provider) savePlaylistWithDoc(name string, existing *playlistDoc, tracks []playlist.Track) error {
+	if existing == nil {
+		existing = &playlistDoc{}
+	}
 	var explicit []playlist.Track
 	for _, t := range tracks {
 		if t.DirSourced {
@@ -807,8 +810,8 @@ func (p *Provider) savePlaylist(name string, tracks []playlist.Track) error {
 		}
 		explicit = append(explicit, t)
 	}
-	tracks, dirs, order := rebuildDoc(existing, explicit)
-	return p.saveDoc(name, &playlistDoc{tracks: tracks, dirs: dirs, order: order})
+	rebuiltTracks, dirs, order := rebuildDoc(existing, explicit)
+	return p.saveDoc(name, &playlistDoc{tracks: rebuiltTracks, dirs: dirs, order: order})
 }
 
 // existingDoc parses path into a document, returning an empty document only
@@ -897,7 +900,7 @@ func (p *Provider) UpdatePlaylist(name string, fn func([]playlist.Track) ([]play
 	if err != nil {
 		return err
 	}
-	return p.savePlaylist(name, tracks)
+	return p.savePlaylistWithDoc(name, doc, tracks)
 }
 
 // AddTrackToPlaylist appends a track to the named playlist.
@@ -923,7 +926,13 @@ func (p *Provider) CanAddToPlaylist(pl playlist.PlaylistInfo) bool {
 // for tracks whose title, artist, or album match query, ranked by relevance
 // (best match first). Returns up to limit results (limit <= 0 means no cap).
 // Implements provider.Searcher.
-func (p *Provider) SearchTracks(_ context.Context, query string, limit int) ([]playlist.Track, error) {
+func (p *Provider) SearchTracks(ctx context.Context, query string, limit int) ([]playlist.Track, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	q := strings.TrimSpace(query)
 	if q == "" {
 		return nil, nil
@@ -943,7 +952,11 @@ func (p *Provider) SearchTracks(_ context.Context, query string, limit int) ([]p
 	}
 	var matches []scored
 	seen := make(map[string]struct{})
+	seenDirFiles := make(map[string]struct{})
 	for _, e := range entries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".toml") {
 			continue
 		}
@@ -955,16 +968,60 @@ func (p *Provider) SearchTracks(_ context.Context, query string, limit int) ([]p
 		if err != nil {
 			continue
 		}
-		for _, t := range doc.expand(true) {
-			if _, dup := seen[t.Path]; dup {
+		docExplicit := make(map[string]struct{}, len(doc.tracks))
+		for _, t := range doc.tracks {
+			docExplicit[t.Path] = struct{}{}
+		}
+		ti, di := 0, 0
+		for _, kind := range doc.order {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			if kind == itemTrack {
+				t := doc.tracks[ti]
+				ti++
+				if _, dup := seen[t.Path]; dup {
+					continue
+				}
+				if score, ok := trackMatchScore(t, q); ok {
+					seen[t.Path] = struct{}{}
+					matches = append(matches, scored{t, score})
+				}
 				continue
 			}
-			score, ok := trackMatchScore(t, q)
-			if !ok {
+			src := doc.dirs[di]
+			di++
+			files, err := scanDir(ExpandPath(src.Path), src.Recursive)
+			if err != nil {
 				continue
 			}
-			seen[t.Path] = struct{}{}
-			matches = append(matches, scored{t, score})
+			var unseen []string
+			for _, f := range files {
+				if _, dup := seen[f]; dup {
+					continue
+				}
+				if _, checked := seenDirFiles[f]; checked {
+					continue
+				}
+				if _, exp := docExplicit[f]; exp {
+					continue
+				}
+				seenDirFiles[f] = struct{}{}
+				unseen = append(unseen, f)
+			}
+			if len(unseen) == 0 {
+				continue
+			}
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			for _, t := range readTags(unseen) {
+				t.DirSourced = true
+				if score, ok := trackMatchScore(t, q); ok {
+					seen[t.Path] = struct{}{}
+					matches = append(matches, scored{t, score})
+				}
+			}
 		}
 	}
 
@@ -1078,14 +1135,14 @@ func (p *Provider) RestorePlaylistDocument(name string, data []byte) error {
 		return err
 	}
 	defer unlock()
-	if err := os.MkdirAll(p.dir, 0o755); err != nil {
+	if err := os.MkdirAll(p.dir, 0o700); err != nil {
 		return fmt.Errorf("creating playlist dir: %w", err)
 	}
 	path, err := p.safePath(name)
 	if err != nil {
 		return err
 	}
-	if err := fileutil.WriteFileAtomicInExistingDir(path, data, 0o644); err != nil {
+	if err := fileutil.WriteFileAtomicInExistingDir(path, data, 0o600); err != nil {
 		return fmt.Errorf("replacing playlist %q: %w", name, err)
 	}
 	return nil
@@ -1133,7 +1190,7 @@ func (p *Provider) RemoveTrack(name string, index int) error {
 	if !removed {
 		return fmt.Errorf("track index %d out of range", index)
 	}
-	return p.savePlaylist(name, kept)
+	return p.savePlaylistWithDoc(name, doc, kept)
 }
 
 // writeTrack writes a single [[track]] TOML section to w: the track fields

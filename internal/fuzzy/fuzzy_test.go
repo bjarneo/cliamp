@@ -1,6 +1,9 @@
 package fuzzy
 
-import "testing"
+import (
+	"sync"
+	"testing"
+)
 
 func TestMatch(t *testing.T) {
 	tests := []struct {
@@ -77,4 +80,27 @@ func TestMatchRanking(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMatchConcurrentAndCompiledQueryReuse(t *testing.T) {
+	var wg sync.WaitGroup
+	queries := []string{"mtlc rld", "^queens", "'reload", "天使テーゼ", "  "}
+	targets := []string{
+		"Metallica — Reload (1997)",
+		"Queens of the Stone Age — Villains",
+		"残酷な天使のテーゼ",
+		"No Match Here",
+	}
+	for _, q := range queries {
+		wg.Add(1)
+		go func(query string) {
+			defer wg.Done()
+			for range 50 {
+				for _, target := range targets {
+					_, _ = Match(query, target)
+				}
+			}
+		}(q)
+	}
+	wg.Wait()
 }

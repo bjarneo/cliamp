@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -16,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bjarneo/cliamp/internal/httpclient"
 	"github.com/bjarneo/cliamp/internal/ytdlp"
 	"github.com/bjarneo/cliamp/provider"
 )
@@ -524,4 +527,91 @@ func TestLiveCheckLoginWithBrowser(t *testing.T) {
 
 func osWriteFile(path, data string) error {
 	return os.WriteFile(path, []byte(data), 0o644)
+}
+
+func TestAPIGetCapsResponseBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"code":200,"profile":{"nickname":"` + strings.Repeat("a", maxResponseBody) + `"}}`))
+	}))
+	defer srv.Close()
+
+	p := newWithBase(Config{Enabled: true}, srv.URL)
+	_, err := p.Account(context.Background())
+	if !errors.Is(err, httpclient.ErrTooLarge) {
+		t.Fatalf("Account() error = %v, want %v", err, httpclient.ErrTooLarge)
+	}
+}
+
+func TestUserPlaylistsStopsAtMaxPages(t *testing.T) {
+	var pages atomic.Int32
+	fullPage := make([]playlistItem, 100)
+	for i := range fullPage {
+		fullPage[i] = playlistItem{ID: int64(i + 1), Name: "List", UserID: 42}
+	}
+	payload, err := json.Marshal(userPlaylistsResponse{Code: neteaseCodeOK, Playlist: fullPage})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pages.Add(1)
+		_, _ = w.Write(payload)
+	}))
+	defer srv.Close()
+
+	p := newWithBase(Config{Enabled: true, UserID: "42"}, srv.URL)
+	lists, err := p.userPlaylists(context.Background(), "42")
+	if err != nil {
+		t.Fatalf("userPlaylists() error = %v", err)
+	}
+	if got := int(pages.Load()); got != maxPages {
+		t.Fatalf("pages requested = %d, want %d", got, maxPages)
+	}
+	if got, want := len(lists), maxPages*100; got != want {
+		t.Fatalf("playlist count = %d, want %d", got, want)
+	}
+}
+
+func TestExtractBrowserCookieHeaderUsesPrivateTempDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping Unix shell script test on Windows")
+	}
+	binDir := t.TempDir()
+	recordPath := filepath.Join(binDir, "cookie_path.txt")
+	script := `#!/bin/sh
+cookie=""
+while [ $# -gt 0 ]; do
+  if [ "$1" = "--cookies" ]; then
+    cookie="$2"
+    shift 2
+  else
+    shift
+  fi
+done
+printf '%s\n' "$cookie" > "` + recordPath + `"
+printf '.music.163.com\tTRUE\t/\tTRUE\t0\tMUSIC_U\ttoken123\n' > "$cookie"
+`
+	if err := os.WriteFile(filepath.Join(binDir, "yt-dlp"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	header, err := extractBrowserCookieHeader(context.Background(), "firefox")
+	if err != nil {
+		t.Fatalf("extractBrowserCookieHeader() error = %v", err)
+	}
+	if header != "MUSIC_U=token123" {
+		t.Fatalf("header = %q, want %q", header, "MUSIC_U=token123")
+	}
+	raw, err := os.ReadFile(recordPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookiePath := strings.TrimSpace(string(raw))
+	if filepath.Base(cookiePath) != "cookies.txt" {
+		t.Fatalf("cookie filename = %q, want cookies.txt", filepath.Base(cookiePath))
+	}
+	if _, err := os.Stat(filepath.Dir(cookiePath)); !os.IsNotExist(err) {
+		t.Fatalf("temp dir %q still exists after return: err=%v", filepath.Dir(cookiePath), err)
+	}
 }

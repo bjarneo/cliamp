@@ -147,10 +147,28 @@ func (w streamWriter) finish(err error) {
 	w.source.mu.Unlock()
 }
 
+// openPartialReader opens a newly created part file for reading.
+var openPartialReader = os.Open
+
+func openPartialPair(dir string, msgID int) (writerFile, readerFile *os.File, partialPath string, err error) {
+	writerFile, err = os.CreateTemp(dir, fmt.Sprintf("%d-*.part", msgID))
+	if err != nil {
+		return nil, nil, "", err
+	}
+	partialPath = writerFile.Name()
+	readerFile, err = openPartialReader(partialPath)
+	if err != nil {
+		_ = writerFile.Close()
+		_ = os.Remove(partialPath)
+		return nil, nil, "", err
+	}
+	return writerFile, readerFile, partialPath, nil
+}
+
 // openStream returns a decoder that starts as soon as cfg.BufferMB of the
 // document are on disk. The rest keeps downloading in the background.
 func (p *Provider) openStream(chat string, msgID int) (beep.StreamSeekCloser, beep.Format, time.Duration, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	ctx, cancel := context.WithTimeout(p.baseContext(), 30*time.Minute)
 	defer cancel()
 
 	doc, err := p.fetchDocument(ctx, chat, msgID)
@@ -159,7 +177,7 @@ func (p *Provider) openStream(chat string, msgID int) (beep.StreamSeekCloser, be
 	}
 	extension := extensionFor(doc)
 	dir := filepath.Join(p.cacheDir, safeChat(chat))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, beep.Format{}, 0, err
 	}
 	finalPath := filepath.Join(dir, fmt.Sprintf("%d%s", msgID, extension))
@@ -184,14 +202,8 @@ func (p *Provider) openStream(chat string, msgID int) (beep.StreamSeekCloser, be
 	// One part file per open: a second open of the same track (a preload
 	// overlapping a manual play, or skipping back to it) must not truncate a
 	// download that is still writing.
-	writerFile, err := os.CreateTemp(dir, fmt.Sprintf("%d-*.part", msgID))
+	writerFile, readerFile, partialPath, err := openPartialPair(dir, msgID)
 	if err != nil {
-		return nil, beep.Format{}, 0, err
-	}
-	partialPath := writerFile.Name()
-	readerFile, err := os.Open(partialPath)
-	if err != nil {
-		writerFile.Close()
 		return nil, beep.Format{}, 0, err
 	}
 	source := newStreamSource(readerFile)
@@ -245,7 +257,7 @@ func (s *streamSource) waitFor(size int64, timeout time.Duration) error {
 // the transfer completes. It owns its context: the caller returns as soon as
 // the buffer is ready and the download must outlive it.
 func (p *Provider) downloadStream(chat string, msgID int, doc *tg.Document, source *streamSource, writerFile *os.File, partialPath, finalPath string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	ctx, cancel := context.WithTimeout(p.baseContext(), 30*time.Minute)
 	defer cancel()
 	defer writerFile.Close()
 	writer := streamWriter{source: source, file: writerFile}
@@ -261,7 +273,9 @@ func (p *Provider) downloadStream(chat string, msgID int, doc *tg.Document, sour
 	// reading the partial file keeps working.
 	if err := os.Rename(partialPath, finalPath); err != nil {
 		os.Remove(partialPath)
+		return
 	}
+	pruneDiskCache(p.cacheDir, finalPath, maxDiskCacheBytes)
 }
 
 func (p *Provider) fetchDocument(ctx context.Context, chat string, msgID int) (*tg.Document, error) {

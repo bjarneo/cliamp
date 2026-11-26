@@ -127,3 +127,23 @@ func TestStreamSourceInterruptEndsWaitingRead(t *testing.T) {
 		}
 	})
 }
+
+func TestOpenPartialPairCleansUpOnOpenError(t *testing.T) {
+	dir := t.TempDir()
+	orig := openPartialReader
+	openPartialReader = func(string) (*os.File, error) {
+		return nil, errors.New("open denied")
+	}
+	t.Cleanup(func() { openPartialReader = orig })
+
+	if _, _, _, err := openPartialPair(dir, 42); err == nil {
+		t.Fatal("openPartialPair() expected error")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("leftover partial files in %s: %d", dir, len(entries))
+	}
+}

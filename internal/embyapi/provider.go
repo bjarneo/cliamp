@@ -160,10 +160,12 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 	return slices.Clone(out), nil
 }
 
+const maxTrackCacheEntries = 1000
+
 // SearchTracks searches the music library for tracks matching query.
 // Implements provider.Searcher.
-func (p *Provider) SearchTracks(_ context.Context, query string, limit int) ([]playlist.Track, error) {
-	tracks, err := p.client.Search(query, limit)
+func (p *Provider) SearchTracks(ctx context.Context, query string, limit int) ([]playlist.Track, error) {
+	tracks, err := p.client.SearchContext(ctx, query, limit)
 	if err != nil {
 		return nil, fmt.Errorf("search: %w", err)
 	}
@@ -192,6 +194,8 @@ func (p *Provider) Tracks(albumID string) ([]playlist.Track, error) {
 	p.mu.Lock()
 	if p.trackCache == nil {
 		p.trackCache = make(map[string][]playlist.Track)
+	} else if _, exists := p.trackCache[albumID]; !exists && len(p.trackCache) >= maxTrackCacheEntries {
+		clear(p.trackCache)
 	}
 	p.trackCache[albumID] = out
 	p.mu.Unlock()

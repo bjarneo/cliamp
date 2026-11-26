@@ -9,12 +9,15 @@ import (
 	"time"
 
 	"github.com/bjarneo/cliamp/internal/appdir"
+	"github.com/bjarneo/cliamp/internal/fileutil"
 
 	"google.golang.org/api/youtube/v3"
 )
 
 // musicCategoryID is the YouTube video category for Music.
 const musicCategoryID = "10"
+
+var classificationMu sync.Mutex
 
 // classificationCache maps playlist ID → true if the playlist is music.
 type classificationCache struct {
@@ -47,13 +50,20 @@ func loadClassification(scope string) map[string]bool {
 	return cache.Music
 }
 
-// saveClassification writes playlist classifications to disk.
+// saveClassification writes playlist classifications atomically to disk.
 func saveClassification(scope string, music map[string]bool) {
-	cache := classificationCache{Scope: scope, Music: music}
-	data, _ := json.MarshalIndent(cache, "", "  ")
 	path := classificationCachePath()
-	os.MkdirAll(filepath.Dir(path), 0o700)
-	os.WriteFile(path, data, 0o600)
+	if path == "" {
+		return
+	}
+	cache := classificationCache{Scope: scope, Music: music}
+	data, err := json.MarshalIndent(cache, "", "  ")
+	if err != nil {
+		return
+	}
+	classificationMu.Lock()
+	defer classificationMu.Unlock()
+	_ = fileutil.WriteFileAtomic(path, data, 0o600)
 }
 
 // classifyPlaylists determines which playlists contain music content by

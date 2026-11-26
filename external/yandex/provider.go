@@ -24,10 +24,11 @@ var (
 const TrackURIPrefix = "yandex:track:"
 
 const (
-	likedPlaylistID  = "likes"
-	wavePlaylistID   = "wave"
-	playlistIDPrefix = "pl:"
-	urlTTL           = 45 * time.Second // signed CDN URLs expire after ~1 minute
+	likedPlaylistID    = "likes"
+	wavePlaylistID     = "wave"
+	playlistIDPrefix   = "pl:"
+	urlTTL             = 45 * time.Second // signed CDN URLs expire after ~1 minute
+	maxURLCacheEntries = 1000
 )
 
 // Config holds settings for the Yandex Music provider.
@@ -365,11 +366,15 @@ func (p *Provider) ResolveSource(uri string) (string, error) {
 // resolveStreamURL returns a signed CDN URL for a track, caching entries for
 // urlTTL. force bypasses the cache, for example after the URL expired.
 func (p *Provider) resolveStreamURL(trackID string, force bool) (string, error) {
+	now := time.Now()
 	p.mu.Lock()
 	if !force {
-		if e, ok := p.urlCache[trackID]; ok && time.Since(e.at) < urlTTL {
-			p.mu.Unlock()
-			return e.url, nil
+		if e, ok := p.urlCache[trackID]; ok {
+			if now.Sub(e.at) < urlTTL {
+				p.mu.Unlock()
+				return e.url, nil
+			}
+			delete(p.urlCache, trackID)
 		}
 	}
 	p.mu.Unlock()
@@ -378,8 +383,17 @@ func (p *Provider) resolveStreamURL(trackID string, force bool) (string, error) 
 	if err != nil {
 		return "", err
 	}
+	now = time.Now()
 	p.mu.Lock()
-	p.urlCache[trackID] = urlEntry{url: u, at: time.Now()}
+	for k, e := range p.urlCache {
+		if now.Sub(e.at) >= urlTTL {
+			delete(p.urlCache, k)
+		}
+	}
+	if len(p.urlCache) >= maxURLCacheEntries {
+		clear(p.urlCache)
+	}
+	p.urlCache[trackID] = urlEntry{url: u, at: now}
 	p.mu.Unlock()
 	return u, nil
 }

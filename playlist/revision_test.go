@@ -357,3 +357,31 @@ func TestRevisionUnchangedByReadOnlyCalls(t *testing.T) {
 		t.Errorf("Revision() after reads = %d, want %d", got, before)
 	}
 }
+
+func TestEqualTrack(t *testing.T) {
+	base := Track{
+		Path:         "/a.mp3",
+		Title:        "Song",
+		Artist:       "Artist",
+		ProviderMeta: map[string]string{"id": "1"},
+	}
+	tests := []struct {
+		name string
+		a, b Track
+		want bool
+	}{
+		{name: "identical", a: base, b: cloneTrack(base), want: true},
+		{name: "different meta value", a: base, b: Track{Path: "/a.mp3", Title: "Song", Artist: "Artist", ProviderMeta: map[string]string{"id": "2"}}, want: false},
+		{name: "nil vs empty meta", a: Track{Path: "/a.mp3"}, b: Track{Path: "/a.mp3", ProviderMeta: map[string]string{}}, want: false},
+		{name: "different user rating", a: base, b: func() Track { t := cloneTrack(base); t.UserRating = 5; return t }(), want: false},
+		{name: "same playback context", a: WithPlaybackContext([]Track{base})[0], b: WithPlaybackContext([]Track{base})[0], want: true},
+		{name: "different playback context", a: WithPlaybackContext([]Track{base})[0], b: base, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := equalTrack(tt.a, tt.b); got != tt.want {
+				t.Errorf("equalTrack() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

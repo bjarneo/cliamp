@@ -3,14 +3,40 @@ package telegram
 import (
 	"encoding/base64"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/mewkiz/flac"
 	"github.com/mewkiz/flac/meta"
 )
+
+const (
+	maxArtCacheEntries = 256
+	maxDiskCacheBytes  = 256 << 20
+)
+
+func (p *Provider) setArtCache(key msgKey, url string) {
+	p.artMu.Lock()
+	defer p.artMu.Unlock()
+	if p.artCache == nil {
+		p.artCache = make(map[msgKey]string)
+	}
+	if _, exists := p.artCache[key]; !exists && len(p.artCache) >= maxArtCacheEntries {
+		clear(p.artCache)
+	}
+	p.artCache[key] = url
+}
+
+func (p *Provider) clearArtCacheEntry(key msgKey) {
+	p.artMu.Lock()
+	delete(p.artCache, key)
+	p.artMu.Unlock()
+}
 
 // coverPath returns the cached cover of a message, or "" when none is on disk.
 func (p *Provider) coverPath(chat string, msgID int) string {
@@ -40,10 +66,12 @@ func (p *Provider) coverURL(chat string, msgID int) string {
 
 	path := p.coverPath(chat, msgID)
 	if path == "" {
+		p.setArtCache(key, "")
 		return ""
 	}
 	data, err := os.ReadFile(path)
 	if err != nil || len(data) == 0 {
+		p.setArtCache(key, "")
 		return ""
 	}
 	mime := "image/jpeg"
@@ -51,9 +79,7 @@ func (p *Provider) coverURL(chat string, msgID int) string {
 		mime = "image/png"
 	}
 	url := "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)
-	p.artMu.Lock()
-	p.artCache[key] = url
-	p.artMu.Unlock()
+	p.setArtCache(key, url)
 	return url
 }
 
@@ -102,14 +128,71 @@ func (p *Provider) extractCoverFromFile(chat string, msgID int, flacPath string)
 			extension = ".png"
 		}
 		dir := filepath.Join(p.cacheDir, safeChat(chat))
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return
 		}
 		path := filepath.Join(dir, cfgName(msgID, extension))
-		if err := os.WriteFile(path, picture.Data, 0o644); err != nil {
+		if err := os.WriteFile(path, picture.Data, 0o600); err != nil {
 			return
 		}
+		p.clearArtCacheEntry(msgKey{chat: chat, id: msgID})
+		pruneDiskCache(p.cacheDir, path, maxDiskCacheBytes)
 		return
+	}
+}
+
+type cacheFileEntry struct {
+	path    string
+	size    int64
+	modTime time.Time
+}
+
+// pruneDiskCache removes the oldest cached files when root exceeds maxBytes.
+func pruneDiskCache(root, keepPath string, maxBytes int64) {
+	if root == "" || maxBytes <= 0 {
+		return
+	}
+	var entries []cacheFileEntry
+	var total int64
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".part") {
+			return nil
+		}
+		info, infoErr := d.Info()
+		if infoErr != nil || !info.Mode().IsRegular() {
+			return nil
+		}
+		size := info.Size()
+		total += size
+		entries = append(entries, cacheFileEntry{
+			path:    path,
+			size:    size,
+			modTime: info.ModTime(),
+		})
+		return nil
+	})
+	if total <= maxBytes {
+		return
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if !entries[i].modTime.Equal(entries[j].modTime) {
+			return entries[i].modTime.Before(entries[j].modTime)
+		}
+		return entries[i].path < entries[j].path
+	})
+	for _, entry := range entries {
+		if total <= maxBytes {
+			break
+		}
+		if keepPath != "" && entry.path == keepPath {
+			continue
+		}
+		if os.Remove(entry.path) == nil {
+			total -= entry.size
+		}
 	}
 }
 

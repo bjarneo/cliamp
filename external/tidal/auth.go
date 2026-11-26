@@ -158,9 +158,9 @@ func newClientInteractive(ctx context.Context, clientID, clientSecret string) (*
 		return nil, errors.New("tidal: device authorization failed (client_id may be revoked; set [tidal] client_id in config.toml)")
 	}
 
-	authURL := da.VerificationURIComplete
-	if !strings.HasPrefix(authURL, "http") {
-		authURL = "https://" + authURL
+	authURL, err := normalizeVerificationURL(da.VerificationURIComplete)
+	if err != nil {
+		return nil, err
 	}
 	authURLObserver.Notify("tidal", authURL)
 	_ = browser.Open(authURL) // best-effort; user can open the URL manually
@@ -181,6 +181,23 @@ func newClientInteractive(ctx context.Context, clientID, clientSecret string) (*
 		applog.UserError("tidal: failed to save credentials: %v", err)
 	}
 	return c, nil
+}
+
+// normalizeVerificationURL adds https to scheme-less hosts and rejects any
+// URL whose parsed scheme is not https or whose host is empty.
+func normalizeVerificationURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", errors.New("tidal: empty verification URL")
+	}
+	if !strings.Contains(raw, "://") && !strings.Contains(raw, ":") {
+		raw = "https://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || !strings.EqualFold(u.Scheme, "https") || u.Host == "" {
+		return "", fmt.Errorf("tidal: invalid verification URL %q", raw)
+	}
+	return u.String(), nil
 }
 
 // pollDeviceToken polls the token endpoint until the user approves the device

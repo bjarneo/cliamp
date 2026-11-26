@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -163,6 +164,20 @@ func Find(name string) (Theme, bool) {
 // loggedSkips holds the text of each skip error that LoadAll has logged.
 var loggedSkips sync.Map
 
+var (
+	builtinOnce   sync.Once
+	builtinCache  map[string]Theme
+	builtinErrors []error
+)
+
+func loadBuiltinThemes() (map[string]Theme, []error) {
+	builtinOnce.Do(func() {
+		builtinCache = make(map[string]Theme)
+		builtinErrors = loadFS(builtinThemes, "themes", "built-in themes", builtinCache)
+	})
+	return builtinCache, builtinErrors
+}
+
 // LoadAll loads built-in themes and user custom themes from
 // ~/.config/cliamp/themes/*.toml. User themes override built-in
 // themes with the same name. Returns a sorted list. It logs each
@@ -181,10 +196,11 @@ func LoadAll() []Theme {
 // file that it skips. It logs nothing, so a caller with no log file can
 // print the errors.
 func LoadAllWithErrors() ([]Theme, []error) {
-	themes := make(map[string]Theme)
-
-	// Load embedded built-in themes (lower priority).
-	errs := loadFS(builtinThemes, "themes", "built-in themes", themes)
+	// Load embedded built-in themes from the cached set.
+	builtins, builtinErrs := loadBuiltinThemes()
+	themes := make(map[string]Theme, len(builtins))
+	maps.Copy(themes, builtins)
+	errs := slices.Clone(builtinErrs)
 
 	// Load user custom themes (override built-in if same name).
 	dir, err := appdir.Dir()

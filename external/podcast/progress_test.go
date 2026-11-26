@@ -710,6 +710,30 @@ func TestShortEpisodeNeedsHalfToCountAsPlayed(t *testing.T) {
 	}
 }
 
+func TestProgressStorePruneHandlesWideUnixTimestamps(t *testing.T) {
+	s := &progressStore{
+		episodes: make(map[string]episodeState, maxStoredEpisodes+2),
+		aliases:  map[string]string{},
+	}
+	s.episodes["oldest"] = episodeState{UpdatedUnix: -(1 << 40)}
+	s.episodes["newest"] = episodeState{UpdatedUnix: 1 << 40}
+	for i := range maxStoredEpisodes {
+		s.episodes[fmt.Sprintf("mid-%d", i)] = episodeState{UpdatedUnix: int64(i + 1)}
+	}
+
+	s.prune()
+
+	if _, ok := s.episodes["oldest"]; ok {
+		t.Error("oldest episode was not pruned")
+	}
+	if _, ok := s.episodes["newest"]; !ok {
+		t.Error("newest episode was incorrectly pruned")
+	}
+	if len(s.episodes) != maxStoredEpisodes {
+		t.Fatalf("len(episodes) = %d, want %d", len(s.episodes), maxStoredEpisodes)
+	}
+}
+
 // A file holding JSON null decodes to no entries, not to a nil map that the
 // next record would panic on.
 func TestProgressStoreTreatsNullAsEmpty(t *testing.T) {

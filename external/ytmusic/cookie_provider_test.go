@@ -469,3 +469,42 @@ func TestNewCookieProvidersDoesNotMutateOtherHostCookies(t *testing.T) {
 		t.Errorf("SoundCloud cookies were replaced with 'chrome': %s", string(logged))
 	}
 }
+
+func TestCookieProviderStopsAtMaxPages(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(*cookieBase) (int, error)
+	}{
+		{
+			name: "fetchTracks",
+			run: func(b *cookieBase) (int, error) {
+				tracks, err := b.fetchTracks("https://music.youtube.com/playlist?list=PL1")
+				return len(tracks), err
+			},
+		},
+		{
+			name: "fetchTrackWindow",
+			run: func(b *cookieBase) (int, error) {
+				tracks, _, err := b.fetchTrackWindow("https://music.youtube.com/playlist?list=PL1", 0, cookieMaxPages*cookiePlaylistBatchSize+50)
+				return len(tracks), err
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			base := newCookieBase("firefox")
+			base.resolveFn = func(context.Context, string, int, int, string) ([]playlist.Track, int, error) {
+				calls++
+				return []playlist.Track{{Title: "Track"}}, cookiePlaylistBatchSize, nil
+			}
+			got, err := tt.run(base)
+			if err != nil {
+				t.Fatalf("error = %v", err)
+			}
+			if calls != cookieMaxPages || got != cookieMaxPages {
+				t.Fatalf("calls=%d tracks=%d, want %d", calls, got, cookieMaxPages)
+			}
+		})
+	}
+}

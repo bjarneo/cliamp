@@ -28,6 +28,17 @@ const (
 // maxResponseBody limits JSON API responses to 20 MB.
 const maxResponseBody = 20 << 20
 
+// maxErrorSnippet limits error body text included in returned errors.
+const maxErrorSnippet = 512
+
+func errorSnippet(body []byte) string {
+	s := strings.TrimSpace(string(body))
+	if len(s) <= maxErrorSnippet {
+		return s
+	}
+	return s[:maxErrorSnippet] + "..."
+}
+
 // pageSize is the per-request page size for paginated list endpoints. Tidal
 // caps most v1 list endpoints at 100 items per request.
 const pageSize = 100
@@ -49,6 +60,7 @@ type client struct {
 	tokenURL     string // defaultTokenURL in production; overridden in tests
 	http         *http.Client
 
+	refreshMu    sync.Mutex
 	mu           sync.Mutex
 	accessToken  string
 	refreshToken string
@@ -105,32 +117,43 @@ func (c *client) applyTokenLocked(tok tokenResponse) {
 	c.expiresAt = time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second)
 }
 
-// ensureToken refreshes the access token when it is missing, expired, or
-// equal to staleToken (the token a request just got a 401 for). Holding mu
-// across the refresh single-flights it: concurrent callers block, then see a
-// fresh token that differs from their stale one and return without another
-// round-trip. Rotated tokens are persisted so later launches stay silent.
+// ensureToken refreshes the access token when it is missing, expired, or equal
+// to staleToken. refreshMu serializes refresh requests so c.mu stays free
+// during network I/O.
 func (c *client) ensureToken(ctx context.Context, staleToken string) error {
 	c.mu.Lock()
 	if c.accessToken != "" && c.accessToken != staleToken && time.Now().Before(c.expiresAt.Add(-tokenSlack)) {
 		c.mu.Unlock()
 		return nil
 	}
-	if c.refreshToken == "" {
+	c.mu.Unlock()
+
+	c.refreshMu.Lock()
+	defer c.refreshMu.Unlock()
+
+	c.mu.Lock()
+	if c.accessToken != "" && c.accessToken != staleToken && time.Now().Before(c.expiresAt.Add(-tokenSlack)) {
 		c.mu.Unlock()
+		return nil
+	}
+	refreshToken := c.refreshToken
+	c.mu.Unlock()
+
+	if refreshToken == "" {
 		return fmt.Errorf("tidal: no refresh token stored")
 	}
 	tok, err := requestToken(ctx, c.http, c.tokenURL, url.Values{
 		"grant_type":    {"refresh_token"},
-		"refresh_token": {c.refreshToken},
+		"refresh_token": {refreshToken},
 		"client_id":     {c.clientID},
 		"client_secret": {c.clientSecret},
 		"scope":         {oauthScope},
 	})
 	if err != nil {
-		c.mu.Unlock()
 		return fmt.Errorf("tidal: refresh token: %w", err)
 	}
+
+	c.mu.Lock()
 	c.applyTokenLocked(tok)
 	creds := c.credsLocked()
 	c.mu.Unlock()
@@ -217,7 +240,7 @@ func (c *client) doRequest(ctx context.Context, path string, params url.Values) 
 				return nil, fmt.Errorf("tidal: %s: %w", path, ctx.Err())
 			}
 		case resp.StatusCode >= 400:
-			return nil, fmt.Errorf("tidal: %s: HTTP %d: %s", path, resp.StatusCode, strings.TrimSpace(string(body)))
+			return nil, fmt.Errorf("tidal: %s: HTTP %d: %s", path, resp.StatusCode, errorSnippet(body))
 		}
 		return body, nil
 	}

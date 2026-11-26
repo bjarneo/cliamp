@@ -41,6 +41,8 @@ const (
 // favoriteTracksLimit caps the synthetic Favorite Tracks list, matching Qobuz.
 const favoriteTracksLimit = 500
 
+const maxTrackCacheEntries = 1000
+
 // TrackURIPrefix is the custom URI scheme for Tidal tracks. Track paths are
 // "tidal://track/<id>"; the player resolves them to a fresh signed URL (or
 // DASH segment list) at play time via the SourceResolver registered in
@@ -305,6 +307,9 @@ func (p *TidalProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 	tracks := tracksFromAPI(apiTracks, nil)
 
 	p.mu.Lock()
+	if _, exists := p.trackCache[playlistID]; !exists && len(p.trackCache) >= maxTrackCacheEntries {
+		clear(p.trackCache)
+	}
 	p.trackCache[playlistID] = tracks
 	p.mu.Unlock()
 	return slices.Clone(tracks), nil

@@ -115,9 +115,11 @@ func argsContext(ctx context.Context, args []string) (Result, error) {
 	var r Result
 	var files []string
 
-	for _, arg := range args {
+	sniffed := sniffFeedURLs(ctx, args)
+
+	for i, arg := range args {
 		if playlist.IsURL(arg) {
-			if classifyRemote(arg) != kindStream || sniffFeedURL(ctx, arg) {
+			if classifyRemote(arg) != kindStream || sniffed[i] {
 				r.Pending = append(r.Pending, arg)
 			} else {
 				files = append(files, arg)
@@ -312,6 +314,44 @@ func hasListParam(rawURL string) bool {
 		return false
 	}
 	return u.Query().Get("list") != ""
+}
+
+// sniffFeedURLs probes unclassified URL arguments concurrently when multiple
+// candidates require HEAD checks.
+func sniffFeedURLs(ctx context.Context, args []string) []bool {
+	results := make([]bool, len(args))
+	var indices []int
+	for i, arg := range args {
+		if playlist.IsURL(arg) && classifyRemote(arg) == kindStream {
+			indices = append(indices, i)
+		}
+	}
+	if len(indices) == 0 {
+		return results
+	}
+	if len(indices) == 1 {
+		idx := indices[0]
+		results[idx] = sniffFeedURL(ctx, args[idx])
+		return results
+	}
+	workers := min(len(indices), 8)
+	jobs := make(chan int, len(indices))
+	for _, idx := range indices {
+		jobs <- idx
+	}
+	close(jobs)
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for range workers {
+		go func() {
+			defer wg.Done()
+			for idx := range jobs {
+				results[idx] = sniffFeedURL(ctx, args[idx])
+			}
+		}()
+	}
+	wg.Wait()
+	return results
 }
 
 // sniffFeedURL does a HEAD request under ctx and returns true if the
@@ -532,7 +572,7 @@ func resolveM3U(ctx context.Context, m3uURL string) ([]playlist.Track, error) {
 	if err != nil {
 		return nil, err
 	}
-	return filterRemoteEntries(entriesToTracks(entries)), nil
+	return remoteM3UEntriesToTracks(filterRemoteM3UEntries(entries)), nil
 }
 
 // resolvePLS fetches a PLS playlist URL and returns tracks.
@@ -562,7 +602,7 @@ func resolvePLS(ctx context.Context, plsURL string) ([]playlist.Track, error) {
 	if err != nil {
 		return nil, err
 	}
-	return filterRemoteEntries(plsEntriesToTracks(entries)), nil
+	return remotePLSEntriesToTracks(filterRemotePLSEntries(entries)), nil
 }
 
 // hasHLSEndList reports whether an HLS body holds #EXT-X-ENDLIST. head is the
@@ -687,7 +727,42 @@ func resolveYouTube(ctx context.Context, pageURL string) ([]playlist.Track, erro
 }
 
 // ytdlTimeout bounds one yt-dlp enumeration when the caller sets no limit.
-const ytdlTimeout = 30 * time.Second
+const (
+	ytdlTimeout         = 30 * time.Second
+	maxYTDLStderrBytes  = 64 << 10
+	maxYTDLDownloadJSON = 4 << 20
+)
+
+// cappedBuffer stores up to limit bytes and discards additional writes.
+type cappedBuffer struct {
+	buf   bytes.Buffer
+	limit int
+}
+
+func (c *cappedBuffer) Write(p []byte) (int, error) {
+	if rem := c.limit - c.buf.Len(); rem > 0 {
+		if len(p) > rem {
+			c.buf.Write(p[:rem])
+		} else {
+			c.buf.Write(p)
+		}
+	}
+	return len(p), nil
+}
+
+func (c *cappedBuffer) String() string {
+	return c.buf.String()
+}
+
+// isHTTPURL reports whether raw uses the http or https scheme with a host.
+func isHTTPURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	return (scheme == "http" || scheme == "https") && u.Host != ""
+}
 
 // ResolveYTDLBatch is ResolveYTDLBatchContext with a 30 s limit.
 func ResolveYTDLBatch(pageURL string, start, count int, browser string) ([]playlist.Track, error) {
@@ -739,10 +814,18 @@ func ResolveYTDLBatchPageContext(ctx context.Context, pageURL string, start, cou
 	args = append(args, "--", pageURL)
 	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
 	cmd.WaitDelay = 3 * time.Second
-	var stderr strings.Builder
+	stderr := cappedBuffer{limit: maxYTDLStderrBytes}
 	cmd.Stderr = &stderr
-	stdout, err := cmd.Output()
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		return nil, 0, fmt.Errorf("yt-dlp: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, 0, fmt.Errorf("yt-dlp: %w", err)
+	}
+	tracks, entries, parseErr := parseYTDLTracks(stdout)
+	_, _ = io.Copy(io.Discard, stdout)
+	if err := cmd.Wait(); err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, 0, fmt.Errorf("yt-dlp: resolve %s: %w", pageURL, ctxErr)
 		}
@@ -752,7 +835,7 @@ func ResolveYTDLBatchPageContext(ctx context.Context, pageURL string, start, cou
 		}
 		return nil, 0, fmt.Errorf("yt-dlp: %w", err)
 	}
-	return parseYTDLTracks(bytes.NewReader(stdout))
+	return tracks, entries, parseErr
 }
 
 // resolveYTDL lists the first maxItems entries of pageURL, or all entries when
@@ -784,7 +867,7 @@ func parseYTDLTracks(r io.Reader) ([]playlist.Track, int, error) {
 		if trackURL == "" {
 			trackURL = e.URL
 		}
-		if trackURL == "" {
+		if trackURL == "" || !isHTTPURL(trackURL) {
 			continue
 		}
 		title := e.Title
@@ -834,10 +917,18 @@ func DownloadYTDLContext(ctx context.Context, pageURL, saveDir string) (string, 
 	args = append(args, "--", pageURL)
 	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
 	cmd.WaitDelay = 3 * time.Second
-	var stderr strings.Builder
+	stderr := cappedBuffer{limit: maxYTDLStderrBytes}
 	cmd.Stderr = &stderr
-	stdout, err := cmd.Output()
+	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
+		return "", fmt.Errorf("yt-dlp: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("yt-dlp: %w", err)
+	}
+	stdout, readErr := io.ReadAll(io.LimitReader(stdoutPipe, maxYTDLDownloadJSON))
+	_, _ = io.Copy(io.Discard, stdoutPipe)
+	if err := cmd.Wait(); err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return "", fmt.Errorf("yt-dlp: download %s: %w", pageURL, ctxErr)
 		}
@@ -846,6 +937,9 @@ func DownloadYTDLContext(ctx context.Context, pageURL, saveDir string) (string, 
 			return "", fmt.Errorf("yt-dlp: %s", msg)
 		}
 		return "", fmt.Errorf("yt-dlp: %w", err)
+	}
+	if readErr != nil {
+		return "", fmt.Errorf("reading yt-dlp output: %w", readErr)
 	}
 
 	var e ytdlFullEntry

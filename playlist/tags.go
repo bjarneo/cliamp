@@ -13,6 +13,7 @@ import (
 	"github.com/dhowden/tag"
 
 	"github.com/bjarneo/cliamp/internal/appdir"
+	"github.com/bjarneo/cliamp/internal/fileutil"
 )
 
 const (
@@ -94,6 +95,9 @@ func readTagsWithOptions(path string, cacheArt bool) (Track, bool) {
 	return t, true
 }
 
+// runAlbumArtCleanup evicts old cache files after a write. Tests can replace it.
+var runAlbumArtCleanup = cleanupAlbumArtCache
+
 func cacheAlbumArt(picture *tag.Picture) string {
 	if picture == nil || len(picture.Data) == 0 {
 		return ""
@@ -103,7 +107,7 @@ func cacheAlbumArt(picture *tag.Picture) string {
 		return ""
 	}
 	artDir := filepath.Join(dir, albumArtCacheDir)
-	if err := os.MkdirAll(artDir, 0o755); err != nil {
+	if err := os.MkdirAll(artDir, 0o700); err != nil {
 		return ""
 	}
 
@@ -113,13 +117,12 @@ func cacheAlbumArt(picture *tag.Picture) string {
 	if _, err := os.Stat(path); err == nil {
 		now := time.Now()
 		_ = os.Chtimes(path, now, now)
-		cleanupAlbumArtCache(artDir, albumArtCacheMaxBytes, path)
 		return fileURL(path)
 	}
-	if err := os.WriteFile(path, picture.Data, 0o644); err != nil {
+	if err := fileutil.WriteFileAtomicInExistingDir(path, picture.Data, 0o600); err != nil {
 		return ""
 	}
-	cleanupAlbumArtCache(artDir, albumArtCacheMaxBytes, path)
+	runAlbumArtCleanup(artDir, albumArtCacheMaxBytes, path)
 	return fileURL(path)
 }
 

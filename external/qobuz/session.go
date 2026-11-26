@@ -143,7 +143,7 @@ func captureOAuthRedirect(ctx context.Context, appID string) (oauthResult, error
 	resultCh := make(chan oauthResult, 1)
 	srv := &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			applog.Debug("qobuz: oauth redirect received: %s", r.URL.RequestURI())
+			applog.Debug("qobuz: oauth redirect received: %s", r.URL.Path)
 			res := parseQueryParams(r.URL.Query())
 			w.Header().Set("Content-Type", "text/html")
 			_, _ = w.Write([]byte(oauthCallbackHTML))

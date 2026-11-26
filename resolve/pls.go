@@ -101,13 +101,27 @@ func parsePLS(r io.Reader) ([]plsEntry, error) {
 // negative lengths or matching "(#N)" titles identify mirrors that should be
 // collapsed to the first URL (matching VLC/Winamp behavior).
 func plsEntriesToTracks(entries []plsEntry) []playlist.Track {
+	return plsEntriesToTracksWithOptions(entries, true)
+}
+
+// remotePLSEntriesToTracks converts filtered remote PLS entries without local file reads.
+func remotePLSEntriesToTracks(entries []plsEntry) []playlist.Track {
+	return plsEntriesToTracksWithOptions(entries, false)
+}
+
+func plsEntriesToTracksWithOptions(entries []plsEntry, allowLocalFS bool) []playlist.Track {
+	trackFromPath := playlist.TrackFromPath
+	if !allowLocalFS {
+		trackFromPath = remoteTrackFromPath
+	}
+
 	if radioMirrors(entries) {
 		e := entries[0]
 		title := e.Title
 		// Strip the mirror suffix like "(#1)" from radio station titles.
 		title = stripMirrorSuffix(title)
 		if title == "" {
-			track := playlist.TrackFromPath(e.File)
+			track := trackFromPath(e.File)
 			track.Realtime = true
 			return []playlist.Track{track}
 		}
@@ -121,17 +135,22 @@ func plsEntriesToTracks(entries []plsEntry) []playlist.Track {
 
 	tracks := make([]playlist.Track, 0, len(entries))
 	for _, e := range entries {
-		realtime := playlist.IsURL(e.File) && e.HasLength && e.Length < 0
+		isURL := playlist.IsURL(e.File)
+		if !isURL {
+			scheme := URIScheme(e.File)
+			isURL = scheme == "http" || scheme == "https"
+		}
+		realtime := isURL && e.HasLength && e.Length < 0
 		if e.Title != "" {
 			tracks = append(tracks, playlist.Track{
 				Path:         e.File,
 				Title:        e.Title,
-				Stream:       playlist.IsURL(e.File),
+				Stream:       isURL,
 				Realtime:     realtime,
 				DurationSecs: max(e.Length, 0),
 			})
 		} else {
-			track := playlist.TrackFromPath(e.File)
+			track := trackFromPath(e.File)
 			track.Realtime = realtime
 			track.DurationSecs = max(e.Length, 0)
 			tracks = append(tracks, track)

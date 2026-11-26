@@ -720,9 +720,11 @@ func (s *Session) Close() {
 	defer s.mu.Unlock()
 	if s.player != nil {
 		s.player.Close()
+		s.player = nil
 	}
 	if s.sess != nil {
 		s.sess.Close()
+		s.sess = nil
 	}
 }
 

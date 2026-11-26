@@ -68,7 +68,10 @@ func (p *SpotifyProvider) webAPIWithRetry(ctx context.Context, method, path stri
 			}
 			wait := time.Duration(1<<uint(attempt)) * time.Second
 			if ra := resp.Header.Get("Retry-After"); ra != "" {
-				if secs, err := strconv.Atoi(ra); err == nil && secs > 0 {
+				if secs, err := strconv.ParseInt(ra, 10, 64); (err == nil || errors.Is(err, strconv.ErrRange)) && secs > 0 {
+					if secs > maxRetryAfterSecs {
+						secs = maxRetryAfterSecs
+					}
 					wait = time.Duration(secs) * time.Second
 				}
 			}
@@ -165,6 +168,10 @@ func (s *Session) bearer(ctx context.Context) (string, error) {
 
 // maxRateLimitWait is the longest Retry-After that webAPIWithRetry waits for.
 const maxRateLimitWait = time.Minute
+
+// maxRetryAfterSecs bounds parsed Retry-After values before multiplying by
+// time.Second so huge header values cannot overflow time.Duration.
+const maxRetryAfterSecs = 86400
 
 // waitExceedsDeadline reports whether ctx expires before wait ends.
 func waitExceedsDeadline(ctx context.Context, wait time.Duration) bool {

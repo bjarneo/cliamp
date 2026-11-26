@@ -42,7 +42,8 @@ const (
 	SortBooksByAdded  = "addedAt"
 	SortBooksByAuthor = "author"
 
-	searchItemLimit = 10
+	searchItemLimit      = 10
+	maxTrackCacheEntries = 1000
 )
 
 var bookSortTypes = []provider.SortType{
@@ -147,6 +148,10 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 // Tracks returns a book's audio files or a podcast show's episodes.
 // Results are cached per playlist id. Callers get a copy of the cached slice.
 func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
+	return p.tracksContext(context.Background(), playlistID)
+}
+
+func (p *Provider) tracksContext(ctx context.Context, playlistID string) ([]playlist.Track, error) {
 	p.mu.Lock()
 	if cached, ok := p.trackCache[playlistID]; ok {
 		p.mu.Unlock()
@@ -159,7 +164,7 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 		return nil, fmt.Errorf("audiobookshelf: unknown playlist id %q", playlistID)
 	}
 
-	item, err := p.client.Item(itemID)
+	item, err := p.client.itemContext(ctx, itemID)
 	if err != nil {
 		return nil, fmt.Errorf("audiobookshelf: load item %s: %w", itemID, err)
 	}
@@ -174,6 +179,8 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 	p.mu.Lock()
 	if p.trackCache == nil {
 		p.trackCache = make(map[string][]playlist.Track)
+	} else if _, exists := p.trackCache[playlistID]; !exists && len(p.trackCache) >= maxTrackCacheEntries {
+		clear(p.trackCache)
 	}
 	p.trackCache[playlistID] = out
 	p.mu.Unlock()
@@ -373,7 +380,7 @@ func (p *Provider) SearchTracks(ctx context.Context, query string, limit int) ([
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("audiobookshelf: search tracks: %w", err)
 	}
-	libs, err := p.client.Libraries()
+	libs, err := p.client.librariesContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("audiobookshelf: list libraries: %w", err)
 	}
@@ -383,7 +390,7 @@ func (p *Provider) SearchTracks(ctx context.Context, query string, limit int) ([
 		if err := ctx.Err(); err != nil {
 			return out, fmt.Errorf("audiobookshelf: search tracks: %w", err)
 		}
-		hits, err := p.client.Search(lib.ID, query, searchItemLimit)
+		hits, err := p.client.searchContext(ctx, lib.ID, query, searchItemLimit)
 		if err != nil {
 			return nil, fmt.Errorf("audiobookshelf: search library %s: %w", lib.ID, err)
 		}
@@ -395,8 +402,11 @@ func (p *Provider) SearchTracks(ctx context.Context, query string, limit int) ([
 			if mediaTypeOf(lib, hit) == mediaTypePodcast {
 				id = prefixPodcast + hit.ID
 			}
-			tracks, err := p.Tracks(id)
+			tracks, err := p.tracksContext(ctx, id)
 			if err != nil {
+				if ctx.Err() != nil {
+					return out, fmt.Errorf("audiobookshelf: search tracks: %w", ctx.Err())
+				}
 				continue
 			}
 			out = append(out, tracks...)

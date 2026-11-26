@@ -34,6 +34,9 @@ const (
 	// pageSize is the per-request row count for container queries.
 	pageSize = 10000
 
+	// maxPages bounds pagination loops against servers that repeat pages.
+	maxPages = 1000
+
 	// rpcPath is the JSON-RPC endpoint, served on the same port as the web UI.
 	rpcPath = "/jsonrpc.js"
 
@@ -192,25 +195,37 @@ func (c *Client) request(ctx context.Context, command []any, out any) error {
 	return nil
 }
 
-func fetchAll[T any](size int, fetch func(offset int) ([]T, int, error)) ([]T, error) {
+func fetchAll[T any](size int, idOf func(T) string, fetch func(offset int) ([]T, int, error)) ([]T, error) {
 	var all []T
-	for offset := 0; ; {
+	var prevFirstID string
+	for pageNum, offset := 0, 0; pageNum < maxPages; pageNum++ {
 		page, count, err := fetch(offset)
 		if err != nil {
 			return nil, err
 		}
+		if len(page) == 0 {
+			return all, nil
+		}
+		if idOf != nil {
+			firstID := idOf(page[0])
+			if pageNum > 0 && firstID != "" && firstID == prevFirstID {
+				return all, nil
+			}
+			prevFirstID = firstID
+		}
 		all = append(all, page...)
-		if len(page) == 0 || (count > 0 && len(all) >= count) || (count == 0 && len(page) < size) {
+		if (count > 0 && len(all) >= count) || (count == 0 && len(page) < size) {
 			return all, nil
 		}
 		offset += len(page)
 	}
+	return all, nil
 }
 
 // --- Browsing ---------------------------------------------------------------
 
 func (c *Client) Playlists() ([]playlist.PlaylistInfo, error) {
-	rows, err := fetchAll(pageSize, func(offset int) ([]playlistRow, int, error) {
+	rows, err := fetchAll(pageSize, func(p playlistRow) string { return p.ID.String() }, func(offset int) ([]playlistRow, int, error) {
 		var res struct {
 			Count flexInt       `json:"count"`
 			Loop  []playlistRow `json:"playlists_loop"`
@@ -234,7 +249,7 @@ func (c *Client) Playlists() ([]playlist.PlaylistInfo, error) {
 }
 
 func (c *Client) Tracks(playlistID string) ([]playlist.Track, error) {
-	rows, err := fetchAll(pageSize, func(offset int) ([]song, int, error) {
+	rows, err := fetchAll(pageSize, func(s song) string { return s.ID.String() }, func(offset int) ([]song, int, error) {
 		var res struct {
 			Count flexInt `json:"count"`
 			Loop  []song  `json:"playlisttracks_loop"`
@@ -249,7 +264,7 @@ func (c *Client) Tracks(playlistID string) ([]playlist.Track, error) {
 }
 
 func (c *Client) Artists() ([]provider.ArtistInfo, error) {
-	rows, err := fetchAll(pageSize, func(offset int) ([]artistRow, int, error) {
+	rows, err := fetchAll(pageSize, func(a artistRow) string { return a.ID.String() }, func(offset int) ([]artistRow, int, error) {
 		var res struct {
 			Count flexInt     `json:"count"`
 			Loop  []artistRow `json:"artists_loop"`
@@ -268,7 +283,7 @@ func (c *Client) Artists() ([]provider.ArtistInfo, error) {
 }
 
 func (c *Client) ArtistAlbums(artistID string) ([]provider.AlbumInfo, error) {
-	rows, err := fetchAll(pageSize, func(offset int) ([]albumRow, int, error) {
+	rows, err := fetchAll(pageSize, func(a albumRow) string { return a.ID.String() }, func(offset int) ([]albumRow, int, error) {
 		return c.albumPage([]any{"albums", offset, pageSize, "artist_id:" + artistID, "tags:" + albumTags})
 	})
 	if err != nil {
@@ -323,7 +338,7 @@ func (c *Client) AlbumSortTypes() []provider.SortType {
 func (c *Client) DefaultAlbumSort() string { return SortByName }
 
 func (c *Client) AlbumTracks(albumID string) ([]playlist.Track, error) {
-	rows, err := fetchAll(pageSize, func(offset int) ([]song, int, error) {
+	rows, err := fetchAll(pageSize, func(s song) string { return s.ID.String() }, func(offset int) ([]song, int, error) {
 		var res struct {
 			Count flexInt `json:"count"`
 			Loop  []song  `json:"titles_loop"`

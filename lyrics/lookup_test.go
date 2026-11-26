@@ -308,3 +308,26 @@ func TestLookupStopsWhenCanceled(t *testing.T) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
 }
+
+func TestNetEaseUsesHTTPSDefaultAndReferer(t *testing.T) {
+	if neteaseBaseURL != "https://music.163.com" {
+		t.Fatalf("neteaseBaseURL = %q, want https://music.163.com", neteaseBaseURL)
+	}
+	var gotReferer string
+	serveLyrics(t, lyricsAPI{
+		lrclib: reply(`[]`),
+		search: func(w http.ResponseWriter, r *http.Request) {
+			gotReferer = r.Header.Get("Referer")
+			reply(`{"result":{"songs":[{"id":1}]}}`)(w, r)
+		},
+		lyric: reply(`{"lrc":{"lyric":"[00:01.00]ok"}}`),
+	}, false)
+
+	lines, err := Lookup(context.Background(), "", "Artist", "Song")
+	if err != nil || len(lines) != 1 {
+		t.Fatalf("Lookup() = %+v, %v", lines, err)
+	}
+	if gotReferer != "https://music.163.com" {
+		t.Fatalf("Referer = %q, want https://music.163.com", gotReferer)
+	}
+}

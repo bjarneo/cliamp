@@ -461,10 +461,13 @@ func (c *Client) Tracks(id string) ([]playlist.Track, error) {
 		tracks = append(tracks, c.songToTrack(t))
 	}
 
+	const maxTrackCacheEntries = 1000
 	c.mu.Lock()
 	if c.trackCacheGen == cacheGen {
 		if c.trackCache == nil {
 			c.trackCache = make(map[string][]playlist.Track)
+		} else if _, exists := c.trackCache[id]; !exists && len(c.trackCache) >= maxTrackCacheEntries {
+			clear(c.trackCache)
 		}
 		c.trackCache[id] = tracks
 	}

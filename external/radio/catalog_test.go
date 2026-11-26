@@ -28,9 +28,15 @@ func (h hostRewriter) RoundTrip(req *http.Request) (*http.Response, error) {
 
 func installCatalogClient(t *testing.T, serverURL string) {
 	t.Helper()
-	old := catalogClient
-	catalogClient = testHTTPClient(t, serverURL)
-	t.Cleanup(func() { catalogClient = old })
+	oldCatalog := catalogClient
+	oldChannel := channelClient
+	c := testHTTPClient(t, serverURL)
+	catalogClient = c
+	channelClient = c
+	t.Cleanup(func() {
+		catalogClient = oldCatalog
+		channelClient = oldChannel
+	})
 }
 
 func testHTTPClient(t *testing.T, serverURL string) *http.Client {

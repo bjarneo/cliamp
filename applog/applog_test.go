@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -299,5 +300,21 @@ func TestInitMissingDirCreatesIt(t *testing.T) {
 	t.Cleanup(func() { _ = closeFn() })
 	if _, err := os.Stat(nested); err != nil {
 		t.Errorf("log file not created: %v", err)
+	}
+	if runtime.GOOS != "windows" {
+		dirInfo, err := os.Stat(filepath.Dir(nested))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := dirInfo.Mode().Perm(); got != 0o700 {
+			t.Errorf("log dir mode = %o, want 700", got)
+		}
+		fileInfo, err := os.Stat(nested)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := fileInfo.Mode().Perm(); got != 0o600 {
+			t.Errorf("log file mode = %o, want 600", got)
+		}
 	}
 }

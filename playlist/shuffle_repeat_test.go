@@ -140,3 +140,36 @@ func TestSetTrackOutOfBounds(t *testing.T) {
 		t.Fatal("tracks were modified by out-of-bounds SetTrack")
 	}
 }
+
+func TestShuffledAddPreservesPrefixAndContainsAllTracks(t *testing.T) {
+	p := makePlaylist(10, true)
+	// Advance twice so p.pos == 2 and prefix [0..2] must stay untouched.
+	p.Next()
+	p.Next()
+
+	p.mu.Lock()
+	prefixBefore := append([]int(nil), p.order[:p.pos+1]...)
+	p.mu.Unlock()
+
+	for i := range 20 {
+		p.Add(Track{Path: "/added", Title: string(rune('a' + i))})
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.order) != 30 {
+		t.Fatalf("len(order) = %d, want 30", len(p.order))
+	}
+	for i, want := range prefixBefore {
+		if p.order[i] != want {
+			t.Fatalf("prefix changed at %d: got %d, want %d", i, p.order[i], want)
+		}
+	}
+	seen := make([]bool, 30)
+	for _, idx := range p.order {
+		if idx < 0 || idx >= 30 || seen[idx] {
+			t.Fatalf("invalid or duplicate index %d in order %v", idx, p.order)
+		}
+		seen[idx] = true
+	}
+}

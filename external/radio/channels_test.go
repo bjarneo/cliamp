@@ -151,3 +151,12 @@ func TestChannelProviderRetriesAfterFailure(t *testing.T) {
 		t.Errorf("Playlists() after recovery = %#v, %v, want two channels", infos, err)
 	}
 }
+
+func TestChannelClientUsesChannelTimeout(t *testing.T) {
+	if channelClient == catalogClient {
+		t.Fatal("channelClient must not reuse the 10s catalogClient")
+	}
+	if channelClient.Timeout != channelTimeout {
+		t.Fatalf("channelClient.Timeout = %v, want %v", channelClient.Timeout, channelTimeout)
+	}
+}

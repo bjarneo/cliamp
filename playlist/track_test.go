@@ -116,6 +116,34 @@ func TestCacheAlbumArtUsesContentHash(t *testing.T) {
 	}
 }
 
+func TestCacheAlbumArtSkipsCleanupOnHit(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
+
+	cleanups := 0
+	orig := runAlbumArtCleanup
+	runAlbumArtCleanup = func(dir string, maxBytes int64, keepPath string) {
+		cleanups++
+		orig(dir, maxBytes, keepPath)
+	}
+	t.Cleanup(func() { runAlbumArtCleanup = orig })
+
+	pic := &tag.Picture{Ext: "jpg", Data: []byte("cover-bytes")}
+	if got := cacheAlbumArt(pic); got == "" {
+		t.Fatal("first cacheAlbumArt returned empty URL")
+	}
+	if cleanups != 1 {
+		t.Fatalf("cleanups after miss = %d, want 1", cleanups)
+	}
+	if got := cacheAlbumArt(pic); got == "" {
+		t.Fatal("second cacheAlbumArt returned empty URL")
+	}
+	if cleanups != 1 {
+		t.Fatalf("cleanups after hit = %d, want 1", cleanups)
+	}
+}
+
 func TestCleanupAlbumArtCacheKeepsCurrentFile(t *testing.T) {
 	dir := t.TempDir()
 	oldPath := filepath.Join(dir, "old.jpg")

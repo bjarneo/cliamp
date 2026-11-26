@@ -236,3 +236,64 @@ func TestLegacyTLSAddrsBounded(t *testing.T) {
 		t.Fatalf("has(%q) = false, want true", last)
 	}
 }
+
+func TestStreamingTransportTimeouts(t *testing.T) {
+	tr := newStreamingTransport()
+	if tr.TLSHandshakeTimeout != 15*time.Second {
+		t.Errorf("TLSHandshakeTimeout = %v, want 15s", tr.TLSHandshakeTimeout)
+	}
+	if tr.IdleConnTimeout != 90*time.Second {
+		t.Errorf("IdleConnTimeout = %v, want 90s", tr.IdleConnTimeout)
+	}
+	if streamDialer.Timeout != 30*time.Second || streamDialer.KeepAlive != 30*time.Second {
+		t.Errorf("streamDialer = {Timeout:%v, KeepAlive:%v}, want 30s/30s", streamDialer.Timeout, streamDialer.KeepAlive)
+	}
+}
+
+func TestEnvProxyCacheReflectsEnvChanges(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "")
+	t.Setenv("http_proxy", "")
+	t.Setenv("HTTPS_PROXY", "")
+	t.Setenv("https_proxy", "")
+	t.Setenv("ALL_PROXY", "")
+	t.Setenv("all_proxy", "")
+	t.Setenv("NO_PROXY", "")
+	t.Setenv("no_proxy", "")
+
+	tests := []struct {
+		name      string
+		envKey    string
+		envVal    string
+		noProxy   string
+		target    string
+		wantProxy string
+	}{
+		{name: "no proxy set", target: "example.com:80", wantProxy: ""},
+		{name: "http proxy set", envKey: "HTTP_PROXY", envVal: "http://proxy1:8080", target: "example.com:80", wantProxy: "http://proxy1:8080"},
+		{name: "http proxy updated", envKey: "HTTP_PROXY", envVal: "http://proxy2:8080", target: "example.com:80", wantProxy: "http://proxy2:8080"},
+		{name: "no proxy bypass", envKey: "HTTP_PROXY", envVal: "http://proxy2:8080", noProxy: "example.com", target: "example.com:80", wantProxy: ""},
+		{name: "all proxy fallback", envKey: "ALL_PROXY", envVal: "socks5h://127.0.0.1:1080", target: "example.com:80", wantProxy: "socks5h://127.0.0.1:1080"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HTTP_PROXY", "")
+			t.Setenv("ALL_PROXY", "")
+			t.Setenv("NO_PROXY", tt.noProxy)
+			if tt.envKey != "" {
+				t.Setenv(tt.envKey, tt.envVal)
+			}
+			u, err := resolveEnvProxy("http", tt.target)
+			if err != nil {
+				t.Fatalf("resolveEnvProxy() error = %v", err)
+			}
+			got := ""
+			if u != nil {
+				got = u.String()
+			}
+			if got != tt.wantProxy {
+				t.Fatalf("resolveEnvProxy() = %q, want %q", got, tt.wantProxy)
+			}
+		})
+	}
+}

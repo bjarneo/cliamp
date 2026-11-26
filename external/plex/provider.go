@@ -16,9 +16,10 @@ import (
 // the browse view. Playlist IDs are prefixed so they can be told apart from
 // album ratingKeys (both live in the same server-side metadata key space).
 const (
-	prefixPlaylist   = "pl:"
-	sectionAlbums    = "Albums"
-	sectionPlaylists = "Playlists"
+	prefixPlaylist       = "pl:"
+	sectionAlbums        = "Albums"
+	sectionPlaylists     = "Playlists"
+	maxTrackCacheEntries = 1000
 )
 
 // Compile-time interface checks.
@@ -165,6 +166,8 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 		p.mu.Lock()
 		if p.trackCache == nil {
 			p.trackCache = make(map[string][]playlist.Track)
+		} else if _, exists := p.trackCache[playlistID]; !exists && len(p.trackCache) >= maxTrackCacheEntries {
+			clear(p.trackCache)
 		}
 		p.trackCache[playlistID] = tracks
 		p.mu.Unlock()
@@ -175,8 +178,8 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 
 // SearchTracks searches the Plex music library for tracks matching query.
 // Implements provider.Searcher.
-func (p *Provider) SearchTracks(_ context.Context, query string, limit int) ([]playlist.Track, error) {
-	plexTracks, err := p.client.Search(query)
+func (p *Provider) SearchTracks(ctx context.Context, query string, limit int) ([]playlist.Track, error) {
+	plexTracks, err := p.client.SearchContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}

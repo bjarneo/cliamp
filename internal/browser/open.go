@@ -2,20 +2,38 @@ package browser
 
 import (
 	"fmt"
+	"net/url"
 	"os/exec"
 	"runtime"
+	"strings"
 )
 
-// Open tries to open a URL in the user's default browser.
-func Open(u string) error {
+// Open opens an http or https URL in the default system browser.
+func Open(rawURL string) error {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if (scheme != "http" && scheme != "https") || u.Host == "" {
+		return fmt.Errorf("unsupported URL %q", rawURL)
+	}
+	target := u.String()
+
+	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		return exec.Command("open", u).Start()
+		cmd = exec.Command("open", target)
 	case "linux":
-		return exec.Command("xdg-open", u).Start()
+		cmd = exec.Command("xdg-open", target)
 	case "windows":
-		return exec.Command("rundll32", "url.dll,FileProtocolHandler", u).Start()
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", target)
 	default:
 		return fmt.Errorf("unsupported platform")
 	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
 }

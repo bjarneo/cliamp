@@ -3,6 +3,7 @@ package qobuz
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -11,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/bjarneo/cliamp/internal/httpclient"
 )
 
 func TestBundlePrivateKeyScraped(t *testing.T) {
@@ -171,6 +174,47 @@ func TestScrapeCredentials(t *testing.T) {
 			}
 			if appID != tt.wantAppID || key != tt.wantKey || !slices.Equal(secrets, []string{secret}) {
 				t.Errorf("scrapeCredentials() = %q, %q, %q, want %q, [%q], %q", appID, secrets, key, tt.wantAppID, secret, tt.wantKey)
+			}
+		})
+	}
+}
+
+func TestFetchBundleCapsResponseReads(t *testing.T) {
+	const bundlePath = "/resources/7.1.2-b012/bundle.js"
+	loginPage := `<html><script src="` + bundlePath + `"></script></html>`
+
+	tests := []struct {
+		name      string
+		loginBody string
+		bundleLen int
+	}{
+		{name: "oversized login page", loginBody: strings.Repeat("a", maxLoginPageBody+1)},
+		{name: "oversized bundle.js", loginBody: loginPage, bundleLen: maxBundleBody + 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/login":
+					_, _ = io.WriteString(w, tt.loginBody)
+				case bundlePath:
+					chunk := []byte(strings.Repeat("x", 64<<10))
+					rem := tt.bundleLen
+					for rem > 0 {
+						n := min(rem, len(chunk))
+						if _, err := w.Write(chunk[:n]); err != nil {
+							return
+						}
+						rem -= n
+					}
+				}
+			}))
+			defer srv.Close()
+
+			_, err := fetchBundle(context.Background(), srv.URL)
+			if !errors.Is(err, httpclient.ErrTooLarge) {
+				t.Fatalf("fetchBundle() error = %v, want %v", err, httpclient.ErrTooLarge)
 			}
 		})
 	}

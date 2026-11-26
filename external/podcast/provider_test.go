@@ -602,13 +602,16 @@ func TestProviderCategoriesCache(t *testing.T) {
 func TestProviderTracksMetadata(t *testing.T) {
 	for _, tt := range []struct {
 		name, prefix, title, channelArt, wantArt string
+		wantGenre                                string
 		context                                  bool
+		subscribe                                bool
+		refresh                                  bool
 	}{
-		{"catalog", "c:", "Directory Show", "https://example.com/channel.jpg", "https://example.com/channel.jpg", false},
-		{"subscription", "f:", "Directory Show", "", "https://example.com/directory.jpg", false},
-		{"search after refresh", "s:", "Directory Show", "", "https://example.com/directory.jpg", false},
-		{"album context", "", "Directory Show", "", "https://example.com/directory.jpg", true},
-		{"feed metadata fallback", "", "", "https://example.com/channel.jpg", "https://example.com/channel.jpg", true},
+		{"catalog", "c:", "Directory Show", "https://example.com/channel.jpg", "https://example.com/channel.jpg", "Science", false, false, false},
+		{"subscription", "f:", "Directory Show", "", "https://example.com/directory.jpg", "Science", false, true, true},
+		{"search after refresh", "s:", "", "", "", "", false, false, true},
+		{"album context", "", "Directory Show", "", "https://example.com/directory.jpg", "Science", true, false, false},
+		{"feed metadata fallback", "", "", "https://example.com/channel.jpg", "https://example.com/channel.jpg", "Science", true, false, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var calls atomic.Int32
@@ -621,8 +624,14 @@ func TestProviderTracksMetadata(t *testing.T) {
 				io.WriteString(w, strings.Replace(providerTestRSS, "https://example.com/channel.jpg", tt.channelArt, 1))
 			})
 			feedURL := p.client.directoryURL + "/feed?token=original"
-			p.shows[feedURL] = show{Title: tt.title, FeedURL: feedURL, Author: "Directory Author", Genre: "Science", Artwork: "https://example.com/directory.jpg"}
-			p.Refresh()
+			s := show{Title: tt.title, FeedURL: feedURL, Author: "Directory Author", Genre: "Science", Artwork: "https://example.com/directory.jpg"}
+			p.shows[feedURL] = s
+			if tt.subscribe {
+				p.subscriptions = []show{s}
+			}
+			if tt.refresh {
+				p.Refresh()
+			}
 			var tracks []playlist.Track
 			var err error
 			if tt.context {
@@ -636,10 +645,10 @@ func TestProviderTracksMetadata(t *testing.T) {
 			}
 			want := []playlist.Track{
 				{Path: "https://example.com/audio?episode=9&token=yes", Title: "Episode Nine", Artist: title, Album: title,
-					Genre: "Science", TrackNumber: 9, DurationSecs: 3723, Stream: true, AlbumArtURL: "https://example.com/episode.jpg",
+					Genre: tt.wantGenre, TrackNumber: 9, DurationSecs: 3723, Stream: true, AlbumArtURL: "https://example.com/episode.jpg",
 					ProviderMeta: map[string]string{"podcast.feed": feedURL, "podcast.guid": "episode-nine"}},
 				{Path: "https://example.com/fallback.mp3", Title: "Untitled episode", Artist: title, Album: title,
-					Genre: "Science", Stream: true, AlbumArtURL: tt.wantArt,
+					Genre: tt.wantGenre, Stream: true, AlbumArtURL: tt.wantArt,
 					ProviderMeta: map[string]string{"podcast.feed": feedURL, "podcast.guid": "https://example.com/fallback.mp3"}},
 			}
 			if err != nil || !reflect.DeepEqual(tracks, want) {
@@ -649,6 +658,27 @@ func TestProviderTracksMetadata(t *testing.T) {
 				t.Errorf("requests = %d, want one feed GET and no media requests", calls.Load())
 			}
 		})
+	}
+}
+
+func TestProviderRefreshResetsShowsToSubscriptions(t *testing.T) {
+	p := newProviderTest(t, nil)
+	sub := show{Title: "Sub", FeedURL: "https://example.com/sub"}
+	stale := show{Title: "Stale", FeedURL: "https://example.com/stale"}
+	p.subscriptions = []show{sub}
+	p.shows[sub.FeedURL] = sub
+	p.shows[stale.FeedURL] = stale
+
+	p.Refresh()
+
+	if len(p.shows) != 1 {
+		t.Fatalf("shows after Refresh = %+v, want only active subscription", p.shows)
+	}
+	if _, ok := p.shows[sub.FeedURL]; !ok {
+		t.Fatal("active subscription missing from shows after Refresh")
+	}
+	if _, ok := p.shows[stale.FeedURL]; ok {
+		t.Fatal("unsubscribed show remained in shows after Refresh")
 	}
 }
 

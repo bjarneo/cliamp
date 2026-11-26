@@ -4,7 +4,6 @@ package playlist
 import (
 	"maps"
 	"math/rand"
-	"reflect"
 	"slices"
 	"sync"
 )
@@ -96,7 +95,31 @@ func cloneTracks(tracks []Track) []Track {
 }
 
 func equalTrack(a, b Track) bool {
-	return reflect.DeepEqual(a, b)
+	if a.Path != b.Path ||
+		a.Title != b.Title ||
+		a.Artist != b.Artist ||
+		a.Album != b.Album ||
+		a.Genre != b.Genre ||
+		a.Year != b.Year ||
+		a.TrackNumber != b.TrackNumber ||
+		a.Stream != b.Stream ||
+		a.Realtime != b.Realtime ||
+		a.Feed != b.Feed ||
+		a.DurationSecs != b.DurationSecs ||
+		a.UserRating != b.UserRating ||
+		a.Bookmark != b.Bookmark ||
+		a.Restricted != b.Restricted ||
+		a.Unplayable != b.Unplayable ||
+		a.DirSourced != b.DirSourced ||
+		a.EmbeddedLyrics != b.EmbeddedLyrics ||
+		a.AlbumArtURL != b.AlbumArtURL ||
+		a.playbackContextIndex != b.playbackContextIndex {
+		return false
+	}
+	if (a.ProviderMeta == nil) != (b.ProviderMeta == nil) || !maps.Equal(a.ProviderMeta, b.ProviderMeta) {
+		return false
+	}
+	return equalTracks(a.playbackContext, b.playbackContext)
 }
 
 func equalTracks(a, b []Track) bool {
@@ -147,7 +170,12 @@ func (p *Playlist) Replace(tracks []Track) {
 func (p *Playlist) ReplaceAt(tracks []Track, start int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	before := p.snapshot()
+	oldTracks := p.tracks
+	oldOrder := p.order
+	oldPos := p.pos
+	oldQueue := p.queue
+	oldQueuedIdx := p.queuedIdx
+
 	p.tracks = cloneTracks(tracks)
 	p.order = make([]int, len(tracks))
 	for i := range tracks {
@@ -163,7 +191,12 @@ func (p *Playlist) ReplaceAt(tracks []Track, start int) {
 	if p.shuffle && len(tracks) > 0 {
 		p.doShuffle()
 	}
-	if !p.matches(before) {
+	changed := oldPos != p.pos ||
+		oldQueuedIdx != p.queuedIdx ||
+		oldQueue != nil ||
+		!equalIndices(oldOrder, p.order) ||
+		!equalTracks(oldTracks, p.tracks)
+	if changed {
 		p.revision++
 	}
 }
@@ -178,34 +211,42 @@ func (p *Playlist) Add(tracks ...Track) {
 	}
 	start := len(p.tracks)
 	p.tracks = append(p.tracks, tracks...)
-	for i := start; i < len(p.tracks); i++ {
-		p.order = append(p.order, i)
-	}
-	if p.shuffle {
-		// Shuffle mode: mix newly added tracks into the upcoming playback order
-		// without disturbing already-played items or the current position.
-		if start == 0 {
-			p.pos = 0
-			p.doShuffle()
-		} else {
-			if p.pos < 0 {
-				p.pos = 0
-			}
-			if p.pos >= len(p.order) {
-				// Inconsistent internal state; recover by re-shuffling so newly added
-				// tracks don't end up in sequential order.
-				p.pos = 0
-				p.doShuffle()
-			} else {
-				// tail is an alias into p.order's backing array; shuffling it
-				// directly reorders the upcoming entries in p.order in-place.
-				tail := p.order[p.pos+1:]
-				for i := len(tail) - 1; i > 0; i-- {
-					j := rand.Intn(i + 1)
-					tail[i], tail[j] = tail[j], tail[i]
-				}
-			}
+	if !p.shuffle {
+		for i := start; i < len(p.tracks); i++ {
+			p.order = append(p.order, i)
 		}
+		p.revision++
+		return
+	}
+	// Shuffle mode mixes newly added tracks into the upcoming playback order
+	// without changing already-played items or the current position.
+	if start == 0 {
+		for i := start; i < len(p.tracks); i++ {
+			p.order = append(p.order, i)
+		}
+		p.pos = 0
+		p.doShuffle()
+		p.revision++
+		return
+	}
+	if p.pos < 0 {
+		p.pos = 0
+	}
+	if p.pos >= start {
+		// Recover from an invalid position by shuffling the list.
+		for i := start; i < len(p.tracks); i++ {
+			p.order = append(p.order, i)
+		}
+		p.pos = 0
+		p.doShuffle()
+		p.revision++
+		return
+	}
+	for i := start; i < len(p.tracks); i++ {
+		end := len(p.order)
+		p.order = append(p.order, i)
+		j := p.pos + 1 + rand.Intn(end-p.pos)
+		p.order[end], p.order[j] = p.order[j], p.order[end]
 	}
 	p.revision++
 }
@@ -697,7 +738,9 @@ func (p *Playlist) matches(snapshot Snapshot) bool {
 func (p *Playlist) Restore(snapshot Snapshot) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	before := p.snapshot()
+	if p.matches(snapshot) {
+		return
+	}
 	p.tracks = cloneTracks(snapshot.tracks)
 	p.order = slices.Clone(snapshot.order)
 	p.pos = snapshot.pos
@@ -706,9 +749,7 @@ func (p *Playlist) Restore(snapshot Snapshot) {
 	p.queue = slices.Clone(snapshot.queue)
 	p.queuedIdx = snapshot.queuedIdx
 	p.rebuildQueuePositions()
-	if !p.matches(before) {
-		p.revision++
-	}
+	p.revision++
 }
 
 // RemoveQueueAt removes the entry at the given 0-based queue position.

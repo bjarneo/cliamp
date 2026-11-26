@@ -45,6 +45,7 @@ type cookieBase struct {
 const (
 	cookiePlaylistBatchSize   = 100
 	cookiePlaylistLoadTimeout = 5 * time.Minute
+	cookieMaxPages            = 100
 )
 
 func newCookieBase(browser string) *cookieBase {
@@ -115,7 +116,7 @@ func (b *cookieBase) fetchTracks(target string) ([]playlist.Track, error) {
 		resolveBatch = resolve.ResolveYTDLBatchPageContext
 	}
 	var tracks []playlist.Track
-	for start := 0; ; {
+	for page, start := 0, 0; page < cookieMaxPages; page++ {
 		batch, entries, err := resolveBatch(ctx, target, start, cookiePlaylistBatchSize, b.browser)
 		if err != nil {
 			return nil, fmt.Errorf("ytmusic: resolve playlist tracks: %w", err)
@@ -129,6 +130,9 @@ func (b *cookieBase) fetchTracks(target string) ([]playlist.Track, error) {
 
 	b.mu.Lock()
 	if b.generation == generation {
+		if _, exists := b.trackCache[target]; !exists && len(b.trackCache) >= maxTrackCacheEntries {
+			clear(b.trackCache)
+		}
 		b.trackCache[target] = tracks
 	}
 	b.mu.Unlock()
@@ -173,7 +177,7 @@ func (b *cookieBase) fetchTrackWindow(target string, offset, limit int) ([]playl
 	need := offset + limit
 	var tracks []playlist.Track
 	more := false
-	for start := 0; len(tracks) < need; {
+	for page, start := 0, 0; page < cookieMaxPages && len(tracks) < need; page++ {
 		if ctx.Err() != nil {
 			return nil, false, fmt.Errorf("ytmusic: resolve playlist tracks: %w", ctx.Err())
 		}

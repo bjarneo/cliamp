@@ -419,3 +419,74 @@ func TestPagination(t *testing.T) {
 		}
 	}
 }
+
+func TestDoRequestTruncatesErrorSnippet(t *testing.T) {
+	longBody := strings.Repeat("E", maxErrorSnippet+200)
+	tests := []struct {
+		name   string
+		status int
+	}{
+		{name: "401 unauthorized", status: http.StatusUnauthorized},
+		{name: "500 internal error", status: http.StatusInternalServerError},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(longBody))
+			}))
+			defer srv.Close()
+
+			_, err := testClient(srv).doRequest(context.Background(), http.MethodGet, "test", nil, "")
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if len(err.Error()) >= len(longBody) {
+				t.Fatalf("error length = %d, expected truncated error body", len(err.Error()))
+			}
+			if !strings.HasSuffix(err.Error(), "...") {
+				t.Fatalf("error = %q, want ellipsis suffix", err.Error())
+			}
+		})
+	}
+}
+
+func TestPaginationStopsAtMaxPages(t *testing.T) {
+	fetchers := []struct {
+		endpoint, listKey string
+		fetch             func(*client) (int, error)
+	}{
+		{"playlist/get", "tracks", func(c *client) (int, error) {
+			items, err := c.playlistTracks(context.Background(), "1")
+			return len(items), err
+		}},
+		{"artist/get", "albums", func(c *client) (int, error) {
+			items, err := c.artistAlbums(context.Background(), "1")
+			return len(items), err
+		}},
+	}
+	for _, f := range fetchers {
+		t.Run(f.endpoint, func(t *testing.T) {
+			calls := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"id": 1,
+					f.listKey: map[string]any{
+						"items": []map[string]any{{"id": strconv.Itoa(calls), "title": "item"}},
+						"total": maxPages * 1000,
+					},
+				})
+			}))
+			defer srv.Close()
+
+			got, err := f.fetch(testClient(srv))
+			if err != nil {
+				t.Fatalf("fetch error: %v", err)
+			}
+			if calls != maxPages || got != maxPages {
+				t.Fatalf("calls=%d items=%d, want %d", calls, got, maxPages)
+			}
+		})
+	}
+}

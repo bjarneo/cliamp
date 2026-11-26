@@ -4,13 +4,13 @@ package netease
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,6 +44,10 @@ const (
 	// request. The endpoint returns at most about 200 songs for one request
 	// and drops the other IDs without an error, so keep this value low.
 	songDetailBatchSize = 100
+	// maxResponseBody limits each NetEase JSON response to 20 MiB.
+	maxResponseBody = 20 << 20
+	// maxPages limits user playlist pagination so a looping API response stops.
+	maxPages = 100
 )
 
 // ErrNotAuthenticated is returned when browser cookies do not contain a
@@ -344,7 +348,7 @@ func (p *Provider) userPlaylists(ctx context.Context, userID string) ([]playlist
 	}
 	const pageSize = 100
 	var out []playlist.PlaylistInfo
-	for offset := 0; ; offset += pageSize {
+	for page, offset := 0, 0; page < maxPages; page, offset = page+1, offset+pageSize {
 		params := url.Values{
 			"uid":    {strconv.FormatInt(uid, 10)},
 			"limit":  {strconv.Itoa(pageSize)},
@@ -493,7 +497,7 @@ func (p *Provider) apiGet(ctx context.Context, path string, params url.Values, o
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("netease: http status %s", resp.Status)
 	}
-	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+	if err := httpclient.ReadJSON(resp.Body, maxResponseBody, out); err != nil {
 		return fmt.Errorf("netease: decode response: %w", err)
 	}
 	return nil
@@ -531,14 +535,15 @@ func extractBrowserCookieHeader(ctx context.Context, browser string) (string, er
 	if _, err := exec.LookPath("yt-dlp"); err != nil {
 		return "", fmt.Errorf("yt-dlp not found. Install with: %s", ytdlp.InstallHint())
 	}
-	tmp, err := os.CreateTemp("", "cliamp-netease-cookies-*.txt")
+	dir, err := os.MkdirTemp("", "cliamp-netease-*")
 	if err != nil {
 		return "", err
 	}
-	path := tmp.Name()
-	tmp.Close()
-	os.Remove(path)
-	defer os.Remove(path)
+	defer os.RemoveAll(dir)
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, "cookies.txt")
 
 	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()

@@ -1,6 +1,7 @@
 package podcast
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -375,7 +376,7 @@ func (s *progressStore) prune() {
 		keys = append(keys, k)
 	}
 	slices.SortFunc(keys, func(a, b string) int {
-		return int(s.episodes[a].UpdatedUnix - s.episodes[b].UpdatedUnix)
+		return cmp.Compare(s.episodes[a].UpdatedUnix, s.episodes[b].UpdatedUnix)
 	})
 	for _, k := range keys[:len(s.episodes)-maxStoredEpisodes] {
 		delete(s.episodes, k)

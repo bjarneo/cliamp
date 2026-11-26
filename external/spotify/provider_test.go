@@ -172,3 +172,83 @@ func TestAuthenticateCancelsEarlierFlow(t *testing.T) {
 	}
 	finish(2)
 }
+
+func TestEnsureSessionKeepsExistingAndClosesRedundant(t *testing.T) {
+	first := &Session{clientID: "first"}
+	second := &Session{clientID: "second"}
+
+	orig := newSessionSilent
+	t.Cleanup(func() { newSessionSilent = orig })
+
+	p := New(nil, "client", 320)
+	newSessionSilent = func(context.Context, string) (*Session, error) {
+		// Simulate another goroutine installing first while silent auth ran.
+		p.mu.Lock()
+		p.session = first
+		p.mu.Unlock()
+		return second, nil
+	}
+
+	if err := p.ensureSession(); err != nil {
+		t.Fatalf("ensureSession() error = %v", err)
+	}
+	p.mu.Lock()
+	got := p.session
+	p.mu.Unlock()
+	if got != first {
+		t.Fatalf("p.session = %p, want first (%p)", got, first)
+	}
+}
+
+func TestAuthenticateReplacesOrDiscardsSessionSafely(t *testing.T) {
+	orig := signIn
+	t.Cleanup(func() { signIn = orig })
+
+	t.Run("replaces concurrently installed session", func(t *testing.T) {
+		existing := &Session{clientID: "existing"}
+		replacement := &Session{clientID: "replacement"}
+		p := New(nil, "client", 320)
+		signIn = func(context.Context, string, *Session) (*Session, error) {
+			p.mu.Lock()
+			p.session = existing
+			p.mu.Unlock()
+			return replacement, nil
+		}
+		if err := p.Authenticate(); err != nil {
+			t.Fatalf("Authenticate() error = %v", err)
+		}
+		p.mu.Lock()
+		got := p.session
+		p.mu.Unlock()
+		if got != replacement {
+			t.Fatalf("p.session = %p, want replacement (%p)", got, replacement)
+		}
+	})
+
+	t.Run("discards session if Close ran during Authenticate", func(t *testing.T) {
+		stale := &Session{clientID: "stale"}
+		p := New(nil, "client", 320)
+		signIn = func(context.Context, string, *Session) (*Session, error) {
+			p.Close()
+			return stale, nil
+		}
+		if err := p.Authenticate(); err != nil {
+			t.Fatalf("Authenticate() error = %v", err)
+		}
+		p.mu.Lock()
+		got := p.session
+		p.mu.Unlock()
+		if got != nil {
+			t.Fatalf("p.session = %p after Close, want nil", got)
+		}
+	})
+}
+
+func TestSessionCloseClearsPointersAndIsIdempotent(t *testing.T) {
+	s := &Session{}
+	s.Close()
+	s.Close()
+	if s.player != nil || s.sess != nil {
+		t.Fatalf("Session.Close left non-nil pointers: player=%v sess=%v", s.player, s.sess)
+	}
+}

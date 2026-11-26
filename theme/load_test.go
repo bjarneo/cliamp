@@ -427,3 +427,36 @@ red = "#dc322f"
 		})
 	}
 }
+
+func TestBuiltinThemesCachedAndUserOverridesIsolated(t *testing.T) {
+	home1 := t.TempDir()
+	t.Setenv("HOME", home1)
+
+	first, ok := Find("dracula")
+	if !ok {
+		t.Fatal("Find(dracula) = false")
+	}
+
+	// Override dracula in a user dir and verify cached built-ins are not mutated.
+	home2 := t.TempDir()
+	t.Setenv("HOME", home2)
+	userDir := filepath.Join(home2, ".config", "cliamp", "themes")
+	if err := os.MkdirAll(userDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	custom := "accent = \"#112233\"\nbright_fg = \"#ffffff\"\nfg = \"#aaaaaa\"\ngreen = \"#00ff00\"\nyellow = \"#ffff00\"\nred = \"#ff0000\"\n"
+	if err := os.WriteFile(filepath.Join(userDir, "dracula.toml"), []byte(custom), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	overridden, ok := Find("dracula")
+	if !ok || overridden.Accent != "#112233" {
+		t.Fatalf("overridden dracula = %+v, %v", overridden, ok)
+	}
+
+	// Switch back to the clean HOME directory. The cached theme remains unchanged.
+	t.Setenv("HOME", home1)
+	restored, ok := Find("dracula")
+	if !ok || restored != first {
+		t.Fatalf("restored dracula = %+v, want %+v", restored, first)
+	}
+}

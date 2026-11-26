@@ -675,3 +675,69 @@ func TestRunFailsLatestVersion(t *testing.T) {
 		t.Errorf("error = %q, want to mention 'checking latest version'", err.Error())
 	}
 }
+
+func TestValidTag(t *testing.T) {
+	tests := []struct {
+		name    string
+		tag     string
+		wantErr bool
+	}{
+		{name: "semver", tag: "v1.2.3"},
+		{name: "prerelease", tag: "v2.0.0-rc.1"},
+		{name: "empty", tag: "", wantErr: true},
+		{name: "dot", tag: ".", wantErr: true},
+		{name: "dotdot", tag: "..", wantErr: true},
+		{name: "embedded dotdot", tag: "v1..2", wantErr: true},
+		{name: "slash", tag: "v1/evil", wantErr: true},
+		{name: "backslash", tag: `v1\evil`, wantErr: true},
+		{name: "query", tag: "v1.0.0?foo=bar", wantErr: true},
+		{name: "fragment", tag: "v1.0.0#frag", wantErr: true},
+		{name: "percent", tag: "v1.0.0%2f..", wantErr: true},
+		{name: "whitespace", tag: "v1.0.0 beta", wantErr: true},
+		{name: "leading space", tag: " v1.0.0", wantErr: true},
+		{name: "newline", tag: "v1.0.0\n", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := validTag(tt.tag)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("validTag(%q) = %q, want error", tt.tag, got)
+				}
+				return
+			}
+			if err != nil || got != tt.tag {
+				t.Fatalf("validTag(%q) = (%q, %v), want (%q, nil)", tt.tag, got, err, tt.tag)
+			}
+		})
+	}
+}
+
+func TestHTTPSOnlyRedirectPolicy(t *testing.T) {
+	if httpClient.CheckRedirect == nil || downloadClient.CheckRedirect == nil {
+		t.Fatal("both upgrade clients must enforce CheckRedirect")
+	}
+
+	httpsReq, _ := http.NewRequest(http.MethodGet, "https://objects.githubusercontent.com/file", nil)
+	httpReq, _ := http.NewRequest(http.MethodGet, "http://objects.githubusercontent.com/file", nil)
+
+	tests := []struct {
+		name    string
+		req     *http.Request
+		viaLen  int
+		wantErr bool
+	}{
+		{name: "https allowed", req: httpsReq, viaLen: 1},
+		{name: "http rejected", req: httpReq, viaLen: 1, wantErr: true},
+		{name: "redirect cap enforced", req: httpsReq, viaLen: maxRedirects, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			via := make([]*http.Request, tt.viaLen)
+			err := httpsOnlyRedirect(tt.req, via)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("httpsOnlyRedirect() err = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

@@ -16,10 +16,11 @@ import (
 )
 
 const (
-	defaultAPIBase = "https://api.mixcloud.com"
-	apiPageSize    = 50
-	maxAPIPageSize = 100
-	maxErrorBody   = 1 << 20
+	defaultAPIBase  = "https://api.mixcloud.com"
+	apiPageSize     = 50
+	maxAPIPageSize  = 100
+	maxResponseBody = 10 << 20
+	maxErrorBody    = 1 << 20
 )
 
 // APIError is returned for a non-successful response from Mixcloud.
@@ -104,7 +105,7 @@ func (c *client) getJSON(ctx context.Context, apiPath string, query url.Values, 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return decodeAPIError(resp)
 	}
-	if err := json.NewDecoder(resp.Body).Decode(dst); err != nil {
+	if err := httpclient.ReadJSON(resp.Body, maxResponseBody, dst); err != nil {
 		return fmt.Errorf("mixcloud: decode %s: %w", apiPath, err)
 	}
 	return nil

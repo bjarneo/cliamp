@@ -3,9 +3,21 @@ package tidal
 import (
 	"encoding/xml"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 )
+
+const maxDashSegments = 100000
+
+func isHTTPSegmentURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	return (scheme == "http" || scheme == "https") && u.Host != ""
+}
 
 // mpd is the subset of a Tidal MPEG-DASH manifest needed to reconstruct the
 // segment URL list. Tidal audio manifests carry a single Representation with
@@ -70,6 +82,12 @@ func (st *segmentTemplate) urls() ([]string, error) {
 	count := 0
 	if st.Timeline != nil {
 		for _, s := range st.Timeline.S {
+			if s.R < 0 {
+				return nil, fmt.Errorf("tidal: negative DASH segment repeat count %d", s.R)
+			}
+			if s.R >= maxDashSegments || count+1+s.R > maxDashSegments {
+				return nil, fmt.Errorf("tidal: DASH segment count exceeds %d", maxDashSegments)
+			}
 			count += 1 + s.R // r is the number of additional repeats
 		}
 	}
@@ -78,6 +96,12 @@ func (st *segmentTemplate) urls() ([]string, error) {
 	}
 	if !strings.Contains(st.Media, "$Number$") {
 		return nil, fmt.Errorf("tidal: unsupported DASH media template %q", st.Media)
+	}
+	if st.Initialization != "" && !isHTTPSegmentURL(st.Initialization) {
+		return nil, fmt.Errorf("tidal: invalid DASH initialization URL %q", st.Initialization)
+	}
+	if !isHTTPSegmentURL(strings.ReplaceAll(st.Media, "$Number$", "1")) {
+		return nil, fmt.Errorf("tidal: invalid DASH media URL %q", st.Media)
 	}
 	start := 1
 	if st.StartNumber != nil {

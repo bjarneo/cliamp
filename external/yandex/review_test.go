@@ -11,7 +11,10 @@ import (
 func TestIsStreamURLMatchesBuiltCDNURL(t *testing.T) {
 	info := downloadInfo{Codec: "mp3"}
 	full := fullDownloadInfo{Host: "s130.music.yandex.ru", Path: "/download-info/123.mp3", Ts: "1675244728", S: "xyz"}
-	u := buildStreamURL(info, full)
+	u, err := buildStreamURL(info, full)
+	if err != nil {
+		t.Fatalf("buildStreamURL() error = %v", err)
+	}
 	if !IsStreamURL(u) {
 		t.Errorf("IsStreamURL(%q) = false, want true for built CDN URL", u)
 	}

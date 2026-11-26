@@ -40,6 +40,81 @@ const UserAgent = "cliamp/1.0 (https://github.com/bjarneo/cliamp)"
 // ignores ALL_PROXY.
 var Streaming = &http.Client{Transport: &socks5RoundTripper{transport: newStreamingTransport()}}
 
+// envProxyKey snapshots the raw proxy environment variables so cached
+// httpproxy.Config matchers invalidate immediately when tests or callers
+// update environment variables.
+type envProxyKey struct {
+	httpProxy     string
+	httpProxyLow  string
+	httpsProxy    string
+	httpsProxyLow string
+	allProxy      string
+	allProxyLow   string
+	noProxy       string
+	noProxyLow    string
+	requestMethod string
+}
+
+type cachedProxyFuncs struct {
+	key          envProxyKey
+	stdProxyFunc func(*url.URL) (*url.URL, error)
+	allProxyFunc func(*url.URL) (*url.URL, error)
+}
+
+var (
+	envProxyMu    sync.RWMutex
+	envProxyCache cachedProxyFuncs
+	envProxyInit  bool
+)
+
+func currentEnvProxyFuncs() (stdFn, allFn func(*url.URL) (*url.URL, error)) {
+	key := envProxyKey{
+		httpProxy:     os.Getenv("HTTP_PROXY"),
+		httpProxyLow:  os.Getenv("http_proxy"),
+		httpsProxy:    os.Getenv("HTTPS_PROXY"),
+		httpsProxyLow: os.Getenv("https_proxy"),
+		allProxy:      os.Getenv("ALL_PROXY"),
+		allProxyLow:   os.Getenv("all_proxy"),
+		noProxy:       os.Getenv("NO_PROXY"),
+		noProxyLow:    os.Getenv("no_proxy"),
+		requestMethod: os.Getenv("REQUEST_METHOD"),
+	}
+	envProxyMu.RLock()
+	if envProxyInit && envProxyCache.key == key {
+		stdFn, allFn = envProxyCache.stdProxyFunc, envProxyCache.allProxyFunc
+		envProxyMu.RUnlock()
+		return stdFn, allFn
+	}
+	envProxyMu.RUnlock()
+
+	noProxy := firstNonEmpty(key.noProxy, key.noProxyLow)
+	cgi := key.requestMethod != ""
+	stdFn = (&httpproxy.Config{
+		HTTPProxy:  firstNonEmpty(key.httpProxy, key.httpProxyLow),
+		HTTPSProxy: firstNonEmpty(key.httpsProxy, key.httpsProxyLow),
+		NoProxy:    noProxy,
+		CGI:        cgi,
+	}).ProxyFunc()
+	if allProxy := firstNonEmpty(key.allProxy, key.allProxyLow); allProxy != "" {
+		allFn = (&httpproxy.Config{
+			HTTPProxy:  allProxy,
+			HTTPSProxy: allProxy,
+			NoProxy:    noProxy,
+			CGI:        cgi,
+		}).ProxyFunc()
+	}
+
+	envProxyMu.Lock()
+	envProxyCache = cachedProxyFuncs{
+		key:          key,
+		stdProxyFunc: stdFn,
+		allProxyFunc: allFn,
+	}
+	envProxyInit = true
+	envProxyMu.Unlock()
+	return stdFn, allFn
+}
+
 // resolveEnvProxy resolves the proxy that applies to a request for the
 // given scheme+addr, honoring HTTP_PROXY/HTTPS_PROXY/ALL_PROXY/NO_PROXY
 // exactly like the standard library does: httpproxy.FromEnvironment()
@@ -50,7 +125,8 @@ var Streaming = &http.Client{Transport: &socks5RoundTripper{transport: newStream
 // one proxy for every request regardless of scheme.
 func resolveEnvProxy(scheme, addr string) (*url.URL, error) {
 	reqURL := &url.URL{Scheme: scheme, Host: addr}
-	u, err := httpproxy.FromEnvironment().ProxyFunc()(reqURL)
+	stdFn, allFn := currentEnvProxyFuncs()
+	u, err := stdFn(reqURL)
 	if err != nil {
 		return nil, fmt.Errorf("resolve environment proxy for %s://%s: %w", scheme, addr, err)
 	}
@@ -65,16 +141,10 @@ func resolveEnvProxy(scheme, addr string) (*url.URL, error) {
 	// directly instead of through the SOCKS5 proxy. Re-resolve using
 	// ALL_PROXY/all_proxy as both the HTTP and HTTPS proxy so
 	// httpproxy.Config still applies its own NO_PROXY bypass logic.
-	allProxy := firstNonEmpty(os.Getenv("ALL_PROXY"), os.Getenv("all_proxy"))
-	if allProxy == "" {
+	if allFn == nil {
 		return nil, nil
 	}
-	cfg := &httpproxy.Config{
-		HTTPProxy:  allProxy,
-		HTTPSProxy: allProxy,
-		NoProxy:    firstNonEmpty(os.Getenv("NO_PROXY"), os.Getenv("no_proxy")),
-	}
-	u, err = cfg.ProxyFunc()(reqURL)
+	u, err = allFn(reqURL)
 	if err != nil {
 		return nil, fmt.Errorf("resolve ALL_PROXY for %s://%s: %w", scheme, addr, err)
 	}
@@ -175,7 +245,7 @@ func socks5DialerFromURL(u *url.URL) (proxy.Dialer, error) {
 		// instead of silently sending (or silently dropping) them.
 		return nil, fmt.Errorf("SOCKS5 credentials in proxy URL for %q are not supported: RFC 1929 auth is sent in cleartext, even over loopback", u.Host)
 	}
-	return proxy.SOCKS5("tcp", u.Host, nil, proxy.Direct)
+	return proxy.SOCKS5("tcp", u.Host, nil, streamDialer)
 }
 
 // socks5DialerFor returns a SOCKS5 dialer to use for a request of the
@@ -210,7 +280,8 @@ func socks5DialerFor(scheme, addr string) (proxy.Dialer, error) {
 // so NO_PROXY and the scheme-specific *_PROXY variable are both honored,
 // not just baked in once at transport-construction time.
 func transportProxy(req *http.Request) (*url.URL, error) {
-	u, err := httpproxy.FromEnvironment().ProxyFunc()(req.URL)
+	stdFn, _ := currentEnvProxyFuncs()
+	u, err := stdFn(req.URL)
 	if err != nil {
 		return nil, fmt.Errorf("resolve proxy for %s: %w", req.URL, err)
 	}
@@ -223,9 +294,23 @@ func transportProxy(req *http.Request) (*url.URL, error) {
 	return u, nil
 }
 
+const (
+	streamDialTimeout       = 30 * time.Second
+	streamKeepAlive         = 30 * time.Second
+	streamTLSHandshakeLimit = 15 * time.Second
+	streamIdleConnTimeout   = 90 * time.Second
+)
+
+var streamDialer = &net.Dialer{
+	Timeout:   streamDialTimeout,
+	KeepAlive: streamKeepAlive,
+}
+
 func newStreamingTransport() *http.Transport {
 	tr := &http.Transport{
 		ResponseHeaderTimeout: 30 * time.Second,
+		TLSHandshakeTimeout:   streamTLSHandshakeLimit,
+		IdleConnTimeout:       streamIdleConnTimeout,
 		TLSNextProto:          make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
 		Proxy:                 transportProxy,
 	}
@@ -294,8 +379,10 @@ func dialTLS(ctx context.Context, network, addr string, config *tls.Config) (*tl
 	if err != nil {
 		return nil, fmt.Errorf("dial TLS %s: %w", addr, err)
 	}
+	hsCtx, cancel := context.WithTimeout(ctx, streamTLSHandshakeLimit)
+	defer cancel()
 	tlsConn := tls.Client(rawConn, config)
-	if err := tlsConn.HandshakeContext(ctx); err != nil {
+	if err := tlsConn.HandshakeContext(hsCtx); err != nil {
 		_ = rawConn.Close()
 		return nil, fmt.Errorf("dial TLS %s: %w", addr, err)
 	}
@@ -391,7 +478,7 @@ func dialWithDecision(ctx context.Context, network, addr string) (net.Conn, erro
 		d = decision.socks5
 	}
 	if d == nil {
-		conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+		conn, err := streamDialer.DialContext(ctx, network, addr)
 		if err != nil {
 			return nil, fmt.Errorf("dial %s directly: %w", addr, err)
 		}

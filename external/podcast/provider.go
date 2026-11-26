@@ -427,6 +427,10 @@ func (p *Provider) Refresh() {
 	p.catalogVisible = 0
 	p.categoryCache = make(map[string][]show)
 	p.searchResults = nil
+	p.shows = make(map[string]show, len(p.subscriptions))
+	for _, s := range p.subscriptions {
+		p.shows[s.FeedURL] = s
+	}
 }
 
 func (*Provider) CanRefreshPlaylist(id string) bool { return showFeedURL(id) != "" }

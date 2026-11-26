@@ -24,6 +24,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unicode"
 )
 
@@ -60,34 +61,89 @@ func isCJK(r rune) bool {
 	return r >= 0x1100 && unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul)
 }
 
+// compiledQuery stores pre-lowered query words so repeated Match calls with
+// the same query skip re-splitting and re-lowering.
+type compiledQuery struct {
+	raw    string
+	empty  bool
+	phrase []rune
+	prefix bool
+	words  [][]rune
+}
+
+var lastCompiled atomic.Pointer[compiledQuery]
+
+func compileQuery(query string) *compiledQuery {
+	cq := &compiledQuery{raw: query}
+	if strings.TrimSpace(query) == "" {
+		cq.empty = true
+		return cq
+	}
+	switch trimmed := strings.TrimLeft(query, " "); trimmed[0] {
+	case '^':
+		cq.phrase = appendLower(nil, trimmed[1:])
+		cq.prefix = true
+		if len(cq.phrase) == 0 {
+			cq.empty = true
+		}
+		return cq
+	case '\'':
+		cq.phrase = appendLower(nil, trimmed[1:])
+		if len(cq.phrase) == 0 {
+			cq.empty = true
+		}
+		return cq
+	}
+
+	type span struct{ start, end int }
+	flat := make([]rune, 0, len(query))
+	var spans []span
+	for w := range strings.FieldsSeq(query) {
+		start := len(flat)
+		flat = appendLower(flat, w)
+		spans = append(spans, span{start: start, end: len(flat)})
+	}
+	words := make([][]rune, len(spans))
+	for i, sp := range spans {
+		words[i] = flat[sp.start:sp.end:sp.end]
+	}
+	cq.words = words
+	return cq
+}
+
 // Match reports whether every word of query matches target and, if so, a
 // relevance score where higher is a better match. An empty query matches
 // every target with score 0.
 func Match(query, target string) (score int, ok bool) {
-	if strings.TrimSpace(query) == "" {
+	cq := lastCompiled.Load()
+	if cq == nil || cq.raw != query {
+		cq = compileQuery(query)
+		lastCompiled.Store(cq)
+	}
+	if cq.empty {
 		return 0, true
 	}
-	switch trimmed := strings.TrimLeft(query, " "); trimmed[0] {
-	case '^':
-		return matchPhrase(trimmed[1:], target, true)
-	case '\'':
-		return matchPhrase(trimmed[1:], target, false)
+	if cq.phrase != nil {
+		return matchCompiledPhrase(cq.phrase, target, cq.prefix)
 	}
 	// Most targets miss a word altogether. Reject those before the scoring.
-	for w := range strings.FieldsSeq(query) {
-		if !isSubsequence(w, target) {
+	for _, w := range cq.words {
+		if !isLowerSubsequence(w, target) {
 			return 0, false
 		}
 	}
 	sc := scratchPool.Get().(*scratch)
-	defer scratchPool.Put(sc)
+	defer func() {
+		sc.q = nil
+		scratchPool.Put(sc)
+	}()
 	sc.t = appendLower(sc.t[:0], target)
 	sc.starts = sc.starts[:0]
 	for i := range sc.t {
 		sc.starts = append(sc.starts, startsWord(sc.t, i))
 	}
-	for w := range strings.FieldsSeq(query) {
-		sc.q = appendLower(sc.q[:0], w)
+	for _, w := range cq.words {
+		sc.q = w
 		s, ok := sc.matchWord()
 		if !ok {
 			return 0, false
@@ -97,18 +153,17 @@ func Match(query, target string) (score int, ok bool) {
 	return score, true
 }
 
-// matchPhrase reports whether target starts with phrase, or with prefix
+// matchCompiledPhrase reports whether target starts with phrase, or with prefix
 // false contains it, ignoring case. A match at the start ranks highest, then
 // one at a word start.
-func matchPhrase(phrase, target string, prefix bool) (int, bool) {
-	sc := scratchPool.Get().(*scratch)
-	defer scratchPool.Put(sc)
-	sc.q = appendLower(sc.q[:0], phrase)
-	sc.t = appendLower(sc.t[:0], target)
-	q, t := sc.q, sc.t
+func matchCompiledPhrase(q []rune, target string, prefix bool) (int, bool) {
 	if len(q) == 0 {
 		return 0, true
 	}
+	sc := scratchPool.Get().(*scratch)
+	defer scratchPool.Put(sc)
+	sc.t = appendLower(sc.t[:0], target)
+	t := sc.t
 	for i := 0; i+len(q) <= len(t); i++ {
 		if !slices.Equal(t[i:i+len(q)], q) {
 			if prefix {
@@ -146,16 +201,15 @@ type scratch struct {
 
 var scratchPool = sync.Pool{New: func() any { return new(scratch) }}
 
-// isSubsequence reports whether the runes of q appear in order in target,
-// ignoring case. Every match of q needs this, so it is a cheap first filter.
-func isSubsequence(q, target string) bool {
-	qr := []rune(q)
+// isLowerSubsequence reports whether the pre-lowered runes of qr appear in
+// order in target, ignoring case.
+func isLowerSubsequence(qr []rune, target string) bool {
 	i := 0
 	for _, r := range target {
 		if i == len(qr) {
 			break
 		}
-		if unicode.ToLower(r) == unicode.ToLower(qr[i]) {
+		if unicode.ToLower(r) == qr[i] {
 			i++
 		}
 	}

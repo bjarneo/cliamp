@@ -6,8 +6,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/bjarneo/cliamp/favorites"
@@ -1146,5 +1148,137 @@ func TestRebuildDocDuplicatePaths(t *testing.T) {
 				t.Fatalf("sections = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRebuildDocLinearBucketInterleaving(t *testing.T) {
+	dirA := playlist.DirSource{Path: "/music/a", Recursive: true}
+	dirB := playlist.DirSource{Path: "/music/b", Recursive: false}
+	t0 := playlist.Track{Path: "/x/0.mp3", Title: "t0"}
+	t1 := playlist.Track{Path: "/x/1.mp3", Title: "t1"}
+	doc := &playlistDoc{
+		tracks: []playlist.Track{t0, t1},
+		dirs:   []playlist.DirSource{dirA, dirB},
+		order:  []uint8{itemTrack, itemDir, itemTrack, itemDir},
+	}
+
+	// Mix dirA-supplied, dirB-supplied, before-t1, and tail leftovers.
+	explicit := []playlist.Track{
+		t0,
+		{Path: "/x/mid1.mp3", Title: "mid1"},
+		{Path: "/music/a/sub/s1.mp3", Title: "a1"},
+		{Path: "/music/a/s2.mp3", Title: "a2"},
+		{Path: "/x/mid2.mp3", Title: "mid2"},
+		t1,
+		{Path: "/music/b/b1.mp3", Title: "b1"},
+		{Path: "/music/b/sub/notb.mp3", Title: "tail1"},
+		{Path: "/x/tail2.mp3", Title: "tail2"},
+	}
+
+	tracks, dirs, order := rebuildDoc(doc, explicit)
+	var got []string
+	ti, di := 0, 0
+	for _, kind := range order {
+		if kind == itemDir {
+			got = append(got, "dir:"+dirs[di].Path)
+			di++
+			continue
+		}
+		got = append(got, tracks[ti].Title)
+		ti++
+	}
+	want := []string{"t0", "a1", "a2", "dir:/music/a", "mid1", "mid2", "t1", "b1", "dir:/music/b", "tail1", "tail2"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("sections = %v, want %v", got, want)
+	}
+}
+
+func TestSearchTracksContextCancelAndDirDedup(t *testing.T) {
+	p := newTestProvider(t)
+	musicDir := t.TempDir()
+	fileA := filepath.Join(musicDir, "jazz-alpha.mp3")
+	fileB := filepath.Join(musicDir, "jazz-beta.mp3")
+	writeAudioFile(t, fileA)
+	writeAudioFile(t, fileB)
+
+	if err := p.CreateDirPlaylist("pl1", []string{musicDir}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.CreateDirPlaylist("pl2", []string{musicDir}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Count how many times readTags sees each file across both playlists.
+	counts := make(map[string]int)
+	origReadTags := readTags
+	readTags = func(files []string) []playlist.Track {
+		for _, f := range files {
+			counts[f]++
+		}
+		return origReadTags(files)
+	}
+	t.Cleanup(func() { readTags = origReadTags })
+
+	found, err := p.SearchTracks(context.Background(), "jazz", 0)
+	if err != nil {
+		t.Fatalf("SearchTracks() error = %v", err)
+	}
+	if len(found) != 2 {
+		t.Fatalf("SearchTracks() = %d tracks, want 2", len(found))
+	}
+	for _, f := range []string{fileA, fileB} {
+		if counts[f] != 1 {
+			t.Errorf("readTags called %d times for %s, want 1", counts[f], f)
+		}
+	}
+
+	// Canceled context must abort without reading tags.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := p.SearchTracks(ctx, "jazz", 0); !errors.Is(err, context.Canceled) {
+		t.Fatalf("SearchTracks(canceled) error = %v, want context.Canceled", err)
+	}
+}
+
+func TestCreateDirPlaylistLockedAtomicAndPermissions(t *testing.T) {
+	p := newTestProvider(t)
+	musicDir := t.TempDir()
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 4)
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- p.CreateDirPlaylist("concurrent", []string{musicDir})
+		}()
+	}
+	wg.Wait()
+	close(errs)
+
+	successes := 0
+	for err := range errs {
+		if err == nil {
+			successes++
+		} else if !strings.Contains(err.Error(), "already exists") {
+			t.Fatalf("unexpected concurrent CreateDirPlaylist error: %v", err)
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("concurrent CreateDirPlaylist successes = %d, want 1", successes)
+	}
+
+	path := filepath.Join(p.dir, "concurrent.toml")
+	if _, err := os.Stat(path + ".tmp"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("predictable .tmp file should not exist: %v", err)
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0o600 {
+			t.Errorf("playlist file mode = %o, want 600", got)
+		}
 	}
 }

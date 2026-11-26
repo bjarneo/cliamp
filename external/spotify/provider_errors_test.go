@@ -241,6 +241,100 @@ func TestSessionResetDropsWritablePlaylists(t *testing.T) {
 	}
 }
 
+func TestRefreshAndResetClearPending(t *testing.T) {
+	t.Run("Refresh clears pending", func(t *testing.T) {
+		p := New(nil, "own", 320)
+		p.pending["pl1"] = &pendingTracks{want: 50, total: 100}
+		p.Refresh()
+		if len(p.pending) != 0 {
+			t.Fatalf("pending after Refresh = %v, want empty", p.pending)
+		}
+	})
+	t.Run("resetSessionScopedStateLocked clears pending", func(t *testing.T) {
+		p := New(nil, "own", 320)
+		p.pending["pl1"] = &pendingTracks{want: 50, total: 100}
+		p.mu.Lock()
+		p.resetSessionScopedStateLocked()
+		p.mu.Unlock()
+		if len(p.pending) != 0 {
+			t.Fatalf("pending after reset = %v, want empty", p.pending)
+		}
+	})
+}
+
+func TestWebAPIClampsOverflowingRetryAfter(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{name: "overflows time.Duration", value: "9223372037"},
+		{name: "overflows int64", value: "99999999999999999999999999"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := stubSpotifyAPI("own", map[string]func(*http.Request) *http.Response{
+				"/v1/me": func(*http.Request) *http.Response {
+					resp := apiResponse(http.StatusTooManyRequests, "")(nil)
+					resp.Header = http.Header{"Retry-After": {tt.value}}
+					return resp
+				},
+			})
+			start := time.Now()
+			_, err := p.webAPI(context.Background(), "GET", "/v1/me", nil)
+			if err == nil {
+				t.Fatal("webAPI() error = nil, want rate-limit error")
+			}
+			if elapsed := time.Since(start); elapsed > time.Second {
+				t.Fatalf("webAPI() waited %v, want immediate error", elapsed)
+			}
+			if !strings.Contains(err.Error(), "24h0m0s") {
+				t.Fatalf("error = %q, want clamped 24h0m0s", err)
+			}
+		})
+	}
+}
+
+func TestPlaylistIDEscaping(t *testing.T) {
+	t.Parallel()
+	const maliciousID = "a/b?x=1#frag"
+	const escapedID = "a%2Fb%3Fx=1%23frag"
+
+	var gotRawPaths []string
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		gotRawPaths = append(gotRawPaths, req.URL.EscapedPath())
+		resp := apiResponse(http.StatusOK, `{"items":[],"total":0,"snapshot_id":"snap1"}`)(req)
+		resp.Request = req
+		resp.Header = make(http.Header)
+		return resp, nil
+	})
+	p := New(stubSession(rt), "own", 320)
+
+	if _, err := p.Tracks(maliciousID); err != nil {
+		t.Fatalf("Tracks() error = %v", err)
+	}
+	if _, err := p.playlistSnapshot(context.Background(), maliciousID); err != nil {
+		t.Fatalf("playlistSnapshot() error = %v", err)
+	}
+	if err := p.AddTrackToPlaylist(context.Background(), maliciousID, playlist.Track{Path: "spotify:track:1"}); err != nil {
+		t.Fatalf("AddTrackToPlaylist() error = %v", err)
+	}
+
+	want := []string{
+		"/v1/playlists/" + escapedID + "/items",
+		"/v1/playlists/" + escapedID,
+		"/v1/playlists/" + escapedID + "/items",
+	}
+	if len(gotRawPaths) != len(want) {
+		t.Fatalf("got paths %v, want %v", gotRawPaths, want)
+	}
+	for i := range want {
+		if gotRawPaths[i] != want[i] {
+			t.Errorf("request %d EscapedPath = %q, want %q", i, gotRawPaths[i], want[i])
+		}
+	}
+}
+
 func TestIsInvalidLimitNeedsBadRequest(t *testing.T) {
 	if !isInvalidLimit(fmt.Errorf("page: %w", newAPIError(http.StatusBadRequest, []byte(`{"error":{"message":"Invalid limit"}}`)))) {
 		t.Fatal("isInvalidLimit() = false for 400 Invalid limit")

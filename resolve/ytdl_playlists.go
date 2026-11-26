@@ -113,10 +113,18 @@ func FetchUserPlaylists(browser string) ([]playlist.PlaylistInfo, error) {
 
 	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
 	cmd.WaitDelay = 3 * time.Second
-	var stderr strings.Builder
+	stderr := cappedBuffer{limit: maxYTDLStderrBytes}
 	cmd.Stderr = &stderr
-	stdout, err := cmd.Output()
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		return nil, fmt.Errorf("yt-dlp: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("yt-dlp: %w", err)
+	}
+	pls, parseErr := parseYTDLPlaylistFeed(stdout)
+	_, _ = io.Copy(io.Discard, stdout)
+	if err := cmd.Wait(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return nil, fmt.Errorf("yt-dlp: timed out fetching playlists (30s)")
 		}
@@ -126,10 +134,8 @@ func FetchUserPlaylists(browser string) ([]playlist.PlaylistInfo, error) {
 		}
 		return nil, fmt.Errorf("yt-dlp: %w", err)
 	}
-
-	pls, err := parseYTDLPlaylistFeed(bytes.NewReader(stdout))
-	if err != nil {
-		return nil, fmt.Errorf("yt-dlp: %w", err)
+	if parseErr != nil {
+		return nil, fmt.Errorf("yt-dlp: %w", parseErr)
 	}
 	return pls, nil
 }

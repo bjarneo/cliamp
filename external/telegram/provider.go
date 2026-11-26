@@ -32,6 +32,7 @@ var (
 	_ provider.CustomStreamer    = (*Provider)(nil)
 	_ provider.TrackPager        = (*Provider)(nil)
 	_ provider.CodeAuthenticator = (*Provider)(nil)
+	_ provider.Closer            = (*Provider)(nil)
 )
 
 const (
@@ -75,6 +76,9 @@ type authRequest struct {
 // Provider lists the audio of one Telegram chat and streams its documents.
 type Provider struct {
 	cfg        config.TelegramConfig
+	ctx        context.Context
+	cancel     context.CancelFunc
+	closeOnce  sync.Once
 	client     *tgclient.Client
 	api        *tg.Client
 	authReq    chan authRequest
@@ -101,14 +105,40 @@ func NewFromConfig(cfg config.TelegramConfig) *Provider {
 	if err != nil {
 		cache = os.TempDir()
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	p := &Provider{
 		cfg:      cfg,
+		ctx:      ctx,
+		cancel:   cancel,
 		authReq:  make(chan authRequest),
 		cacheDir: filepath.Join(cache, "cliamp", "telegram"),
 		artCache: make(map[msgKey]string),
 	}
 	go p.run()
 	return p
+}
+
+// Close cancels the background Telegram client context.
+func (p *Provider) Close() {
+	p.closeOnce.Do(func() {
+		if p.cancel != nil {
+			p.cancel()
+		}
+	})
+}
+
+func (p *Provider) baseContext() context.Context {
+	if p.ctx != nil {
+		return p.ctx
+	}
+	return context.Background()
+}
+
+func (p *Provider) doneChan() <-chan struct{} {
+	if p.ctx != nil {
+		return p.ctx.Done()
+	}
+	return nil
 }
 
 func (p *Provider) sessionPath() string { return sessionPath(p.cfg.SessionFile) }
@@ -151,15 +181,20 @@ func (p *Provider) Authenticate(code string) error {
 	if err := p.wait(); err != nil && !errors.Is(err, playlist.ErrNeedsAuth) {
 		return err
 	}
-	req := authRequest{result: make(chan error, 1)}
+	req := authRequest{code: code, result: make(chan error, 1)}
+	done := p.doneChan()
 	select {
 	case p.authReq <- req:
+	case <-done:
+		return errors.New("telegram: provider closed")
 	case <-time.After(5 * time.Second):
 		return errors.New("telegram: not connected, try again")
 	}
 	select {
 	case err := <-req.result:
 		return err
+	case <-done:
+		return errors.New("telegram: provider closed")
 	case <-time.After(loginWait):
 		return errors.New("telegram: sign in timed out")
 	}
@@ -173,7 +208,7 @@ func (p *Provider) run() {
 	p.client = tgclient.NewClient(p.cfg.AppID, p.cfg.AppHash, tgclient.Options{
 		SessionStorage: &session.FileStorage{Path: p.sessionPath()},
 	})
-	err := p.client.Run(context.Background(), func(ctx context.Context) error {
+	err := p.client.Run(p.baseContext(), func(ctx context.Context) error {
 		status, err := p.client.Auth().Status(ctx)
 		if err != nil {
 			p.setFailed(err)
@@ -250,32 +285,38 @@ func (p *Provider) setNeedsAuth()       { p.setStateLocked(provNeedsAuth, playli
 func (p *Provider) setReady()           { p.setStateLocked(provReady, nil) }
 func (p *Provider) setFailed(err error) { p.setStateLocked(provFailed, err) }
 
-func (p *Provider) currentState() provState {
+func (p *Provider) snapshotState() (provState, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.state
+	return p.state, p.connectErr
 }
 
 // wait returns once the connection is usable. playlist.ErrNeedsAuth means the
 // pane must collect the login code; other errors keep the call retryable.
 func (p *Provider) wait() error {
 	deadline := time.Now().Add(connectWait)
+	done := p.doneChan()
 	for {
-		switch p.currentState() {
+		state, connectErr := p.snapshotState()
+		switch state {
 		case provReady:
 			return nil
 		case provNeedsAuth:
 			return playlist.ErrNeedsAuth
 		case provFailed:
-			if err := p.connectErr; err != nil {
-				return err
+			if connectErr != nil {
+				return connectErr
 			}
 			return errors.New("telegram: connection failed")
 		}
 		if time.Now().After(deadline) {
 			return errors.New("telegram: still connecting, try again")
 		}
-		time.Sleep(100 * time.Millisecond)
+		select {
+		case <-done:
+			return errors.New("telegram: provider closed")
+		case <-time.After(100 * time.Millisecond):
+		}
 	}
 }
 
@@ -292,7 +333,7 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 	if err := p.wait(); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(p.baseContext(), 60*time.Second)
 	defer cancel()
 
 	// An id needs the dialog list for the title, the section and a current
@@ -354,7 +395,7 @@ func (p *Provider) Dialogs() ([]playlist.PlaylistInfo, error) {
 	if err := p.wait(); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(p.baseContext(), 60*time.Second)
 	defer cancel()
 
 	out, err := p.dialogs(ctx)
@@ -387,7 +428,7 @@ func (p *Provider) TracksPage(playlistID string, offset int) ([]playlist.Track, 
 	if err != nil {
 		return nil, 0, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(p.baseContext(), 60*time.Second)
 	defer cancel()
 
 	history, err := p.api.MessagesGetHistory(ctx, &tg.MessagesGetHistoryRequest{
