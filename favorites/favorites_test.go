@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"testing"
 	"time"
@@ -433,10 +434,12 @@ func TestSummaryCacheInvalidatesOnExternalWriteAndFilePerms(t *testing.T) {
 	if !s1.IsFavorited("/a.mp3") || s1.Count() != 1 {
 		t.Fatalf("after Toggle: favorited=%v count=%d", s1.IsFavorited("/a.mp3"), s1.Count())
 	}
-	if info, err := os.Stat(path); err != nil {
-		t.Fatal(err)
-	} else if info.Mode().Perm()&0o077 != 0 {
-		t.Errorf("favorites.toml mode = %o, want 0600", info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		if info, err := os.Stat(path); err != nil {
+			t.Fatal(err)
+		} else if info.Mode().Perm()&0o077 != 0 {
+			t.Errorf("favorites.toml mode = %o, want 0600", info.Mode().Perm())
+		}
 	}
 
 	// The second store updates the file. The first store refreshes its cache.

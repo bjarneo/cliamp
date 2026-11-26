@@ -492,10 +492,14 @@ func TestFSWriteAndAppendSafety(t *testing.T) {
 
 func TestNewInitializesWriteRulesEagerly(t *testing.T) {
 	home := t.TempDir()
+	cfgDir := filepath.Join(home, ".config", "cliamp")
+	t.Setenv("CLIAMP_CONFIG_DIR", cfgDir)
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 
-	activeWriteRules.Store(nil)
+	prev := activeWriteRules.Swap(nil)
+	t.Cleanup(func() { activeWriteRules.Store(prev) })
+
 	m, err := New(nil, nil, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -506,7 +510,7 @@ func TestNewInitializesWriteRulesEagerly(t *testing.T) {
 	if rules == nil {
 		t.Fatal("activeWriteRules was not initialized during New")
 	}
-	wantCfg, ok := canonicalExistingPath(filepath.Join(home, ".config", "cliamp"))
+	wantCfg, ok := canonicalExistingPath(cfgDir)
 	if !ok {
 		t.Fatal("canonicalExistingPath failed")
 	}
