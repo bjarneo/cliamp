@@ -26,14 +26,14 @@ func (v *Visualizer) renderBarsDot(bands []float64) string {
 		for b := range bandCount {
 			charsPerBand := visBandWidth(bandCount, b, width)
 			if charsPerBand > 0 {
-				var braille rune = '\u2800'
+				var mask byte
 				level := bands[b]
 				for dr := range 4 {
 					dotRow := row*4 + dr
 					// Invert so bars grow from the bottom.
 					dotY := float64(dotRows-1-dotRow) / float64(dotRows)
 					if dotY < level {
-						braille |= brailleBit[dr][0] | brailleBit[dr][1]
+						mask |= brailleBit[dr][0] | brailleBit[dr][1]
 					}
 				}
 				if rowTag != curTag {
@@ -41,7 +41,7 @@ func (v *Visualizer) renderBarsDot(bands []float64) string {
 					w.setTag(curTag)
 				}
 				for range charsPerBand {
-					w.writeRune(braille)
+					w.writeBraille(mask)
 				}
 			}
 

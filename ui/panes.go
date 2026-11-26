@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"sync"
+	"sync/atomic"
 )
 
 // Region is a part of the frame a plugin can add a pane to.
@@ -37,6 +38,47 @@ type PaneSet struct {
 	panes         []PaneSpec
 	hidden        map[Region]bool
 	builtinWeight map[Region]int
+	gen           atomic.Uint64
+	visCustom     atomic.Bool
+	settingsCust  atomic.Bool
+}
+
+// Generation returns a monotonic counter bumped on every PaneSet mutation.
+func (s *PaneSet) Generation() uint64 {
+	if s == nil {
+		return 0
+	}
+	return s.gen.Load()
+}
+
+// IsBuiltinOnly reports without locking whether region renders only its builtin pane.
+func (s *PaneSet) IsBuiltinOnly(region Region) bool {
+	if s == nil {
+		return true
+	}
+	switch region {
+	case RegionVisualizer:
+		return !s.visCustom.Load()
+	case RegionSettings:
+		return !s.settingsCust.Load()
+	default:
+		return true
+	}
+}
+
+func (s *PaneSet) syncFlagsLocked() {
+	visCustom := false
+	settingsCust := false
+	for _, p := range s.panes {
+		if p.Region == RegionVisualizer {
+			visCustom = true
+		} else if p.Region == RegionSettings {
+			settingsCust = true
+		}
+	}
+	s.visCustom.Store(visCustom)
+	s.settingsCust.Store(settingsCust)
+	s.gen.Add(1)
 }
 
 func NewPaneSet() *PaneSet {
@@ -73,6 +115,7 @@ func (s *PaneSet) AddAt(region, pane string, weight int, position string) error 
 		}
 	}
 	s.panes = append(s.panes, PaneSpec{Region: Region(region), Pane: pane, Weight: weight, Position: position})
+	s.syncFlagsLocked()
 	return nil
 }
 
@@ -91,6 +134,7 @@ func (s *PaneSet) Remove(region, pane string) {
 		kept = append(kept, p)
 	}
 	s.panes = kept
+	s.syncFlagsLocked()
 }
 
 // List returns every pane, in registration order.
@@ -147,6 +191,7 @@ func (s *PaneSet) SetBuiltin(region string, enabled bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.hidden[Region(region)] = !enabled
+	s.syncFlagsLocked()
 }
 
 // SetVis assigns a visualizer to a pane. An empty name restores the pane's own
@@ -160,6 +205,7 @@ func (s *PaneSet) SetVis(region, pane, vis string) {
 	for i := range s.panes {
 		if s.panes[i].Region == Region(region) && s.panes[i].Pane == pane {
 			s.panes[i].Vis = vis
+			s.syncFlagsLocked()
 			return
 		}
 	}
@@ -174,11 +220,13 @@ func (s *PaneSet) SetWeight(region, pane string, weight int) {
 	defer s.mu.Unlock()
 	if pane == PaneBuiltin {
 		s.builtinWeight[Region(region)] = weight
+		s.syncFlagsLocked()
 		return
 	}
 	for i := range s.panes {
 		if s.panes[i].Region == Region(region) && s.panes[i].Pane == pane {
 			s.panes[i].Weight = weight
+			s.syncFlagsLocked()
 			return
 		}
 	}

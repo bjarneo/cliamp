@@ -61,7 +61,7 @@ func TestRenderMirrorHasPersistentAxisAndSymmetricBars(t *testing.T) {
 func mirrorDotAt(frame []rune, cols, x, y int) bool {
 	row := y / 4
 	col := x / 2
-	return frame[row*(cols+1)+col]&brailleBit[y%4][x%2] != 0
+	return frame[row*(cols+1)+col]&rune(brailleBit[y%4][x%2]) != 0
 }
 
 func mirrorDotCount(frame []rune) int {
@@ -72,7 +72,7 @@ func mirrorDotCount(frame []rune) int {
 		}
 		for _, row := range brailleBit {
 			for _, bit := range row {
-				if glyph&bit != 0 {
+				if glyph&rune(bit) != 0 {
 					count++
 				}
 			}

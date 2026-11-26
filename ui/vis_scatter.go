@@ -26,7 +26,7 @@ func (v *Visualizer) renderScatter(bands []float64) string {
 		for b := range bandCount {
 			charsPerBand := visBandWidth(bandCount, b, width)
 			for c := range charsPerBand {
-				var braille rune = '\u2800'
+				var mask byte
 
 				for dr := range 4 {
 					for dc := range 2 {
@@ -40,12 +40,12 @@ func (v *Visualizer) renderScatter(bands []float64) string {
 						threshold := bands[b] * bands[b] * heightFactor
 
 						if h < threshold {
-							braille |= brailleBit[dr][dc]
+							mask |= brailleBit[dr][dc]
 						}
 					}
 				}
 
-				sb.WriteRune(braille)
+				sb.WriteString(brailleUTF8[mask])
 			}
 			if bandGapAfter(bandCount, b, width) {
 				sb.WriteByte(' ')

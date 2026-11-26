@@ -49,7 +49,7 @@ func (d *terrainDriver) Render(v *Visualizer) string {
 			sb.WriteString(style.prefix)
 		}
 		for ch := range cols {
-			var braille rune = '\u2800'
+			var mask byte
 			for dc := range 2 {
 				x := ch*2 + dc
 				terrainH := buf[x]
@@ -57,11 +57,11 @@ func (d *terrainDriver) Render(v *Visualizer) string {
 				for dr := range 4 {
 					dotY := row*4 + dr
 					if dotY >= topDot {
-						braille |= brailleBit[dr][dc]
+						mask |= brailleBit[dr][dc]
 					}
 				}
 			}
-			sb.WriteRune(braille)
+			sb.WriteString(brailleUTF8[mask])
 		}
 		if style.prefix != "" {
 			sb.WriteString(style.suffix)

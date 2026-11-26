@@ -2,8 +2,8 @@ package ui
 
 import "strings"
 
-// brailleBit maps (row, col) in a 4×2 Braille dot grid to its bit value.
-var brailleBit = [4][2]rune{
+// brailleBit maps each row and column in a 4x2 Braille grid to its bit mask.
+var brailleBit = [4][2]byte{
 	{0x01, 0x08}, // row 0
 	{0x02, 0x10}, // row 1
 	{0x04, 0x20}, // row 2
@@ -84,33 +84,84 @@ func (g *brailleGrid) render(rows, cols int) string {
 		tier := 0
 		w.switchStyle(styleFor(0))
 		baseRow := row * 4 * dotCols
-		for col := range cols {
-			var braille rune = '⠀'
-			var cellTier int8
-			colOff := baseRow + col*2
-			for dr := range 4 {
-				rOff := colOff + dr*dotCols
-				if t := cells[rOff]; t != 0 {
-					braille |= brailleBit[dr][0]
-					if t > cellTier {
-						cellTier = t
+		span := cols * 2
+		if span > 0 {
+			r0 := cells[baseRow : baseRow+span]
+			r1 := cells[baseRow+dotCols : baseRow+dotCols+span]
+			r2 := cells[baseRow+2*dotCols : baseRow+2*dotCols+span]
+			r3 := cells[baseRow+3*dotCols : baseRow+3*dotCols+span]
+			for x := 0; x < span; x += 2 {
+				t00, t01 := r0[x], r0[x+1]
+				t10, t11 := r1[x], r1[x+1]
+				t20, t21 := r2[x], r2[x+1]
+				t30, t31 := r3[x], r3[x+1]
+				if (t00 | t01 | t10 | t11 | t20 | t21 | t30 | t31) == 0 {
+					if !g.keepRunOnEmpty && tier != 1 {
+						tier = 1
+						w.switchStyle(styleFor(1))
+					}
+					w.writeBraille(0)
+					continue
+				}
+				var mask byte
+				var cellTier int8
+				if t00 != 0 {
+					mask |= 0x01
+					if t00 > cellTier {
+						cellTier = t00
 					}
 				}
-				if t := cells[rOff+1]; t != 0 {
-					braille |= brailleBit[dr][1]
-					if t > cellTier {
-						cellTier = t
+				if t01 != 0 {
+					mask |= 0x08
+					if t01 > cellTier {
+						cellTier = t01
 					}
 				}
+				if t10 != 0 {
+					mask |= 0x02
+					if t10 > cellTier {
+						cellTier = t10
+					}
+				}
+				if t11 != 0 {
+					mask |= 0x10
+					if t11 > cellTier {
+						cellTier = t11
+					}
+				}
+				if t20 != 0 {
+					mask |= 0x04
+					if t20 > cellTier {
+						cellTier = t20
+					}
+				}
+				if t21 != 0 {
+					mask |= 0x20
+					if t21 > cellTier {
+						cellTier = t21
+					}
+				}
+				if t30 != 0 {
+					mask |= 0x40
+					if t30 > cellTier {
+						cellTier = t30
+					}
+				}
+				if t31 != 0 {
+					mask |= 0x80
+					if t31 > cellTier {
+						cellTier = t31
+					}
+				}
+				if cellTier == 0 && !g.keepRunOnEmpty {
+					cellTier = 1
+				}
+				if cellTier != 0 && int(cellTier) != tier {
+					tier = int(cellTier)
+					w.switchStyle(styleFor(tier))
+				}
+				w.writeBraille(mask)
 			}
-			if cellTier == 0 && !g.keepRunOnEmpty {
-				cellTier = 1
-			}
-			if cellTier != 0 && int(cellTier) != tier {
-				tier = int(cellTier)
-				w.switchStyle(styleFor(tier))
-			}
-			w.writeRune(braille)
 		}
 		w.flush()
 	}
@@ -141,19 +192,40 @@ func packBraille(dots []bool, dotCols, rows, cols int, rowLevel func(row, rows i
 			sb.WriteString(style.prefix)
 		}
 		baseRow := row * 4 * dotCols
-		for col := range cols {
-			var braille rune = '\u2800'
-			colOff := baseRow + col*2
-			for dr := range 4 {
-				rOff := colOff + dr*dotCols
-				if dots[rOff] {
-					braille |= brailleBit[dr][0]
+		span := cols * 2
+		if span > 0 {
+			r0 := dots[baseRow : baseRow+span]
+			r1 := dots[baseRow+dotCols : baseRow+dotCols+span]
+			r2 := dots[baseRow+2*dotCols : baseRow+2*dotCols+span]
+			r3 := dots[baseRow+3*dotCols : baseRow+3*dotCols+span]
+			for x := 0; x < span; x += 2 {
+				var mask byte
+				if r0[x] {
+					mask |= 0x01
 				}
-				if dots[rOff+1] {
-					braille |= brailleBit[dr][1]
+				if r0[x+1] {
+					mask |= 0x08
 				}
+				if r1[x] {
+					mask |= 0x02
+				}
+				if r1[x+1] {
+					mask |= 0x10
+				}
+				if r2[x] {
+					mask |= 0x04
+				}
+				if r2[x+1] {
+					mask |= 0x20
+				}
+				if r3[x] {
+					mask |= 0x40
+				}
+				if r3[x+1] {
+					mask |= 0x80
+				}
+				sb.WriteString(brailleUTF8[mask])
 			}
-			sb.WriteRune(braille)
 		}
 		if style.prefix != "" {
 			sb.WriteString(style.suffix)

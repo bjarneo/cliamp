@@ -135,7 +135,7 @@ func (d *flameDriver) Render(v *Visualizer) string {
 		tag := -1
 		w.setTag(-1)
 		for col := 0; col < cols; col++ {
-			var braille rune = '⠀'
+			var mask byte
 			cellTag := -1
 			for dr := 0; dr < 4; dr++ {
 				for dc := 0; dc < 2; dc++ {
@@ -166,7 +166,7 @@ func (d *flameDriver) Render(v *Visualizer) string {
 					default:
 						t = 2 // red body / tips
 					}
-					braille |= brailleBit[dr][dc]
+					mask |= brailleBit[dr][dc]
 					if t > cellTag {
 						cellTag = t
 					}
@@ -179,7 +179,7 @@ func (d *flameDriver) Render(v *Visualizer) string {
 				tag = cellTag
 				w.setTag(tag)
 			}
-			w.writeRune(braille)
+			w.writeBraille(mask)
 		}
 		w.flush()
 	}

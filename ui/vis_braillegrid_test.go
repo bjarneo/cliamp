@@ -223,6 +223,25 @@ func TestBrailleGridRenderPalettes(t *testing.T) {
 	}
 }
 
+func TestBrailleUTF8Table(t *testing.T) {
+	var sb strings.Builder
+	w := styleRunWriter{sb: &sb}
+	for m := range 256 {
+		want := string(rune('\u2800' | rune(m)))
+		if got := brailleUTF8[m]; got != want {
+			t.Fatalf("brailleUTF8[%d] = %q, want %q", m, got, want)
+		}
+		sb.Reset()
+		w = styleRunWriter{sb: &sb}
+		w.switchStyle(styleANSI{})
+		w.writeBraille(byte(m))
+		w.flush()
+		if got := sb.String(); got != want {
+			t.Fatalf("writeBraille(%d) = %q, want %q", m, got, want)
+		}
+	}
+}
+
 func TestBrailleGridResizeKeepsCells(t *testing.T) {
 	tests := []struct {
 		name       string

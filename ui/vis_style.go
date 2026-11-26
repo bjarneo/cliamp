@@ -10,6 +10,15 @@ import (
 // Unicode block elements for bar height (9 levels including space)
 var barBlocks = []string{" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
 
+// brailleUTF8 stores the UTF-8 string for each 8-dot Braille mask.
+var brailleUTF8 [256]string
+
+func init() {
+	for m := range brailleUTF8 {
+		brailleUTF8[m] = string(rune('\u2800' | rune(m)))
+	}
+}
+
 // styleANSI is the raw ANSI that a style writes before and after its text.
 // Caching it once lets every style-run flush skip lipgloss.Render, which
 // allocates a fresh wrapped string per call, and instead stream prefix, body
@@ -126,6 +135,11 @@ func (w *styleRunWriter) writeByte(b byte) {
 func (w *styleRunWriter) writeRune(r rune) {
 	w.ensureOpen()
 	w.sb.WriteRune(r)
+}
+
+func (w *styleRunWriter) writeBraille(mask byte) {
+	w.ensureOpen()
+	w.sb.WriteString(brailleUTF8[mask])
 }
 
 func (w *styleRunWriter) writeString(s string) {
