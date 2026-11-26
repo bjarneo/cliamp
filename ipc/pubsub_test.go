@@ -198,3 +198,142 @@ func TestBrokerRejectedRetainDoesNotConsumeSequence(t *testing.T) {
 		t.Fatal("timed out waiting for event")
 	}
 }
+
+func TestBrokerRetainedReplayDoesNotDeadlockOnOverflow(t *testing.T) {
+	tests := []struct {
+		name      string
+		numTopics int
+	}{
+		{name: "full max topics", numTopics: maxTopicsPerSubscription},
+		{name: "one below buffer size", numTopics: subscriberBufferSize - 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			broker := NewBroker()
+			topics := make([]string, tt.numTopics)
+			for i := range tt.numTopics {
+				topics[i] = fmt.Sprintf("plugin.replay.t%d", i)
+				if err := broker.Publish(topics[i], json.RawMessage(`{"n":1}`), true); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			sub, err := broker.Subscribe(topics)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer sub.Close()
+
+			// Publish without draining sub.Events. Must overflow and disconnect instead of deadlocking.
+			done := make(chan error, 1)
+			go func() {
+				done <- broker.Publish(topics[0], json.RawMessage(`{"n":2}`), false)
+			}()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatalf("Publish() error = %v", err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("Publish() deadlocked on retained-full subscriber")
+			}
+
+			var events []Event
+			for ev := range sub.Events() {
+				events = append(events, ev)
+			}
+			if len(events) == 0 || events[len(events)-1].Event != overflowEventTopic {
+				t.Fatalf("final event = %#v, want %s", events, overflowEventTopic)
+			}
+		})
+	}
+}
+
+func TestBrokerCapsSubscribers(t *testing.T) {
+	broker := NewBroker()
+	subs := make([]*Subscription, 0, maxSubscribers)
+	for range maxSubscribers {
+		sub, err := broker.Subscribe([]string{"runtime.state"})
+		if err != nil {
+			t.Fatalf("Subscribe() failed before cap: %v", err)
+		}
+		subs = append(subs, sub)
+	}
+	defer func() {
+		for _, sub := range subs {
+			sub.Close()
+		}
+	}()
+
+	if _, err := broker.Subscribe([]string{"runtime.state"}); !errors.Is(err, ErrTooManySubscribers) {
+		t.Fatalf("Subscribe() past cap error = %v, want ErrTooManySubscribers", err)
+	}
+
+	subs[0].Close()
+	replacement, err := broker.Subscribe([]string{"runtime.state"})
+	if err != nil {
+		t.Fatalf("Subscribe() after unsubscribe error = %v", err)
+	}
+	replacement.Close()
+}
+
+func TestBrokerReservesRuntimeRetainedTopics(t *testing.T) {
+	broker := NewBroker()
+	for i := range maxRetainedTopics {
+		topic := fmt.Sprintf("plugin.flood.topic%d", i)
+		if err := broker.Publish(topic, json.RawMessage(`{}`), true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := broker.Publish("plugin.flood.extra", json.RawMessage(`{}`), true); !errors.Is(err, ErrTooManyRetained) {
+		t.Fatalf("plugin retain past cap = %v, want ErrTooManyRetained", err)
+	}
+
+	for _, topic := range []string{"runtime.state", "runtime.playback", "runtime.playlist", "runtime.settings"} {
+		if err := broker.Publish(topic, json.RawMessage(`{"ok":true}`), true); err != nil {
+			t.Fatalf("Publish(%q) failed after plugin cap reached: %v", topic, err)
+		}
+	}
+
+	broker.ClearPrefix("runtime.")
+	for i := range maxRetainedRuntimeTopics {
+		topic := fmt.Sprintf("runtime.t%d", i)
+		if err := broker.Publish(topic, json.RawMessage(`{}`), true); err != nil {
+			t.Fatalf("Publish(%q) error = %v", topic, err)
+		}
+	}
+	if err := broker.Publish("runtime.overflow", json.RawMessage(`{}`), true); !errors.Is(err, ErrTooManyRetained) {
+		t.Fatalf("runtime retain past cap = %v, want ErrTooManyRetained", err)
+	}
+}
+
+func TestBrokerPreMarshalsBroadcastEventOnce(t *testing.T) {
+	broker := NewBroker()
+	sub1, err := broker.Subscribe([]string{"runtime.state"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub1.Close()
+	sub2, err := broker.Subscribe([]string{"runtime.state"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub2.Close()
+
+	if err := broker.Publish("runtime.state", json.RawMessage(`{"state":"playing"}`), false); err != nil {
+		t.Fatal(err)
+	}
+	ev1 := <-sub1.Events()
+	ev2 := <-sub2.Events()
+	if len(ev1.encoded) == 0 || string(ev1.encoded) != string(ev2.encoded) {
+		t.Fatalf("encoded lines differ or empty: %q vs %q", ev1.encoded, ev2.encoded)
+	}
+	var decoded Event
+	if err := json.Unmarshal(ev1.encoded, &decoded); err != nil {
+		t.Fatalf("unmarshal pre-encoded line: %v", err)
+	}
+	if decoded.Event != "runtime.state" || string(decoded.Data) != `{"state":"playing"}` {
+		t.Fatalf("decoded = %#v", decoded)
+	}
+}

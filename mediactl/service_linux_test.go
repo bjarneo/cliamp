@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -525,3 +526,82 @@ func TestRequestNameReportsABusError(t *testing.T) {
 // The concrete connection has to keep satisfying the interface the fallback
 // takes, or New would stop compiling for a reason a test should catch first.
 var _ nameClaimer = (*dbus.Conn)(nil)
+
+type countingCloseTransport struct {
+	discardTransport
+	closes atomic.Int32
+}
+
+func (c *countingCloseTransport) Close() error {
+	c.closes.Add(1)
+	return nil
+}
+
+func TestServiceCloseIsIdempotentAndClearsConn(t *testing.T) {
+	transport := &countingCloseTransport{}
+	conn, err := dbus.NewConn(transport)
+	if err != nil {
+		t.Fatalf("dbus.NewConn() error = %v", err)
+	}
+	svc, err := newService(conn, func(tea.Msg) {})
+	if err != nil {
+		t.Fatalf("newService() error = %v", err)
+	}
+
+	svc.Close()
+	svc.Close()
+
+	if got := transport.closes.Load(); got != 1 {
+		t.Fatalf("transport Close count = %d, want 1", got)
+	}
+	svc.mu.Lock()
+	connAfter := svc.conn
+	svc.mu.Unlock()
+	if connAfter != nil {
+		t.Fatal("svc.conn was not cleared by Close")
+	}
+
+	// Calls after Close must not panic.
+	svc.Update(playback.State{Status: playback.StatusPlaying, Track: playback.Track{Title: "After"}})
+	svc.Seeked(time.Second)
+}
+
+func TestServiceForwardMessagesStopsMidDrainOnClose(t *testing.T) {
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	var sent atomic.Int32
+
+	svc := &Service{
+		send: func(tea.Msg) {
+			if sent.Add(1) == 1 {
+				close(firstStarted)
+				<-releaseFirst
+			}
+		},
+		wake: make(chan struct{}, 1),
+		done: make(chan struct{}),
+	}
+
+	// Enqueue multiple messages before forwardMessages starts so one batch holds all of them.
+	for range 5 {
+		svc.dispatch(playback.NextMsg{})
+	}
+	exited := make(chan struct{})
+	go func() {
+		svc.forwardMessages()
+		close(exited)
+	}()
+
+	<-firstStarted
+	svc.Close()
+	close(releaseFirst)
+
+	select {
+	case <-exited:
+	case <-time.After(2 * time.Second):
+		t.Fatal("forwardMessages did not exit after Close")
+	}
+	if got := sent.Load(); got != 1 {
+		t.Fatalf("sent count after Close = %d, want 1", got)
+	}
+}

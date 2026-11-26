@@ -1,6 +1,7 @@
 package ipc
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,9 +15,53 @@ import (
 	"time"
 
 	"github.com/bjarneo/cliamp/applog"
+	"github.com/bjarneo/cliamp/internal/fileutil"
 )
 
-const ipcRequestReadTimeout = 60 * time.Second
+const (
+	ipcRequestReadTimeout = 60 * time.Second
+	ipcWriteTimeout       = 5 * time.Second
+	maxConcurrentConns    = 64
+	maxConsecutiveEmpty   = 16
+)
+
+// ServerOption configures a Server before it accepts connections.
+type ServerOption func(*serverConfig)
+
+type serverConfig struct {
+	broker     *Broker
+	dispatcher V2Dispatcher
+	operations *OperationRegistry
+	jobs       *JobStore
+}
+
+// WithJobStore configures the JobStore before the server accepts connections.
+func WithJobStore(jobs *JobStore) ServerOption {
+	return func(cfg *serverConfig) {
+		cfg.jobs = jobs
+	}
+}
+
+// WithBroker configures the Server to use broker. The caller keeps ownership of broker.
+func WithBroker(broker *Broker) ServerOption {
+	return func(cfg *serverConfig) {
+		cfg.broker = broker
+	}
+}
+
+// WithV2Dispatcher configures the V2Dispatcher before the server accepts connections.
+func WithV2Dispatcher(dispatcher V2Dispatcher) ServerOption {
+	return func(cfg *serverConfig) {
+		cfg.dispatcher = dispatcher
+	}
+}
+
+// WithOperationRegistry configures the OperationRegistry before the server accepts connections.
+func WithOperationRegistry(registry *OperationRegistry) ServerOption {
+	return func(cfg *serverConfig) {
+		cfg.operations = registry
+	}
+}
 
 // Server listens on a Unix socket and dispatches IPC commands.
 type Server struct {
@@ -41,10 +86,8 @@ type Server struct {
 	conns  map[net.Conn]struct{} // live connections, closed on shutdown
 }
 
-// addConn registers a live connection. It returns false if the server is
-// already shutting down, in which case the caller must close the connection
-// and return. The done check shares connMu with closeConns so a connection
-// accepted during shutdown is always closed by exactly one of them.
+// addConn registers a live connection. It returns false when the server is
+// shutting down or at the concurrent connection limit.
 func (s *Server) addConn(c net.Conn) bool {
 	s.connMu.Lock()
 	defer s.connMu.Unlock()
@@ -52,6 +95,9 @@ func (s *Server) addConn(c net.Conn) bool {
 	case <-s.done:
 		return false
 	default:
+	}
+	if len(s.conns) >= maxConcurrentConns {
+		return false
 	}
 	s.conns[c] = struct{}{}
 	return true
@@ -105,28 +151,51 @@ func (s *Server) Done() <-chan struct{} {
 
 // NewServer creates and starts the IPC server with a new event broker.
 func NewServer(sockPath string) (*Server, error) {
-	return newServer(sockPath, NewBroker(), true)
+	return NewServerWithOptions(sockPath)
 }
 
 // NewServerWithBroker creates and starts the IPC server using broker. The
 // caller retains ownership of a supplied broker and it is not closed by Server.
 func NewServerWithBroker(sockPath string, broker *Broker) (*Server, error) {
-	owned := false
-	if broker == nil {
-		broker = NewBroker()
-		owned = true
-	}
-	return newServer(sockPath, broker, owned)
+	return NewServerWithOptions(sockPath, WithBroker(broker))
 }
 
-func newServer(sockPath string, broker *Broker, brokerOwned bool) (*Server, error) {
-	if err := cleanStaleSocket(sockPath); err != nil {
+// NewServerWithOptions creates and starts the IPC server with options applied
+// before the server accepts connections.
+func NewServerWithOptions(sockPath string, options ...ServerOption) (*Server, error) {
+	cfg := serverConfig{
+		operations: DefaultOperationRegistry(),
+	}
+	for _, option := range options {
+		if option != nil {
+			option(&cfg)
+		}
+	}
+	brokerOwned := false
+	if cfg.broker == nil {
+		cfg.broker = NewBroker()
+		brokerOwned = true
+	}
+	return newServer(sockPath, cfg, brokerOwned)
+}
+
+func newServer(sockPath string, cfg serverConfig, brokerOwned bool) (*Server, error) {
+	if err := checkSocketPath(sockPath); err != nil {
+		return nil, fmt.Errorf("ipc: %w", err)
+	}
+
+	if err := secureSocketDir(filepath.Dir(sockPath)); err != nil {
 		return nil, err
 	}
 
-	// Ensure the parent directory exists.
-	if err := os.MkdirAll(filepath.Dir(sockPath), 0700); err != nil {
-		return nil, fmt.Errorf("ipc: mkdir: %w", err)
+	unlock, err := fileutil.LockFile(sockPath + ".lock")
+	if err != nil {
+		return nil, fmt.Errorf("ipc: lock socket: %w", err)
+	}
+	defer func() { _ = unlock() }()
+
+	if err := cleanStaleSocket(sockPath); err != nil {
+		return nil, err
 	}
 
 	ln, err := listenSocket(sockPath)
@@ -135,28 +204,33 @@ func newServer(sockPath string, broker *Broker, brokerOwned bool) (*Server, erro
 	}
 
 	// Restrict socket permissions to owner only.
-	if err := os.Chmod(sockPath, 0600); err != nil {
+	if err := os.Chmod(sockPath, 0o600); err != nil {
 		ln.Close()
-		os.Remove(sockPath)
+		_ = removeStaleSocket(sockPath)
 		return nil, fmt.Errorf("ipc: chmod: %w", err)
 	}
 
-	// Write PID file.
+	// Write PID file atomically without following symlinks.
 	pidPath := sockPath + ".pid"
-	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0600); err != nil {
+	if err := writePIDFileSafe(pidPath, os.Getpid()); err != nil {
 		ln.Close()
-		os.Remove(sockPath)
+		_ = removeStaleSocket(sockPath)
 		return nil, fmt.Errorf("ipc: write pid: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	jobs := cfg.jobs
+	if jobs == nil {
+		jobs = NewJobStore()
+	}
 	s := &Server{
 		listener:    ln,
 		sockPath:    sockPath,
-		broker:      broker,
+		broker:      cfg.broker,
 		brokerOwned: brokerOwned,
-		operations:  DefaultOperationRegistry(),
-		jobs:        NewJobStore(),
+		v2:          cfg.dispatcher,
+		operations:  cfg.operations,
+		jobs:        jobs,
 		context:     ctx,
 		cancel:      cancel,
 		done:        make(chan struct{}),
@@ -183,16 +257,15 @@ func (s *Server) Close() error {
 		if s.listener != nil {
 			s.closeErr = s.listener.Close()
 		}
-		// Close in-flight connections so their handleConn read loops unblock
-		// immediately rather than waiting out the per-request read deadline.
+		// Close active connections so read loops exit without waiting for deadlines.
 		s.closeConns()
 		s.wg.Wait()
 		if s.brokerOwned && s.broker != nil {
 			s.broker.Close()
 		}
 		if s.sockPath != "" {
-			_ = os.Remove(s.sockPath)
-			_ = os.Remove(s.sockPath + ".pid")
+			_ = removeStaleSocket(s.sockPath)
+			_ = removePIDFileSafe(s.sockPath + ".pid")
 		}
 	})
 	return s.closeErr
@@ -209,14 +282,22 @@ func (s *Server) acceptLoop() {
 				return
 			default:
 			}
-			// A closed listener is permanent — stop instead of spinning.
+			// A closed listener is permanent. Stop instead of spinning.
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
-			// Other errors may be transient (e.g. EMFILE); log and back off
-			// rather than silently retrying.
 			applog.Warn("ipc: accept: %v", err)
-			time.Sleep(100 * time.Millisecond)
+			timer := time.NewTimer(100 * time.Millisecond)
+			select {
+			case <-s.done:
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+			continue
+		}
+		if !s.addConn(conn) {
+			_ = conn.Close()
 			continue
 		}
 		s.wg.Add(1)
@@ -229,53 +310,35 @@ func (s *Server) acceptLoop() {
 func (s *Server) handleConn(conn net.Conn) {
 	defer s.wg.Done()
 	defer conn.Close()
-
-	if !s.addConn(conn) {
-		return // server shutting down
-	}
 	defer s.removeConn(conn)
 
+	if err := verifyPeerCred(conn); err != nil {
+		applog.Warn("ipc: reject peer: %v", err)
+		return
+	}
+
 	scanner := newFrameScanner(conn)
+	emptyLines := 0
 
 	for {
-		// Per-request deadline so long-lived streaming clients (e.g. vis bands
-		// polling) aren't killed at a fixed wall clock, but idle clients still
-		// time out.
 		conn.SetReadDeadline(time.Now().Add(ipcRequestReadTimeout))
 		if !scanner.Scan() {
 			return
 		}
 		line := scanner.Bytes()
 		if len(line) == 0 {
+			emptyLines++
+			if emptyLines >= maxConsecutiveEmpty {
+				return
+			}
 			continue
 		}
+		emptyLines = 0
 
-		version, id, versioned, err := parseProtocolVersion(line)
-		if err != nil {
-			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-			_ = writeJSONLine(conn, V2Response{ID: id, OK: false, Error: invalidV2Request()})
-			continue
-		}
-		if !versioned {
-			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-			_ = writeJSONLine(conn, V2Response{ID: id, OK: false, Error: v2Error(V2ErrorCodeInvalidVersion, V2MessageInvalidVersion)})
-			continue
-		}
-
-		if version != protocolVersion2 {
-			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-			_ = writeJSONLine(conn, V2Response{
-				ID:    id,
-				OK:    false,
-				Error: v2Error(V2ErrorCodeInvalidVersion, V2MessageInvalidVersion),
-			})
-			continue
-		}
-
-		var req V2Request
-		if err := json.Unmarshal(line, &req); err != nil {
-			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-			_ = writeJSONLine(conn, V2Response{ID: id, OK: false, Error: invalidV2Request()})
+		req, protoErr := decodeV2Request(line)
+		if protoErr != nil {
+			conn.SetWriteDeadline(time.Now().Add(ipcWriteTimeout))
+			_ = writeJSONLine(conn, V2Response{ID: req.ID, OK: false, Error: protoErr})
 			continue
 		}
 		if isV2Subscribe(req) {
@@ -283,8 +346,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			return
 		}
 
-		conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		_ = writeJSONLine(conn, s.dispatchV2(req))
+		conn.SetWriteDeadline(time.Now().Add(ipcWriteTimeout))
+		_ = writeV2Response(conn, s.dispatchV2(req))
 	}
 }
 
@@ -293,9 +356,7 @@ func (s *Server) streamV2Subscription(conn net.Conn, req V2Request) {
 }
 
 func (s *Server) streamSubscription(conn net.Conn, topics []string, acknowledgement V2Response) {
-	// handleConn sets a per-request read deadline. Subscriptions are idle,
-	// server-to-client streams after the initial request, so they must not
-	// inherit that deadline or they will be closed every request timeout.
+	// Clear the per-request read deadline so idle subscriptions stay open.
 	if err := conn.SetReadDeadline(time.Time{}); err != nil {
 		s.writeSubscriptionError(conn, acknowledgement)
 		return
@@ -311,18 +372,22 @@ func (s *Server) streamSubscription(conn net.Conn, topics []string, acknowledgem
 		return
 	}
 	defer sub.Close()
-	conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	conn.SetWriteDeadline(time.Now().Add(ipcWriteTimeout))
 	if !writeJSONLine(conn, acknowledgement) {
 		return
 	}
 
-	// A subscription is server-to-client after its acknowledgment. Keep a read
-	// pending solely to detect client disconnects even when no events publish.
+	// Keep a pending read to detect peer disconnects when no events publish.
 	peerClosed := make(chan struct{})
 	go func() {
+		defer close(peerClosed)
 		var one [1]byte
 		_, _ = conn.Read(one[:])
-		close(peerClosed)
+	}()
+	defer func() {
+		_ = conn.SetReadDeadline(time.Now())
+		_ = conn.Close()
+		<-peerClosed
 	}()
 
 	for {
@@ -335,8 +400,8 @@ func (s *Server) streamSubscription(conn net.Conn, topics []string, acknowledgem
 			if !ok {
 				return
 			}
-			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-			if !writeJSONLine(conn, event) {
+			conn.SetWriteDeadline(time.Now().Add(ipcWriteTimeout))
+			if !writeEventLine(conn, event) {
 				return
 			}
 		}
@@ -346,27 +411,46 @@ func (s *Server) streamSubscription(conn net.Conn, topics []string, acknowledgem
 func (s *Server) writeSubscriptionError(conn net.Conn, response V2Response) {
 	response.OK = false
 	response.Error = invalidV2Params()
+	_ = conn.SetWriteDeadline(time.Now().Add(ipcWriteTimeout))
 	_ = writeJSONLine(conn, response)
 }
 
-// parseProtocolVersion reads the mandatory version field from a V2 envelope.
-// Unversioned and malformed versions receive a structured invalid_version
-// response rather than being interpreted as a different protocol.
-func parseProtocolVersion(line []byte) (version int, id json.RawMessage, versioned bool, err error) {
-	var envelope map[string]json.RawMessage
-	if err := json.Unmarshal(line, &envelope); err != nil {
-		return 0, nil, false, err
+type v2RequestEnvelope struct {
+	Version   json.RawMessage `json:"version"`
+	ID        json.RawMessage `json:"id,omitempty"`
+	Method    string          `json:"method,omitempty"`
+	Operation string          `json:"operation,omitempty"`
+	Params    json.RawMessage `json:"params,omitempty"`
+	JobID     string          `json:"job_id,omitempty"`
+	Topics    []string        `json:"topics,omitempty"`
+}
+
+// decodeV2Request decodes one incoming frame in a single pass and validates
+// the protocol version field.
+func decodeV2Request(line []byte) (V2Request, *V2Error) {
+	var env v2RequestEnvelope
+	if err := json.Unmarshal(line, &env); err != nil {
+		if len(env.Version) > 0 && !isProtocolVersion2(env.Version) {
+			return V2Request{ID: env.ID}, v2Error(V2ErrorCodeInvalidVersion, V2MessageInvalidVersion)
+		}
+		return V2Request{ID: env.ID}, invalidV2Request()
 	}
-	versionRaw, ok := envelope["version"]
-	if !ok {
-		return 0, nil, false, nil
+	if len(env.Version) == 0 || !isProtocolVersion2(env.Version) {
+		return V2Request{ID: env.ID}, v2Error(V2ErrorCodeInvalidVersion, V2MessageInvalidVersion)
 	}
-	returnVersioned := true
-	id = cloneRawMessage(envelope["id"])
-	if err := json.Unmarshal(versionRaw, &version); err != nil {
-		return 0, id, returnVersioned, nil
-	}
-	return version, id, returnVersioned, nil
+	return V2Request{
+		Version:   protocolVersion2,
+		ID:        env.ID,
+		Method:    env.Method,
+		Operation: env.Operation,
+		Params:    env.Params,
+		JobID:     env.JobID,
+		Topics:    env.Topics,
+	}, nil
+}
+
+func isProtocolVersion2(raw json.RawMessage) bool {
+	return bytes.Equal(bytes.TrimSpace(raw), []byte("2"))
 }
 
 func isV2Subscribe(req V2Request) bool {
@@ -374,7 +458,7 @@ func isV2Subscribe(req V2Request) bool {
 }
 
 func (s *Server) dispatchV2(req V2Request) V2Response {
-	response := V2Response{ID: cloneRawMessage(req.ID)}
+	response := V2Response{ID: req.ID}
 	method := strings.ToLower(strings.TrimSpace(req.Method))
 	s.v2Mu.RLock()
 	operations := s.operations
@@ -448,23 +532,17 @@ func (s *Server) dispatchV2ToOwner(response V2Response, req V2Request) V2Respons
 	}
 	result, err := dispatcher.DispatchV2(ctx, req)
 	if err != nil {
-		response.Error = cloneV2Error(err)
-		if response.Error.Code == "" || response.Error.Message == "" {
+		if err.Code == "" || err.Message == "" {
 			response.Error = v2Error(V2ErrorCodeInternal, V2MessageInternal)
+		} else {
+			response.Error = err
 		}
 		return response
 	}
-	if err := validV2Result(result.Result); err != nil {
-		response.Error = v2ErrorFromError(err)
-		return response
-	}
 	response.OK = true
-	response.Result = cloneRawMessage(result.Result)
-	response.Snapshot = cloneSnapshot(result.Snapshot)
-	if result.Job != nil {
-		job := cloneJob(*result.Job)
-		response.Job = &job
-	}
+	response.Result = result.Result
+	response.Snapshot = result.Snapshot
+	response.Job = result.Job
 	return response
 }
 
@@ -531,6 +609,35 @@ func (s *Server) v2CancelJob(response V2Response, jobID string) V2Response {
 	return response
 }
 
+func writeV2Response(conn net.Conn, response V2Response) bool {
+	data, err := json.Marshal(response)
+	if err != nil {
+		fallback := V2Response{
+			ID:    response.ID,
+			OK:    false,
+			Error: v2Error(V2ErrorCodeInternal, V2MessageInternal),
+		}
+		return writeJSONLine(conn, fallback)
+	}
+	data = append(data, '\n')
+	if _, err := conn.Write(data); err != nil {
+		applog.Warn("ipc: write response: %v", err)
+		return false
+	}
+	return true
+}
+
+func writeEventLine(conn net.Conn, event Event) bool {
+	if len(event.encoded) > 0 {
+		if _, err := conn.Write(event.encoded); err != nil {
+			applog.Warn("ipc: write response: %v", err)
+			return false
+		}
+		return true
+	}
+	return writeJSONLine(conn, event)
+}
+
 func writeJSONLine(conn net.Conn, value any) bool {
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -542,6 +649,85 @@ func writeJSONLine(conn net.Conn, value any) bool {
 		return false
 	}
 	return true
+}
+
+// secureSocketDir creates dir when missing, rejects symlinks and foreign owners,
+// and enforces 0700 permissions.
+func secureSocketDir(dir string) error {
+	info, err := os.Lstat(dir)
+	if os.IsNotExist(err) {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return fmt.Errorf("ipc: mkdir: %w", err)
+		}
+		info, err = os.Lstat(dir)
+	}
+	if err != nil {
+		return fmt.Errorf("ipc: stat socket directory: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("ipc: socket directory %s is a symlink", dir)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("ipc: socket directory %s is not a directory", dir)
+	}
+	if err := checkDirOwner(info); err != nil {
+		return err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return fmt.Errorf("ipc: chmod socket directory: %w", err)
+	}
+	return nil
+}
+
+func peerUIDAllowed(uid uint32, euid int) error {
+	if euid < 0 || uint64(uid) != uint64(euid) {
+		return fmt.Errorf("ipc: peer uid %d does not match effective uid %d", uid, euid)
+	}
+	return nil
+}
+
+// removeStaleSocket removes sockPath only when os.Lstat reports a socket.
+func removeStaleSocket(sockPath string) error {
+	info, err := os.Lstat(sockPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("ipc: stat socket %s: %w", sockPath, err)
+	}
+	if info.Mode()&os.ModeSocket == 0 {
+		return fmt.Errorf("ipc: refusing to remove non-socket path %s", sockPath)
+	}
+	if err := os.Remove(sockPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("ipc: remove stale socket %s: %w", sockPath, err)
+	}
+	return nil
+}
+
+func writePIDFileSafe(pidPath string, pid int) error {
+	info, err := os.Lstat(pidPath)
+	if err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return fmt.Errorf("pid path %s is not a regular file", pidPath)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return fileutil.WriteFileAtomic(pidPath, []byte(strconv.Itoa(pid)), 0o600)
+}
+
+func removePIDFileSafe(pidPath string) error {
+	info, err := os.Lstat(pidPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return fmt.Errorf("ipc: refusing to remove non-regular pid path %s", pidPath)
+	}
+	return os.Remove(pidPath)
 }
 
 // Listening reports whether a server accepts connections on sockPath. A
@@ -571,18 +757,20 @@ func cleanStaleSocket(sockPath string) error {
 	}
 
 	pidPath := sockPath + ".pid"
-	pidData, err := os.ReadFile(pidPath)
+	pidData, err := readPIDFileSafe(pidPath)
 	if err != nil {
-		// No PID file — remove socket if it exists (orphan from crash).
-		os.Remove(sockPath)
-		return nil
+		if errors.Is(err, os.ErrNotExist) {
+			return removeStaleSocket(sockPath)
+		}
+		return fmt.Errorf("ipc: read pid file %s: %w", pidPath, err)
 	}
 
 	pid, err := strconv.Atoi(strings.TrimSpace(string(pidData)))
 	if err != nil {
-		// Corrupt PID file — clean up.
-		os.Remove(pidPath)
-		os.Remove(sockPath)
+		if err := removeStaleSocket(sockPath); err != nil {
+			return err
+		}
+		_ = removePIDFileSafe(pidPath)
 		return nil
 	}
 
@@ -591,9 +779,10 @@ func cleanStaleSocket(sockPath string) error {
 		return fmt.Errorf("ipc: checking process liveness for socket %s: %w", sockPath, err)
 	}
 	if !alive {
-		// Process is dead — clean up stale files.
-		os.Remove(pidPath)
-		os.Remove(sockPath)
+		if err := removeStaleSocket(sockPath); err != nil {
+			return err
+		}
+		_ = removePIDFileSafe(pidPath)
 		return nil
 	}
 

@@ -197,17 +197,6 @@ func cloneSnapshot(snapshot *RuntimeSnapshot) *RuntimeSnapshot {
 	return &snapshotCopy
 }
 
-func v2ErrorFromError(err error) *V2Error {
-	if err == nil {
-		return nil
-	}
-	var protocolErr *V2Error
-	if errors.As(err, &protocolErr) {
-		return cloneV2Error(protocolErr)
-	}
-	return v2Error(V2ErrorCodeInternal, V2MessageInternal)
-}
-
 func validV2Result(result json.RawMessage) error {
 	if len(result) == 0 || json.Valid(result) {
 		return nil

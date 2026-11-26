@@ -332,6 +332,11 @@ func (s *Service) forwardMessages() {
 		s.queue = nil
 		s.queueMu.Unlock()
 		for _, msg := range msgs {
+			select {
+			case <-s.done:
+				return
+			default:
+			}
 			s.send(msg)
 			if vol, ok := msg.(playback.SetVolumeMsg); ok {
 				s.republishVolume(vol.VolumeDB)
@@ -377,7 +382,7 @@ func (s *Service) Update(state playback.State) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// A dropped bus connection does not come back, so every emit would fail.
-	if s.props == nil || !s.conn.Connected() {
+	if s.props == nil || s.conn == nil || !s.conn.Connected() {
 		return
 	}
 
@@ -441,12 +446,14 @@ func (s *Service) Close() {
 	if s == nil {
 		return
 	}
-	s.closeOnce.Do(func() { close(s.done) })
-	// republishVolume checks done under mu, so the connection does not
-	// close while it publishes.
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.conn != nil {
-		s.conn.Close()
-	}
+	s.closeOnce.Do(func() {
+		close(s.done)
+		// republishVolume checks done under mu so Close waits for any in-flight publish.
+		s.mu.Lock()
+		if s.conn != nil {
+			s.conn.Close()
+			s.conn = nil
+		}
+		s.mu.Unlock()
+	})
 }

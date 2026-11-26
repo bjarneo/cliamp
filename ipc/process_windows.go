@@ -6,12 +6,44 @@ import (
 	"context"
 	"encoding/csv"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 )
+
+const maxPIDFileSize = 64
+
+// readPIDFileSafe opens a regular PID file without following symlinks and reads bounded bytes.
+func readPIDFileSafe(pidPath string) ([]byte, error) {
+	linfo, err := os.Lstat(pidPath)
+	if err != nil {
+		return nil, err
+	}
+	if linfo.Mode()&os.ModeSymlink != 0 || !linfo.Mode().IsRegular() {
+		return nil, fmt.Errorf("ipc: pid file %s is not a regular file", pidPath)
+	}
+	f, err := os.Open(pidPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("ipc: pid file %s is not a regular file", pidPath)
+	}
+	return io.ReadAll(io.LimitReader(f, maxPIDFileSize))
+}
+
+// checkDirOwner is a no-op on Windows.
+func checkDirOwner(os.FileInfo) error {
+	return nil
+}
 
 func processAlive(pid int) (bool, error) {
 	if pid <= 0 {

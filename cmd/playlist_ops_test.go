@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -609,5 +610,76 @@ func TestNewProvider(t *testing.T) {
 	}
 	if p == nil {
 		t.Error("newProvider returned nil provider")
+	}
+}
+
+type failingWriter struct {
+	err error
+}
+
+func (f failingWriter) Write([]byte) (int, error) {
+	return 0, f.err
+}
+
+func TestWriteM3UAndPLSSanitizeAndCheckErrors(t *testing.T) {
+	tracks := []playlist.Track{
+		{
+			Path:         "/music/a\r\n#EXT-INJECTED\n.mp3",
+			Title:        "Title\r\nInjected",
+			Artist:       "Art\nist",
+			DurationSecs: 180,
+		},
+	}
+
+	tests := []struct {
+		name        string
+		write       func(io.Writer, []playlist.Track) error
+		wantLines   int
+		wantContain []string
+		forbid      []string
+	}{
+		{
+			name:        "m3u strips CR and LF",
+			write:       writeM3U,
+			wantLines:   3,
+			wantContain: []string{"#EXTM3U", "#EXTINF:180,Artist - TitleInjected", "/music/a#EXT-INJECTED.mp3"},
+			forbid:      []string{"\r", "\nInjected", "\n#EXT-INJECTED"},
+		},
+		{
+			name:        "pls strips CR and LF",
+			write:       writePLS,
+			wantLines:   6,
+			wantContain: []string{"[playlist]", "File1=/music/a#EXT-INJECTED.mp3", "Title1=Artist - TitleInjected", "Length1=180", "NumberOfEntries=1", "Version=2"},
+			forbid:      []string{"\r", "\nInjected", "\n#EXT-INJECTED"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := tt.write(&buf, tracks); err != nil {
+				t.Fatalf("write error = %v", err)
+			}
+			got := buf.String()
+			lines := strings.Split(strings.TrimSuffix(got, "\n"), "\n")
+			if len(lines) != tt.wantLines {
+				t.Fatalf("line count = %d, want %d:\n%s", len(lines), tt.wantLines, got)
+			}
+			for _, want := range tt.wantContain {
+				if !strings.Contains(got, want) {
+					t.Errorf("output missing %q:\n%s", want, got)
+				}
+			}
+			for _, bad := range tt.forbid {
+				if strings.Contains(got, bad) {
+					t.Errorf("output contains forbidden %q:\n%s", bad, got)
+				}
+			}
+
+			boom := errors.New("disk full")
+			if err := tt.write(failingWriter{err: boom}, tracks); !errors.Is(err, boom) {
+				t.Fatalf("write to failing writer error = %v, want %v", err, boom)
+			}
+		})
 	}
 }

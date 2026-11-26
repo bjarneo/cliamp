@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -169,7 +170,11 @@ func run(overrides config.Overrides, positional []string, headless bool) error {
 		defer luaMgr.Close()
 	}
 
-	m := model.New(p, pl, providers.entries, defaultProvider, providers.localPlaylists(), providers.favorites, providers.history, theme.LoadAll(), luaMgr, config.SaveFunc{})
+	var themes []theme.Theme
+	if !headless {
+		themes = theme.LoadAll()
+	}
+	m := model.New(p, pl, providers.entries, defaultProvider, providers.localPlaylists(), providers.favorites, providers.history, themes, luaMgr, config.SaveFunc{})
 	panes := ui.NewPaneSet()
 	m.SetPaneSet(panes)
 	if luaMgr != nil {
@@ -214,6 +219,13 @@ func run(overrides config.Overrides, positional []string, headless bool) error {
 	}
 
 	prog := tea.NewProgram(m, programOptions(headless, cfg.LowPower)...)
+
+	stopIPC, err := startIPC(prog.Send, pluginBroker, luaMgr, headless)
+	if err != nil {
+		return err
+	}
+	defer stopIPC()
+
 	stopSignals := quitOnSignals(prog.Send)
 	defer stopSignals()
 	defer providers.observeAuthURLs(prog.Send)()
@@ -232,17 +244,13 @@ func run(overrides config.Overrides, positional []string, headless bool) error {
 		luaMgr.SetUIProvider(luaUIProvider(luaSend, headless))
 	}
 
-	stopIPC, err := startIPC(prog.Send, pluginBroker, luaMgr, headless)
-	if err != nil {
-		return err
-	}
-	defer stopIPC()
 	if headless {
 		fmt.Fprintf(os.Stderr, "cliamp: running headless (socket: %s)\n", ipc.DefaultSocketPath())
 		applog.Info("running headless")
 	}
 
 	finalModel, err := mediactl.Run(prog, svc)
+	stopIPC()
 	if err != nil {
 		return err
 	}
@@ -374,8 +382,19 @@ func configureModel(m *model.Model, cfg config.Config, headless bool) {
 // failure is an error. The TUI reports the failure and runs without the
 // socket.
 func startIPC(send func(tea.Msg), broker *ipc.Broker, plugins *luaplugin.Manager, headless bool) (stop func(), err error) {
-	srv, err := ipc.NewServerWithBroker(ipc.DefaultSocketPath(), broker)
+	// Program.Send may wait for the update loop, so the requests go through
+	// an ordered queue and the socket can acknowledge a job at once.
+	queue, stopQueue := newOrderedSender(send)
+	jobs := ipc.NewJobStore()
+	srv, err := ipc.NewServerWithOptions(
+		ipc.DefaultSocketPath(),
+		ipc.WithBroker(broker),
+		ipc.WithJobStore(jobs),
+		ipc.WithV2Dispatcher(newV2Dispatcher(queue, jobs, plugins)),
+		ipc.WithOperationRegistry(v2Operations(headless, plugins != nil)),
+	)
 	if err != nil {
+		stopQueue()
 		// The errors of the ipc package already start with "ipc: ".
 		if headless {
 			return nil, err
@@ -383,16 +402,11 @@ func startIPC(send func(tea.Msg), broker *ipc.Broker, plugins *luaplugin.Manager
 		fmt.Fprintln(os.Stderr, err)
 		return func() {}, nil
 	}
-	// Program.Send may wait for the update loop, so the requests go through
-	// an ordered queue and the socket can acknowledge a job at once.
-	queue, stopQueue := newOrderedSender(send)
-	srv.SetV2Dispatcher(newV2Dispatcher(queue, srv.JobStore(), plugins))
-	srv.SetOperationRegistry(v2Operations(headless, plugins != nil))
 	go publishV2JobEvents(srv.Done(), srv.JobStore(), broker)
-	return func() {
+	return sync.OnceFunc(func() {
 		_ = srv.Close()
 		stopQueue()
-	}, nil
+	}), nil
 }
 
 // saveOnExit keeps the theme and the resume position of the final Model.

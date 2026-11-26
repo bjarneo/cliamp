@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/bjarneo/cliamp/external/local"
 	"github.com/bjarneo/cliamp/favorites"
@@ -20,6 +22,11 @@ import (
 	"github.com/bjarneo/cliamp/internal/sshurl"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/resolve"
+)
+
+var (
+	probeTimeout           = 15 * time.Second
+	playlistFieldSanitizer = strings.NewReplacer("\r", "", "\n", "")
 )
 
 // PlaylistList prints all playlists with their track counts.
@@ -112,7 +119,11 @@ func PlaylistCreate(name string, paths []string, sshHost string, dirs []string) 
 	for i, ap := range audioPaths {
 		if sshHost != "" {
 			tracks[i] = playlist.TrackFromFilename(ap)
-			tracks[i].Path = "ssh://" + sshHost + ap
+			trackURL, err := buildSSHURL(sshHost, ap)
+			if err != nil {
+				return fmt.Errorf("building ssh url for %q: %w", ap, err)
+			}
+			tracks[i].Path = trackURL
 		} else {
 			tracks[i] = playlist.TrackFromPath(ap)
 		}
@@ -505,18 +516,29 @@ func PlaylistExport(name, format, output string) error {
 		if err != nil {
 			return fmt.Errorf("creating %q: %w", output, err)
 		}
-		defer f.Close()
 		w = f
 	}
 
+	var writeErr error
 	switch format {
 	case "m3u", "m3u8":
-		writeM3U(w, tracks)
+		writeErr = writeM3U(w, tracks)
 	case "pls":
-		writePLS(w, tracks)
+		writeErr = writePLS(w, tracks)
 	}
-	if output != "" {
+	if f != nil {
+		closeErr := f.Close()
+		if writeErr != nil {
+			return fmt.Errorf("writing %q: %w", output, writeErr)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("closing %q: %w", output, closeErr)
+		}
 		fmt.Printf("Exported %q to %s.\n", name, output)
+		return nil
+	}
+	if writeErr != nil {
+		return fmt.Errorf("writing playlist: %w", writeErr)
 	}
 	return nil
 }
@@ -729,10 +751,16 @@ func sshCommand(parsed sshurl.Parsed, remoteCmd string) *exec.Cmd {
 	return exec.Command("ssh", append(parsed.SSHArgs(), remoteCmd)...)
 }
 
+func sshCommandContext(ctx context.Context, parsed sshurl.Parsed, remoteCmd string) *exec.Cmd {
+	return exec.CommandContext(ctx, "ssh", append(parsed.SSHArgs(), remoteCmd)...)
+}
+
 func probeRemoteDuration(parsed sshurl.Parsed) int {
-	// Use ffprobe over SSH for cross-platform compatibility (works on Linux and macOS remotes).
-	probeCmd := fmt.Sprintf("ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 %s 2>/dev/null", shellQuote(parsed.Path))
-	out, err := sshCommand(parsed, probeCmd).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	// Pass -i before the remote path so ffprobe does not parse leading dashes as flags.
+	probeCmd := fmt.Sprintf("ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 -i %s 2>/dev/null", shellQuote(parsed.Path))
+	out, err := sshCommandContext(ctx, parsed, probeCmd).Output()
 	if err != nil {
 		return 0
 	}
@@ -750,7 +778,9 @@ func probeDuration(path string) int {
 	if playlist.IsURL(path) || path == "" {
 		return 0
 	}
-	cmd := exec.Command("ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path)
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", "-i", path)
 	out, err := cmd.Output()
 	if err != nil {
 		return 0
@@ -907,41 +937,78 @@ func missingLocalFile(t playlist.Track) bool {
 	return errors.Is(err, os.ErrNotExist)
 }
 
-func writeM3U(w io.Writer, tracks []playlist.Track) {
-	fmt.Fprintln(w, "#EXTM3U")
+func sanitizePlaylistField(s string) string {
+	return playlistFieldSanitizer.Replace(s)
+}
+
+func writeM3U(w io.Writer, tracks []playlist.Track) error {
+	if _, err := fmt.Fprintln(w, "#EXTM3U"); err != nil {
+		return err
+	}
 	for _, t := range tracks {
-		title := t.DisplayName()
+		path := sanitizePlaylistField(t.Path)
+		title := sanitizePlaylistField(t.DisplayName())
 		if title == "" {
-			title = t.Path
+			title = path
 		}
 		duration := t.DurationSecs
 		if duration <= 0 {
 			duration = -1
 		}
-		fmt.Fprintf(w, "#EXTINF:%d,%s\n", duration, title)
-		fmt.Fprintln(w, t.Path)
+		if _, err := fmt.Fprintf(w, "#EXTINF:%d,%s\n", duration, title); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(w, path); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func writePLS(w io.Writer, tracks []playlist.Track) {
-	fmt.Fprintln(w, "[playlist]")
+func writePLS(w io.Writer, tracks []playlist.Track) error {
+	if _, err := fmt.Fprintln(w, "[playlist]"); err != nil {
+		return err
+	}
 	for i, t := range tracks {
 		n := i + 1
-		fmt.Fprintf(w, "File%d=%s\n", n, t.Path)
-		if title := t.DisplayName(); title != "" {
-			fmt.Fprintf(w, "Title%d=%s\n", n, title)
+		path := sanitizePlaylistField(t.Path)
+		if _, err := fmt.Fprintf(w, "File%d=%s\n", n, path); err != nil {
+			return err
+		}
+		if title := sanitizePlaylistField(t.DisplayName()); title != "" {
+			if _, err := fmt.Fprintf(w, "Title%d=%s\n", n, title); err != nil {
+				return err
+			}
 		}
 		length := t.DurationSecs
 		if length <= 0 {
 			length = -1
 		}
-		fmt.Fprintf(w, "Length%d=%d\n", n, length)
+		if _, err := fmt.Fprintf(w, "Length%d=%d\n", n, length); err != nil {
+			return err
+		}
 	}
-	fmt.Fprintf(w, "NumberOfEntries=%d\nVersion=2\n", len(tracks))
+	_, err := fmt.Fprintf(w, "NumberOfEntries=%d\nVersion=2\n", len(tracks))
+	return err
 }
 
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
+// buildSSHURL builds a percent-encoded ssh:// URL from host and remotePath.
+func buildSSHURL(sshHost, remotePath string) (string, error) {
+	base, err := url.Parse("ssh://" + sshHost + "/")
+	if err != nil {
+		return "", err
+	}
+	u := url.URL{
+		Scheme: "ssh",
+		User:   base.User,
+		Host:   base.Host,
+		Path:   remotePath,
+	}
+	return u.String(), nil
 }
 
 // parseSSHHost reads a --ssh value such as nas, me@nas or nas:2222 with the
@@ -958,6 +1025,11 @@ func sshFindAudio(host string, paths []string) ([]string, error) {
 	parsed, err := parseSSHHost(host)
 	if err != nil {
 		return nil, err
+	}
+	for _, p := range paths {
+		if p == "" || strings.HasPrefix(p, "-") || p == "!" || p == "(" || p == ")" {
+			return nil, fmt.Errorf("invalid remote path %q: path must not be empty or start with a find operator", p)
+		}
 	}
 
 	var nameArgs []string

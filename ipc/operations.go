@@ -214,7 +214,7 @@ func validateOperationParams(params json.RawMessage) *V2Error {
 			return invalidV2Params()
 		}
 	}
-	for _, name := range []string{"batch", "items", "indexes"} {
+	for _, name := range []string{"batch", "items", "indexes", "tracks"} {
 		raw, ok := values[name]
 		if !ok {
 			continue

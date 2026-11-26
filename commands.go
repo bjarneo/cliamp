@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -849,7 +850,7 @@ func volumeCommand() *cli.Command {
 				return fmt.Errorf("usage: cliamp volume <dB>")
 			}
 			db, err := strconv.ParseFloat(c.Args().First(), 64)
-			if err != nil {
+			if err != nil || math.IsNaN(db) || math.IsInf(db, 0) {
 				return fmt.Errorf("invalid volume value %q", c.Args().First())
 			}
 			_, err = ipcSend("volume", ipc.Request{Value: db})
@@ -868,7 +869,7 @@ func seekCommand() *cli.Command {
 				return fmt.Errorf("usage: cliamp seek <seconds>")
 			}
 			secs, err := strconv.ParseFloat(c.Args().First(), 64)
-			if err != nil {
+			if err != nil || math.IsNaN(secs) || math.IsInf(secs, 0) {
 				return fmt.Errorf("invalid seek value %q", c.Args().First())
 			}
 			_, err = ipcSend("seek", ipc.Request{Value: secs})
@@ -1101,7 +1102,7 @@ func speedCommand() *cli.Command {
 				return fmt.Errorf("usage: cliamp speed <ratio>  (e.g. 1.0, 1.5, 0.75)")
 			}
 			ratio, err := strconv.ParseFloat(c.Args().First(), 64)
-			if err != nil {
+			if err != nil || math.IsNaN(ratio) || math.IsInf(ratio, 0) {
 				return fmt.Errorf("invalid speed %q", c.Args().First())
 			}
 			resp, err := ipcSend("speed", ipc.Request{Value: ratio})
@@ -1130,7 +1131,7 @@ func eqCommand() *cli.Command {
 					return fmt.Errorf("usage: cliamp eq --band N <dB>")
 				}
 				db, err := strconv.ParseFloat(c.Args().First(), 64)
-				if err != nil {
+				if err != nil || math.IsNaN(db) || math.IsInf(db, 0) {
 					return fmt.Errorf("invalid dB value %q", c.Args().First())
 				}
 				resp, err := ipcSend("eq", ipc.Request{Band: band, Value: db})

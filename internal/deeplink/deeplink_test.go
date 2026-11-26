@@ -178,7 +178,9 @@ func TestParseRejects(t *testing.T) {
 		{"flag as search query", "cliamp://play?provider=yt&q=--exec%3Dwhoami", "command-line flag"},
 		{"flag as album id", "cliamp://play?provider=nd&album=--exec%3Dwhoami", "command-line flag"},
 
-		// Provider charset.
+		// Provider charset and allowlist.
+		{"provider local playlist", "cliamp://play?provider=local&playlist=Favorites", "not allowed"},
+		{"provider local search", "cliamp://queue?provider=local&q=song", "not allowed"},
 		{"provider with slash", "cliamp://play?provider=..%2F..%2Fetc&album=x", "disallowed characters"},
 		{"provider with flag shape", "cliamp://play?provider=-nd&album=x", "must start with a letter"},
 		{"provider uppercase", "cliamp://play?provider=Navidrome&album=x", "disallowed characters"},
@@ -288,14 +290,37 @@ func TestAllowsTrackPath(t *testing.T) {
 		{"surrounding whitespace", "  https://stream.example/live.mp3  ", true},
 		{"uppercase scheme", "HTTPS://stream.example/live.mp3", true},
 		// Provider-native URIs reach a registered streamer in
-		// player.pipeline before openSource is consulted, so refusing them
-		// would break a legitimate search link.
+		// player.pipeline before openSource is ever consulted.
 		{"spotify uri", "spotify:track:abc123", true},
+		{"qobuz uri", "qobuz://track/123", true},
+		{"tidal uri", "tidal://track/456", true},
+		{"lyrion uri", "lyrion://track/77", true},
+		{"yandex uri", "yandex:track:1001", true},
+		{"telegram uri", "telegram://chat/1/msg/2", true},
+		{"navidrome uri", "navidrome://track/9", true},
+		{"subsonic uri", "subsonic://track/9", true},
+		{"plex uri", "plex://track/9", true},
+		{"jellyfin uri", "jellyfin://track/9", true},
+		{"emby uri", "emby://track/9", true},
+		{"audiobookshelf uri", "audiobookshelf://track/9", true},
+		{"ytmusic uri", "ytmusic://track/9", true},
+		{"youtube uri", "youtube://track/9", true},
+		{"soundcloud uri", "soundcloud://track/9", true},
+		{"mixcloud uri", "mixcloud://track/9", true},
+		{"netease uri", "netease://track/9", true},
+		{"bandcamp uri", "bandcamp://track/9", true},
+		{"podcast uri", "podcast://episode/9", true},
+		{"radio uri", "radio://station/9", true},
 
-		// player.openSource routes this to exec.Command("ssh", ...) against
-		// the host in the path. This is the case the gate exists for.
+		// Unknown and unsafe transports must be rejected by the allowlist.
 		{"ssh transport", "ssh://attacker.example/x", false},
 		{"ssh uppercase", "SSH://attacker.example/x", false},
+		{"ftp transport", "ftp://example.com/a.mp3", false},
+		{"gopher transport", "gopher://example.com/a", false},
+		{"smb transport", "smb://host/share/a.mp3", false},
+		{"unknown scheme", "customscheme://host/a.mp3", false},
+		{"https without host", "https:///etc/passwd", false},
+		{"http without host", "http:///etc/passwd", false},
 		// Opened with os.Open.
 		{"absolute local path", "/etc/shadow", false},
 		{"relative local path", "music/a.mp3", false},

@@ -95,10 +95,13 @@ func luaControlProvider(send func(tea.Msg)) luaplugin.ControlProvider {
 // once. One goroutine passes the queued messages to send in order, as
 // mediactl does for D-Bus calls. The queue has no bound, so no message is
 // lost.
+const maxOrderedSenderQueue = 2048
+
 func newOrderedSender(send func(tea.Msg)) (queue func(tea.Msg), stop func()) {
 	var (
 		mu      sync.Mutex
 		pending []tea.Msg
+		stopped bool
 	)
 	wake := make(chan struct{}, 1)
 	done := make(chan struct{})
@@ -114,12 +117,21 @@ func newOrderedSender(send func(tea.Msg)) (queue func(tea.Msg), stop func()) {
 			pending = nil
 			mu.Unlock()
 			for _, msg := range msgs {
+				select {
+				case <-done:
+					return
+				default:
+				}
 				send(msg)
 			}
 		}
 	}()
 	queue = func(msg tea.Msg) {
 		mu.Lock()
+		if stopped || len(pending) >= maxOrderedSenderQueue {
+			mu.Unlock()
+			return
+		}
 		pending = append(pending, msg)
 		mu.Unlock()
 		select {
@@ -127,7 +139,13 @@ func newOrderedSender(send func(tea.Msg)) (queue func(tea.Msg), stop func()) {
 		default:
 		}
 	}
-	return queue, sync.OnceFunc(func() { close(done) })
+	return queue, sync.OnceFunc(func() {
+		mu.Lock()
+		stopped = true
+		pending = nil
+		mu.Unlock()
+		close(done)
+	})
 }
 
 // luaUIProvider lets Lua plugins show a status message.

@@ -988,3 +988,71 @@ func TestYTMusicCustomModeIncludesOptionalCookies(t *testing.T) {
 
 	checkBody(t, spec.body(values), map[string]string{"cookies_from": `"firefox"`})
 }
+
+func TestChatsLoadedIgnoresStaleGeneration(t *testing.T) {
+	m := newSetupModel()
+	tgIdx := -1
+	for i, p := range m.provs {
+		if p.section == "telegram" {
+			tgIdx = i
+			break
+		}
+	}
+	if tgIdx < 0 {
+		t.Fatal("telegram spec missing")
+	}
+	m.pidx = tgIdx
+
+	// Open picker (gen 1), cancel with esc (gen 2), reopen (gen 3).
+	m.openChats()
+	gen1 := m.chatLoadGen
+	m.chatsKey(keyPress(tea.KeyEscape, ""))
+	m.openChats()
+	genCurrent := m.chatLoadGen
+	if genCurrent <= gen1 {
+		t.Fatalf("reopened generation = %d, want > %d", genCurrent, gen1)
+	}
+
+	tests := []struct {
+		name        string
+		msg         chatsLoadedMsg
+		wantLoading bool
+		wantCount   int
+		wantFirstID string
+	}{
+		{
+			name:        "stale generation is ignored",
+			msg:         chatsLoadedMsg{gen: gen1, options: []chatOption{{ID: "ch:1:1", Name: "Stale"}}},
+			wantLoading: true,
+			wantCount:   0,
+		},
+		{
+			name:        "wrong future generation is ignored",
+			msg:         chatsLoadedMsg{gen: genCurrent + 1, options: []chatOption{{ID: "ch:2:2", Name: "Future"}}},
+			wantLoading: true,
+			wantCount:   0,
+		},
+		{
+			name:        "current generation populates picker",
+			msg:         chatsLoadedMsg{gen: genCurrent, options: []chatOption{{ID: "ch:3:3", Name: "Fresh"}}},
+			wantLoading: false,
+			wantCount:   1,
+			wantFirstID: "ch:3:3",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m.Update(tt.msg)
+			if m.chatLoading != tt.wantLoading {
+				t.Fatalf("chatLoading = %v, want %v", m.chatLoading, tt.wantLoading)
+			}
+			if len(m.chatItems) != tt.wantCount {
+				t.Fatalf("len(chatItems) = %d, want %d", len(m.chatItems), tt.wantCount)
+			}
+			if tt.wantFirstID != "" && m.chatItems[0].ID != tt.wantFirstID {
+				t.Fatalf("chatItems[0].ID = %q, want %q", m.chatItems[0].ID, tt.wantFirstID)
+			}
+		})
+	}
+}

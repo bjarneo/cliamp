@@ -33,9 +33,25 @@ typedef struct MediaCtlBridge {
 
 typedef void *MediaCtlBridgeRef;
 
+static NSString *cachedArtKey = nil;
+static MPMediaItemArtwork *cachedArtwork = nil;
+
+static void clearArtworkCache(void) {
+	if (cachedArtKey) {
+		[cachedArtKey release];
+		cachedArtKey = nil;
+	}
+	if (cachedArtwork) {
+		[cachedArtwork release];
+		cachedArtwork = nil;
+	}
+}
+
 static void initApp(void) {
-	[NSApplication sharedApplication];
-	[NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+	@autoreleasepool {
+		[NSApplication sharedApplication];
+		[NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+	}
 }
 
 static void clearNowPlaying(void) {
@@ -43,97 +59,143 @@ static void clearNowPlaying(void) {
 	cc.changePlaybackPositionCommand.enabled = NO;
 	[MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo = nil;
 	[MPNowPlayingInfoCenter defaultCenter].playbackState = MPNowPlayingPlaybackStateStopped;
+	clearArtworkCache();
 }
 
 static MediaCtlBridgeRef bridgeCreate(uintptr_t handle) {
-	MediaCtlBridge *bridge = (MediaCtlBridge *)calloc(1, sizeof(MediaCtlBridge));
-	if (!bridge) {
-		return NULL;
+	@autoreleasepool {
+		MediaCtlBridge *bridge = (MediaCtlBridge *)calloc(1, sizeof(MediaCtlBridge));
+		if (!bridge) {
+			return NULL;
+		}
+
+		uintptr_t owner = handle;
+		bridge->handle = owner;
+
+		MPRemoteCommandCenter *cc = [MPRemoteCommandCenter sharedCommandCenter];
+
+		bridge->togglePlayPauseTarget = [[cc.togglePlayPauseCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event) {
+			goMediaPlayPause(owner);
+			return MPRemoteCommandHandlerStatusSuccess;
+		}] retain];
+		bridge->playTarget = [[cc.playCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event) {
+			goMediaPlay(owner);
+			return MPRemoteCommandHandlerStatusSuccess;
+		}] retain];
+		bridge->pauseTarget = [[cc.pauseCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event) {
+			goMediaPause(owner);
+			return MPRemoteCommandHandlerStatusSuccess;
+		}] retain];
+		bridge->nextTarget = [[cc.nextTrackCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event) {
+			goMediaNext(owner);
+			return MPRemoteCommandHandlerStatusSuccess;
+		}] retain];
+		bridge->prevTarget = [[cc.previousTrackCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event) {
+			goMediaPrev(owner);
+			return MPRemoteCommandHandlerStatusSuccess;
+		}] retain];
+		bridge->stopTarget = [[cc.stopCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event) {
+			goMediaStop(owner);
+			return MPRemoteCommandHandlerStatusSuccess;
+		}] retain];
+		bridge->changePlaybackPositionTarget = [[cc.changePlaybackPositionCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event) {
+			MPChangePlaybackPositionCommandEvent *posEvent = (MPChangePlaybackPositionCommandEvent *)event;
+			goMediaSetPosition(owner, posEvent.positionTime);
+			return MPRemoteCommandHandlerStatusSuccess;
+		}] retain];
+
+		return bridge;
 	}
-
-	uintptr_t owner = handle;
-	bridge->handle = owner;
-
-	MPRemoteCommandCenter *cc = [MPRemoteCommandCenter sharedCommandCenter];
-
-	bridge->togglePlayPauseTarget = [cc.togglePlayPauseCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event) {
-		goMediaPlayPause(owner);
-		return MPRemoteCommandHandlerStatusSuccess;
-	}];
-	bridge->playTarget = [cc.playCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event) {
-		goMediaPlay(owner);
-		return MPRemoteCommandHandlerStatusSuccess;
-	}];
-	bridge->pauseTarget = [cc.pauseCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event) {
-		goMediaPause(owner);
-		return MPRemoteCommandHandlerStatusSuccess;
-	}];
-	bridge->nextTarget = [cc.nextTrackCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event) {
-		goMediaNext(owner);
-		return MPRemoteCommandHandlerStatusSuccess;
-	}];
-	bridge->prevTarget = [cc.previousTrackCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event) {
-		goMediaPrev(owner);
-		return MPRemoteCommandHandlerStatusSuccess;
-	}];
-	bridge->stopTarget = [cc.stopCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event) {
-		goMediaStop(owner);
-		return MPRemoteCommandHandlerStatusSuccess;
-	}];
-	bridge->changePlaybackPositionTarget = [cc.changePlaybackPositionCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event) {
-		MPChangePlaybackPositionCommandEvent *posEvent = (MPChangePlaybackPositionCommandEvent *)event;
-		goMediaSetPosition(owner, posEvent.positionTime);
-		return MPRemoteCommandHandlerStatusSuccess;
-	}];
-
-	return bridge;
 }
 
 static void bridgeDestroy(MediaCtlBridgeRef ref) {
-	MediaCtlBridge *bridge = (MediaCtlBridge *)ref;
-	if (!bridge) {
+	@autoreleasepool {
+		MediaCtlBridge *bridge = (MediaCtlBridge *)ref;
+		if (!bridge) {
+			clearNowPlaying();
+			return;
+		}
+
+		MPRemoteCommandCenter *cc = [MPRemoteCommandCenter sharedCommandCenter];
+
+		if (bridge->togglePlayPauseTarget) {
+			[cc.togglePlayPauseCommand removeTarget:bridge->togglePlayPauseTarget];
+			[bridge->togglePlayPauseTarget release];
+		}
+		if (bridge->playTarget) {
+			[cc.playCommand removeTarget:bridge->playTarget];
+			[bridge->playTarget release];
+		}
+		if (bridge->pauseTarget) {
+			[cc.pauseCommand removeTarget:bridge->pauseTarget];
+			[bridge->pauseTarget release];
+		}
+		if (bridge->nextTarget) {
+			[cc.nextTrackCommand removeTarget:bridge->nextTarget];
+			[bridge->nextTarget release];
+		}
+		if (bridge->prevTarget) {
+			[cc.previousTrackCommand removeTarget:bridge->prevTarget];
+			[bridge->prevTarget release];
+		}
+		if (bridge->stopTarget) {
+			[cc.stopCommand removeTarget:bridge->stopTarget];
+			[bridge->stopTarget release];
+		}
+		if (bridge->changePlaybackPositionTarget) {
+			[cc.changePlaybackPositionCommand removeTarget:bridge->changePlaybackPositionTarget];
+			[bridge->changePlaybackPositionTarget release];
+		}
+
 		clearNowPlaying();
-		return;
+		free(bridge);
+	}
+}
+
+static MPMediaItemArtwork *loadArtwork(const char *artURL, const void *artBytes, int artBytesLen) {
+	if (!artURL || artURL[0] == '\0') {
+		clearArtworkCache();
+		return nil;
+	}
+	NSString *key = @(artURL);
+	if (cachedArtKey && [cachedArtKey isEqualToString:key]) {
+		return cachedArtwork;
 	}
 
-	MPRemoteCommandCenter *cc = [MPRemoteCommandCenter sharedCommandCenter];
+	clearArtworkCache();
+	cachedArtKey = [key copy];
 
-	if (bridge->togglePlayPauseTarget) {
-		[cc.togglePlayPauseCommand removeTarget:bridge->togglePlayPauseTarget];
+	NSImage *image = nil;
+	if (artBytes != NULL && artBytesLen > 0) {
+		NSData *data = [NSData dataWithBytes:artBytes length:(NSUInteger)artBytesLen];
+		if (data) {
+			image = [[[NSImage alloc] initWithData:data] autorelease];
+		}
+	} else {
+		NSURL *url = [NSURL URLWithString:key];
+		if (url && [url isFileURL]) {
+			image = [[[NSImage alloc] initWithContentsOfURL:url] autorelease];
+		}
 	}
-	if (bridge->playTarget) {
-		[cc.playCommand removeTarget:bridge->playTarget];
+	if (image) {
+		cachedArtwork = [[MPMediaItemArtwork alloc] initWithBoundsSize:image.size
+			requestHandler:^NSImage * _Nonnull(CGSize size) {
+				return image;
+			}];
 	}
-	if (bridge->pauseTarget) {
-		[cc.pauseCommand removeTarget:bridge->pauseTarget];
-	}
-	if (bridge->nextTarget) {
-		[cc.nextTrackCommand removeTarget:bridge->nextTarget];
-	}
-	if (bridge->prevTarget) {
-		[cc.previousTrackCommand removeTarget:bridge->prevTarget];
-	}
-	if (bridge->stopTarget) {
-		[cc.stopCommand removeTarget:bridge->stopTarget];
-	}
-	if (bridge->changePlaybackPositionTarget) {
-		[cc.changePlaybackPositionCommand removeTarget:bridge->changePlaybackPositionTarget];
-	}
-
-	clearNowPlaying();
-	free(bridge);
+	return cachedArtwork;
 }
 
 // playbackState: 0 = stopped, 1 = playing, 2 = paused
-static void updateNowPlaying(const char *title, const char *artist, const char *album, const char *artURL,
+static void updateNowPlaying(const char *title, const char *artist, const char *album,
+                              const char *artURL, const void *artBytes, int artBytesLen,
                               double durationSecs, double elapsedSecs, int playbackState, int canSeek) {
 	@autoreleasepool {
 		MPRemoteCommandCenter *cc = [MPRemoteCommandCenter sharedCommandCenter];
 		cc.changePlaybackPositionCommand.enabled = canSeek ? YES : NO;
 
 		if (playbackState == 0) {
-			[MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo = nil;
-			[MPNowPlayingInfoCenter defaultCenter].playbackState = MPNowPlayingPlaybackStateStopped;
+			clearNowPlaying();
 			return;
 		}
 
@@ -141,18 +203,9 @@ static void updateNowPlaying(const char *title, const char *artist, const char *
 		if (title)  info[MPMediaItemPropertyTitle] = @(title);
 		if (artist) info[MPMediaItemPropertyArtist] = @(artist);
 		if (album)  info[MPMediaItemPropertyAlbumTitle] = @(album);
-		if (artURL) {
-			// cliamp only passes local file:// artwork URLs here. Avoid extending
-			// this path to remote artwork without moving image loading off-thread.
-			NSURL *url = [NSURL URLWithString:@(artURL)];
-			NSImage *image = url ? [[[NSImage alloc] initWithContentsOfURL:url] autorelease] : nil;
-			if (image) {
-				MPMediaItemArtwork *artwork = [[[MPMediaItemArtwork alloc] initWithBoundsSize:image.size
-					requestHandler:^NSImage * _Nonnull(CGSize size) {
-						return image;
-					}] autorelease];
-				info[MPMediaItemPropertyArtwork] = artwork;
-			}
+		MPMediaItemArtwork *artwork = loadArtwork(artURL, artBytes, artBytesLen);
+		if (artwork) {
+			info[MPMediaItemPropertyArtwork] = artwork;
 		}
 		if (durationSecs > 0) info[MPMediaItemPropertyPlaybackDuration] = @(durationSecs);
 		if (elapsedSecs >= 0) info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = @(elapsedSecs);
@@ -166,15 +219,21 @@ static void updateNowPlaying(const char *title, const char *artist, const char *
 }
 
 static void tickRunLoop(void) {
-	[[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
-	                         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+	@autoreleasepool {
+		[[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+		                         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+	}
 }
 */
 import "C"
 
 import (
+	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"runtime/cgo"
+	"strings"
 	"sync"
 	"time"
 	"unsafe"
@@ -182,6 +241,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/bjarneo/cliamp/internal/playback"
+)
+
+const (
+	maxDispatchQueue  = 64
+	maxRemoteArtBytes = 4 << 20
+	remoteArtTimeout  = 5 * time.Second
 )
 
 func Run(prog *tea.Program, svc *Service) (tea.Model, error) {
@@ -218,10 +283,24 @@ type updateReq struct {
 }
 
 type Service struct {
-	send     func(tea.Msg)
-	sendQ    chan tea.Msg
-	sendDone chan struct{}
-	updates  chan updateReq
+	send         func(tea.Msg)
+	queueMu      sync.Mutex
+	queue        []tea.Msg
+	wake         chan struct{}
+	sendDone     chan struct{}
+	sendDoneOnce sync.Once
+
+	updatesMu sync.Mutex
+	updates   chan updateReq
+
+	artMu         sync.Mutex
+	artClient     *http.Client
+	artURL        string
+	artBytes      []byte
+	artLoaded     bool
+	artAppliedURL string
+	artCancel     context.CancelFunc
+	lastReq       updateReq
 
 	mu           sync.Mutex
 	handle       cgo.Handle
@@ -349,7 +428,7 @@ func goMediaSetPosition(handle C.uintptr_t, positionSeconds C.double) {
 func New(send func(tea.Msg)) (*Service, error) {
 	svc := &Service{
 		send:     send,
-		sendQ:    make(chan tea.Msg, 16),
+		wake:     make(chan struct{}, 1),
 		sendDone: make(chan struct{}),
 		updates:  make(chan updateReq, 1),
 	}
@@ -365,18 +444,45 @@ func New(send func(tea.Msg)) (*Service, error) {
 	return svc, nil
 }
 
+// dispatch queues msg without blocking the macOS main thread. Consecutive seek
+// updates coalesce so rapid scrubbing keeps only the latest position.
 func (s *Service) dispatch(msg tea.Msg) {
 	if s == nil {
 		return
 	}
-	if s.sendQ == nil {
-		s.send(msg)
+	if s.wake == nil {
+		if s.send != nil {
+			s.send(msg)
+		}
 		return
 	}
+	if s.sendDone != nil {
+		select {
+		case <-s.sendDone:
+			return
+		default:
+		}
+	}
+
+	s.queueMu.Lock()
+	if _, isSeek := msg.(playback.SetPositionMsg); isSeek && len(s.queue) > 0 {
+		if _, lastIsSeek := s.queue[len(s.queue)-1].(playback.SetPositionMsg); lastIsSeek {
+			s.queue[len(s.queue)-1] = msg
+			s.queueMu.Unlock()
+			return
+		}
+	}
+	if len(s.queue) >= maxDispatchQueue {
+		copy(s.queue, s.queue[1:])
+		s.queue[len(s.queue)-1] = msg
+	} else {
+		s.queue = append(s.queue, msg)
+	}
+	s.queueMu.Unlock()
 
 	select {
-	case <-s.sendDone:
-	case s.sendQ <- msg:
+	case s.wake <- struct{}{}:
+	default:
 	}
 }
 
@@ -385,20 +491,44 @@ func (s *Service) forwardMessages() {
 		select {
 		case <-s.sendDone:
 			return
-		case msg := <-s.sendQ:
-			s.send(msg)
+		case <-s.wake:
+		}
+		for {
+			s.queueMu.Lock()
+			if len(s.queue) == 0 {
+				s.queueMu.Unlock()
+				break
+			}
+			msgs := s.queue
+			s.queue = nil
+			s.queueMu.Unlock()
+			for _, msg := range msgs {
+				select {
+				case <-s.sendDone:
+					return
+				default:
+				}
+				if s.send != nil {
+					s.send(msg)
+				}
+			}
 		}
 	}
 }
 
 func (s *Service) stopDispatch() {
-	if s == nil || s.sendDone == nil {
+	if s == nil {
 		return
 	}
-	select {
-	case <-s.sendDone:
-	default:
-		close(s.sendDone)
+	s.artMu.Lock()
+	s.cancelArtFetchLocked()
+	s.artURL = ""
+	s.artBytes = nil
+	s.artLoaded = false
+	s.artAppliedURL = ""
+	s.artMu.Unlock()
+	if s.sendDone != nil {
+		s.sendDoneOnce.Do(func() { close(s.sendDone) })
 	}
 }
 
@@ -436,7 +566,7 @@ func (s *Service) runMainLoop(done <-chan struct{}) {
 	for {
 		select {
 		case req := <-s.updates:
-			applyUpdate(req)
+			s.applyUpdate(req)
 		default:
 		}
 
@@ -499,8 +629,154 @@ func (s *Service) beginRelease(allowRunLoop bool) (cgo.Handle, C.MediaCtlBridgeR
 	return handle, bridge, true
 }
 
-func applyUpdate(req updateReq) {
+func isFileArtURL(raw string) bool {
+	return strings.HasPrefix(strings.ToLower(raw), "file://")
+}
+
+func isHTTPSArtURL(raw string) bool {
+	return strings.HasPrefix(strings.ToLower(raw), "https://")
+}
+
+var defaultRemoteArtClient = &http.Client{
+	Timeout: remoteArtTimeout,
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 5 {
+			return fmt.Errorf("too many redirects")
+		}
+		if !strings.EqualFold(req.URL.Scheme, "https") {
+			return fmt.Errorf("non-https artwork redirect")
+		}
+		return nil
+	},
+}
+
+func (s *Service) artHTTPClient() *http.Client {
+	if s.artClient != nil {
+		return s.artClient
+	}
+	return defaultRemoteArtClient
+}
+
+func (s *Service) cancelArtFetchLocked() {
+	if s.artCancel != nil {
+		s.artCancel()
+		s.artCancel = nil
+	}
+}
+
+// resolveArtwork returns the artwork URL and optional decoded payload for C.
+// Only file:// URLs load synchronously in Objective-C. Remote https:// URLs
+// download asynchronously on a background goroutine with bounded timeout and size.
+func (s *Service) resolveArtwork(req updateReq) (string, []byte) {
+	s.artMu.Lock()
+	defer s.artMu.Unlock()
+
+	if req.status == playback.StatusStopped || req.artURL == "" {
+		s.cancelArtFetchLocked()
+		s.artURL = ""
+		s.artBytes = nil
+		s.artLoaded = false
+		s.artAppliedURL = ""
+		return "", nil
+	}
+
+	if isFileArtURL(req.artURL) {
+		s.cancelArtFetchLocked()
+		s.artURL = ""
+		s.artBytes = nil
+		s.artLoaded = false
+		s.artAppliedURL = ""
+		return req.artURL, nil
+	}
+
+	if !isHTTPSArtURL(req.artURL) {
+		s.cancelArtFetchLocked()
+		s.artURL = ""
+		s.artBytes = nil
+		s.artLoaded = false
+		s.artAppliedURL = ""
+		return "", nil
+	}
+
+	s.lastReq = req
+	if s.artURL == req.artURL {
+		if s.artAppliedURL == req.artURL {
+			return req.artURL, nil
+		}
+		if s.artLoaded {
+			data := s.artBytes
+			s.artBytes = nil
+			s.artAppliedURL = req.artURL
+			return req.artURL, data
+		}
+		return "", nil
+	}
+
+	s.cancelArtFetchLocked()
+	s.artURL = req.artURL
+	s.artBytes = nil
+	s.artLoaded = false
+	s.artAppliedURL = ""
+	ctx, cancel := context.WithTimeout(context.Background(), remoteArtTimeout)
+	s.artCancel = cancel
+	client := s.artHTTPClient()
+	go func() {
+		defer cancel()
+		s.fetchArtAsync(ctx, client, req.artURL)
+	}()
+	return "", nil
+}
+
+func (s *Service) fetchArtAsync(ctx context.Context, client *http.Client, targetURL string) {
+	data := fetchRemoteArt(ctx, client, targetURL)
+
+	s.artMu.Lock()
+	if s.artURL != targetURL {
+		s.artMu.Unlock()
+		return
+	}
+	s.artBytes = data
+	s.artLoaded = true
+	latest := s.lastReq
+	s.artMu.Unlock()
+
+	if s.sendDone != nil {
+		select {
+		case <-s.sendDone:
+			return
+		default:
+		}
+	}
+	if s.updates != nil {
+		s.enqueueUpdate(latest)
+	}
+}
+
+func fetchRemoteArt(ctx context.Context, client *http.Client, rawURL string) []byte {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxRemoteArtBytes+1))
+	if err != nil || len(data) == 0 || len(data) > maxRemoteArtBytes {
+		return nil
+	}
+	return data
+}
+
+func (s *Service) applyUpdate(req updateReq) {
 	var cTitle, cArtist, cAlbum, cArtURL *C.char
+	var cArtBytes unsafe.Pointer
+	var cArtBytesLen C.int
+
 	if req.title != "" {
 		cTitle = C.CString(req.title)
 		defer C.free(unsafe.Pointer(cTitle))
@@ -513,15 +789,21 @@ func applyUpdate(req updateReq) {
 		cAlbum = C.CString(req.album)
 		defer C.free(unsafe.Pointer(cAlbum))
 	}
-	if req.artURL != "" {
-		cArtURL = C.CString(req.artURL)
+	artURL, artBytes := s.resolveArtwork(req)
+	if artURL != "" {
+		cArtURL = C.CString(artURL)
 		defer C.free(unsafe.Pointer(cArtURL))
+	}
+	if len(artBytes) > 0 {
+		cArtBytes = C.CBytes(artBytes)
+		defer C.free(cArtBytes)
+		cArtBytesLen = C.int(len(artBytes))
 	}
 	canSeek := C.int(0)
 	if req.canSeek {
 		canSeek = 1
 	}
-	C.updateNowPlaying(cTitle, cArtist, cAlbum, cArtURL,
+	C.updateNowPlaying(cTitle, cArtist, cAlbum, cArtURL, cArtBytes, cArtBytesLen,
 		C.double(req.durationSecs), C.double(req.elapsedSecs), nowPlayingState(req.status), canSeek)
 }
 
@@ -533,6 +815,23 @@ func nowPlayingState(status playback.Status) C.int {
 		return 2
 	}
 	return 0
+}
+
+func (s *Service) enqueueUpdate(req updateReq) {
+	s.updatesMu.Lock()
+	defer s.updatesMu.Unlock()
+	select {
+	case s.updates <- req:
+	default:
+		select {
+		case <-s.updates:
+		default:
+		}
+		select {
+		case s.updates <- req:
+		default:
+		}
+	}
 }
 
 func (s *Service) Update(state playback.State) {
@@ -551,15 +850,7 @@ func (s *Service) Update(state playback.State) {
 		canSeek:      state.Seekable,
 	}
 
-	select {
-	case s.updates <- req:
-	default:
-		select {
-		case <-s.updates:
-		default:
-		}
-		s.updates <- req
-	}
+	s.enqueueUpdate(req)
 }
 
 func (s *Service) Seeked(position time.Duration) {}

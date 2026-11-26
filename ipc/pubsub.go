@@ -12,16 +12,20 @@ import (
 const (
 	maxTopicsPerSubscription = 32
 	maxRetainedTopics        = 256
+	maxRetainedRuntimeTopics = 64
+	maxSubscribers           = 64
 	maxEventPayloadSize      = 64 << 10
 	subscriberBufferSize     = 32
 	overflowEventTopic       = "system.overflow"
+	runtimeTopicPrefix       = "runtime."
 )
 
 var (
-	ErrInvalidTopic    = errors.New("invalid event topic")
-	ErrTooManyTopics   = errors.New("too many subscription topics")
-	ErrPayloadTooLarge = errors.New("event payload exceeds 64 KiB")
-	ErrTooManyRetained = errors.New("too many retained event topics")
+	ErrInvalidTopic       = errors.New("invalid event topic")
+	ErrTooManyTopics      = errors.New("too many subscription topics")
+	ErrTooManySubscribers = errors.New("too many active subscribers")
+	ErrPayloadTooLarge    = errors.New("event payload exceeds 64 KiB")
+	ErrTooManyRetained    = errors.New("too many retained event topics")
 )
 
 // Event is one message delivered over an IPC subscription. Sequence numbers
@@ -33,6 +37,7 @@ type Event struct {
 	Time     int64           `json:"time"`
 	Retained bool            `json:"retained,omitempty"`
 	Data     json.RawMessage `json:"data"`
+	encoded  []byte
 }
 
 // Subscription is an in-memory event stream owned by a Broker.
@@ -62,12 +67,13 @@ type subscriber struct {
 // event per topic. Publish never waits for a subscriber: a slow subscriber is
 // disconnected rather than being allowed to block Cliamp or a Lua callback.
 type Broker struct {
-	mu          sync.Mutex
-	nextEvent   uint64
-	nextSub     uint64
-	retained    map[string]Event
-	subscribers map[uint64]*subscriber
-	closed      bool
+	mu              sync.Mutex
+	nextEvent       uint64
+	nextSub         uint64
+	retained        map[string]Event
+	retainedRuntime int
+	subscribers     map[uint64]*subscriber
+	closed          bool
 }
 
 func NewBroker() *Broker {
@@ -96,9 +102,16 @@ func (b *Broker) Publish(topic string, data json.RawMessage, retain bool) error 
 		return errors.New("event broker is closed")
 	}
 	// Reject before consuming a sequence number so numbering stays gap-free.
+	isRuntime := isRuntimeTopic(topic)
 	if retain {
-		if _, exists := b.retained[topic]; !exists && len(b.retained) >= maxRetainedTopics {
-			return ErrTooManyRetained
+		if _, exists := b.retained[topic]; !exists {
+			if isRuntime {
+				if b.retainedRuntime >= maxRetainedRuntimeTopics {
+					return ErrTooManyRetained
+				}
+			} else if len(b.retained)-b.retainedRuntime >= maxRetainedTopics {
+				return ErrTooManyRetained
+			}
 		}
 	}
 	b.nextEvent++
@@ -109,15 +122,17 @@ func (b *Broker) Publish(topic string, data json.RawMessage, retain bool) error 
 		Data:     append(json.RawMessage(nil), data...),
 	}
 	if retain {
+		if _, exists := b.retained[topic]; !exists && isRuntime {
+			b.retainedRuntime++
+		}
 		b.retained[topic] = event
 	}
+	var encoded []byte
 	for id, sub := range b.subscribers {
 		if _, ok := sub.topics[topic]; !ok {
 			continue
 		}
-		// Preserve one slot for an explicit resync signal. A consumer can then
-		// refresh runtime.state before reconnecting instead of mistaking a clean
-		// close for an idle server.
+		// Keep one buffer slot free for the overflow signal.
 		if len(sub.events) >= cap(sub.events)-1 {
 			b.nextEvent++
 			overflow := Event{
@@ -126,10 +141,17 @@ func (b *Broker) Publish(topic string, data json.RawMessage, retain bool) error 
 				Time:     time.Now().Unix(),
 				Data:     json.RawMessage(`{"resync_required":true}`),
 			}
-			sub.events <- overflow
+			select {
+			case sub.events <- overflow:
+			default:
+			}
 			delete(b.subscribers, id)
 			close(sub.events)
 			continue
+		}
+		if encoded == nil {
+			encoded = encodeEventLine(event)
+			event.encoded = encoded
 		}
 		sub.events <- event
 	}
@@ -159,12 +181,13 @@ func (b *Broker) Subscribe(topics []string) (*Subscription, error) {
 	if b.closed {
 		return nil, errors.New("event broker is closed")
 	}
+	if len(b.subscribers) >= maxSubscribers {
+		return nil, ErrTooManySubscribers
+	}
 	b.nextSub++
 	id := b.nextSub
-	capacity := subscriberBufferSize
-	if len(set) > capacity {
-		capacity = len(set)
-	}
+	// Allocate at least len(set)+1 slots so retained replay leaves room for overflow.
+	capacity := max(subscriberBufferSize, len(set)+1)
 	ch := make(chan Event, capacity)
 	sub := &subscriber{topics: set, events: ch}
 	b.subscribers[id] = sub
@@ -177,6 +200,7 @@ func (b *Broker) Subscribe(topics []string) (*Subscription, error) {
 	for _, topic := range sorted {
 		if event, ok := b.retained[topic]; ok {
 			event.Retained = true
+			event.encoded = nil
 			ch <- event
 		}
 	}
@@ -190,6 +214,9 @@ func (b *Broker) ClearPrefix(prefix string) {
 	for topic := range b.retained {
 		if strings.HasPrefix(topic, prefix) {
 			delete(b.retained, topic)
+			if isRuntimeTopic(topic) {
+				b.retainedRuntime--
+			}
 		}
 	}
 	b.mu.Unlock()
@@ -206,8 +233,22 @@ func (b *Broker) Close() {
 			close(sub.events)
 		}
 		clear(b.retained)
+		b.retainedRuntime = 0
 	}
 	b.mu.Unlock()
+}
+
+func isRuntimeTopic(topic string) bool {
+	return strings.HasPrefix(topic, runtimeTopicPrefix)
+}
+
+func encodeEventLine(event Event) []byte {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return nil
+	}
+	data = append(data, '\n')
+	return data[:len(data):len(data)]
 }
 
 func (b *Broker) unsubscribe(id uint64) {

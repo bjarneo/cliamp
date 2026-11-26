@@ -102,8 +102,16 @@ func ipcSendWithContext(ctx context.Context, operation string, params ipc.Reques
 
 // waitForV2Job polls the job until it ends or ctx is done.
 func waitForV2Job(ctx context.Context, jobID string) (ipc.V2Response, error) {
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
+	delay := 5 * time.Millisecond
+	const maxDelay = 100 * time.Millisecond
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
 	for {
 		response, err := sendV2(ipc.V2Request{Method: "job.get", JobID: jobID})
 		if err != nil {
@@ -126,11 +134,13 @@ func waitForV2Job(ctx context.Context, jobID string) (ipc.V2Response, error) {
 				return ipc.V2Response{}, fmt.Errorf("job %s", response.Job.State)
 			}
 		}
+		timer.Reset(delay)
 		select {
 		case <-ctx.Done():
 			return ipc.V2Response{}, ctx.Err()
-		case <-ticker.C:
+		case <-timer.C:
 		}
+		delay = min(delay*2, maxDelay)
 	}
 }
 

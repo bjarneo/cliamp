@@ -35,7 +35,7 @@ func RadioStats(ctx context.Context, w io.Writer, jsonOutput bool) error {
 	names := make(chan map[string]string, 1)
 	playlists := make(chan radio.TrackStatistics, 1)
 	if !jsonOutput {
-		go func() { names <- channelNames() }()
+		go func() { names <- channelNames(ctx) }()
 		go func() { playlists <- fetchPlaylistStats(ctx) }()
 	}
 	stats, raw, err := radio.FetchStatistics(ctx)
@@ -71,8 +71,8 @@ func fetchPlaylistStats(ctx context.Context) radio.TrackStatistics {
 // list the radio provider plays from, so statistics keyed by slug can say
 // "NCS Drum & Bass" rather than "ncs-dnb". Slugs are readable on their own,
 // so a failed lookup just leaves the map empty.
-func channelNames() map[string]string {
-	tracks, err := resolve.URL(radio.BuiltinURL)
+func channelNames(ctx context.Context) map[string]string {
+	tracks, err := resolve.URLContext(ctx, radio.BuiltinURL)
 	if err != nil {
 		return nil
 	}

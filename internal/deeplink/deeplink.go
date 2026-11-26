@@ -308,33 +308,35 @@ func validateURL(raw string) (string, error) {
 	return raw, nil
 }
 
-// dangerousTrackSchemes name the transports a link must not reach through a
-// provider's answer.
-//
-// "ssh" is the one that matters: player.openSource routes an ssh:// path to
-// exec.Command("ssh", ...) against the host named in it, so whoever chose the
-// path chooses a host the user connects to. The rest only ever fail to
-// decode, but a provider has no legitimate reason to return one.
-var dangerousTrackSchemes = map[string]bool{
-	"ssh":        true,
-	"file":       true,
-	"data":       true,
-	"javascript": true,
+// allowedTrackSchemes lists the URL and provider schemes that a cliamp://
+// search result may hand to playback.
+var allowedTrackSchemes = map[string]bool{
+	"http":           true,
+	"https":          true,
+	"spotify":        true,
+	"qobuz":          true,
+	"tidal":          true,
+	"ytmusic":        true,
+	"youtube":        true,
+	"soundcloud":     true,
+	"mixcloud":       true,
+	"netease":        true,
+	"yandex":         true,
+	"navidrome":      true,
+	"subsonic":       true,
+	"lyrion":         true,
+	"plex":           true,
+	"jellyfin":       true,
+	"emby":           true,
+	"audiobookshelf": true,
+	"telegram":       true,
+	"bandcamp":       true,
+	"podcast":        true,
+	"radio":          true,
 }
 
-// AllowsTrackPath reports whether a track a provider resolved on behalf of a
-// link may be played.
-//
-// This is deliberately looser than the http-only rule applied to a url=
-// target. A provider answers with its own native paths, and some are not URLs
-// at all: Spotify returns "spotify:track:...", which player.pipeline hands to
-// a registered streamer before openSource is ever consulted. Refusing those
-// would break a legitimate search link for no gain, because the provider
-// built the path rather than forwarding a stranger's.
-//
-// What it refuses is a path that reaches the ssh client or the local
-// filesystem. A path with no scheme is opened with os.Open, which would let a
-// link probe for files through decode behavior.
+// AllowsTrackPath reports whether a track path from a provider search result
+// uses an allowed HTTP or provider scheme.
 func AllowsTrackPath(path string) bool {
 	path = strings.TrimSpace(path)
 	if path == "" || strings.HasPrefix(path, "-") {
@@ -347,17 +349,17 @@ func AllowsTrackPath(path string) bool {
 	if err != nil {
 		return false
 	}
-	// A one-character scheme is a Windows drive letter ("C:\music\a.mp3"),
-	// which is a local path rather than a transport.
-	if len(u.Scheme) < 2 {
+	scheme := strings.ToLower(u.Scheme)
+	if !allowedTrackSchemes[scheme] {
 		return false
 	}
-	return !dangerousTrackSchemes[strings.ToLower(u.Scheme)]
+	if (scheme == "http" || scheme == "https") && u.Host == "" {
+		return false
+	}
+	return true
 }
 
-// validateProvider requires a bare lowercase identifier. Provider keys are
-// looked up in a runtime map, so the charset restriction is what stops a
-// value shaped like a path or an option from ever being used as one.
+// validateProvider requires a bare lowercase identifier and rejects the local provider.
 func validateProvider(provider string) error {
 	if provider == "" {
 		return errors.New("cliamp URI is missing the provider parameter")
@@ -375,6 +377,9 @@ func validateProvider(provider string) error {
 		default:
 			return fmt.Errorf("provider %q contains disallowed characters (expected lowercase letters, digits, - and _)", provider)
 		}
+	}
+	if provider == "local" {
+		return errors.New(`provider "local" is not allowed in a cliamp:// link`)
 	}
 	return nil
 }

@@ -148,7 +148,7 @@ func (s *JobStore) CreateWithContext(parent context.Context, operation string) (
 	}
 	s.jobs[id] = &storedJob{ctx: ctx, job: job, cancel: cancel}
 	s.mu.Unlock()
-	return cloneJob(job), nil
+	return job, nil
 }
 
 // Start marks a queued job as running and returns its cancellation context.
