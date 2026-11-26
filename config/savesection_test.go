@@ -161,6 +161,40 @@ func TestSaveSectionRejectsLineBreaks(t *testing.T) {
 	}
 }
 
+func TestSaveSectionRejectsInvalidSectionAndKeys(t *testing.T) {
+	tests := []struct {
+		name    string
+		section string
+		kv      KeyValue
+	}{
+		{name: "empty section", section: "", kv: KeyValue{"url", `"a"`}},
+		{name: "whitespace section", section: "   ", kv: KeyValue{"url", `"a"`}},
+		{name: "newline in section", section: "nav\n[plex]", kv: KeyValue{"url", `"a"`}},
+		{name: "carriage return in section", section: "nav\r", kv: KeyValue{"url", `"a"`}},
+		{name: "open bracket in section", section: "nav[1", kv: KeyValue{"url", `"a"`}},
+		{name: "close bracket in section", section: "nav]1", kv: KeyValue{"url", `"a"`}},
+		{name: "empty key", section: "navidrome", kv: KeyValue{"", `"a"`}},
+		{name: "whitespace key", section: "navidrome", kv: KeyValue{" \t ", `"a"`}},
+		{name: "carriage return in key", section: "navidrome", kv: KeyValue{"url\r", `"a"`}},
+		{name: "equals in key", section: "navidrome", kv: KeyValue{"a=b", `"a"`}},
+		{name: "hash in key", section: "navidrome", kv: KeyValue{"#url", `"a"`}},
+		{name: "open bracket in key", section: "navidrome", kv: KeyValue{"[plex]", `"a"`}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := withHome(t)
+			const initial = "[navidrome]\nurl = \"old\"\n"
+			writeConfig(t, home, initial)
+			if err := SaveSection(tt.section, []KeyValue{tt.kv}, nil); err == nil {
+				t.Fatalf("SaveSection(%q, %+v) returned nil error", tt.section, tt.kv)
+			}
+			if got := readConfig(t, home); got != initial {
+				t.Errorf("config changed to\n%s", got)
+			}
+		})
+	}
+}
+
 func TestSaveSectionSecuresConfigFile(t *testing.T) {
 	configDir := filepath.Join(t.TempDir(), "config")
 	t.Setenv("CLIAMP_CONFIG_DIR", configDir)

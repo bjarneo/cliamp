@@ -10,6 +10,7 @@ package soundcloud
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"slices"
@@ -85,13 +86,55 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 	}, nil
 }
 
-// Tracks resolves a SoundCloud page URL (or scsearch query) via yt-dlp. The
-// playlistID is the value produced by Playlists.
+// Tracks resolves a SoundCloud page URL or scsearch query through yt-dlp.
+// The playlistID value comes from Playlists.
 func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
-	if playlistID == "" {
-		return nil, fmt.Errorf("soundcloud: empty playlist id")
+	if err := validatePlaylistID(playlistID); err != nil {
+		return nil, err
 	}
 	return resolve.ResolveYTDLBatch(playlistID, 0, 0, "")
+}
+
+// validatePlaylistID accepts only HTTPS SoundCloud URLs without userinfo
+// and scsearch queries.
+func validatePlaylistID(playlistID string) error {
+	if playlistID == "" {
+		return errors.New("soundcloud: empty playlist id")
+	}
+	if isSoundCloudSearch(playlistID) {
+		return nil
+	}
+	u, err := url.Parse(playlistID)
+	if err != nil || u.Scheme != "https" || u.Opaque != "" || u.User != nil {
+		return errors.New("soundcloud: invalid playlist id")
+	}
+	rawHost := u.Hostname()
+	if rawHost == "" || strings.HasPrefix(rawHost, ".") || strings.Contains(rawHost, "..") {
+		return errors.New("soundcloud: invalid playlist id")
+	}
+	host := playlist.NormalizeHost(rawHost)
+	if host != "soundcloud.com" && (!strings.HasSuffix(host, ".soundcloud.com") || len(host) <= len(".soundcloud.com")) {
+		return errors.New("soundcloud: invalid playlist id")
+	}
+	return nil
+}
+
+// isSoundCloudSearch reports whether id is a valid scsearch query.
+func isSoundCloudSearch(id string) bool {
+	rest, ok := strings.CutPrefix(id, "scsearch")
+	if !ok {
+		return false
+	}
+	count, query, ok := strings.Cut(rest, ":")
+	if !ok || strings.TrimSpace(query) == "" {
+		return false
+	}
+	for i := range len(count) {
+		if count[i] < '0' || count[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // SearchTracks runs `yt-dlp scsearch{limit}:{query}` and returns matched

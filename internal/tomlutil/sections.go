@@ -54,7 +54,7 @@ func ParseNamedSections(data []byte, sections []string, emit func(section string
 		if !ok {
 			continue
 		}
-		fields[strings.TrimSpace(key)] = Unquote(strings.TrimSpace(val))
+		fields[strings.TrimSpace(key)] = Unquote(stripComment(strings.TrimSpace(val)))
 	}
 	flush()
 }
@@ -85,9 +85,14 @@ func UnknownHeaders(data []byte, sections ...string) []string {
 // tableHeader returns a header line such as [[station]] # note without its
 // trailing comment. A # inside a quoted key is part of the key.
 func tableHeader(line string) string {
+	return stripComment(line)
+}
+
+// stripComment returns s without an unquoted trailing # comment.
+func stripComment(s string) string {
 	var quote byte
-	for i := 0; i < len(line); i++ {
-		switch c := line[i]; {
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
 		case quote == '"' && c == '\\':
 			i++
 		case quote != 0:
@@ -97,10 +102,10 @@ func tableHeader(line string) string {
 		case c == '"' || c == '\'':
 			quote = c
 		case c == '#':
-			return strings.TrimSpace(line[:i])
+			return strings.TrimSpace(s[:i])
 		}
 	}
-	return line
+	return s
 }
 
 // headerKey returns an array-table header in the [[name]] form, so that
@@ -110,12 +115,7 @@ func headerKey(header string) string {
 	if !strings.HasPrefix(header, "[[") || !strings.HasSuffix(header, "]]") {
 		return header
 	}
-	key := strings.TrimSpace(header[2 : len(header)-2])
-	if len(key) >= 2 && key[0] == '\'' && key[len(key)-1] == '\'' {
-		key = key[1 : len(key)-1]
-	} else {
-		key = Unquote(key)
-	}
+	key := Unquote(strings.TrimSpace(header[2 : len(header)-2]))
 	return "[[" + key + "]]"
 }
 
@@ -146,7 +146,14 @@ func (s *lineScanner) next(line string) bool {
 			if i >= len(line) {
 				return outside
 			}
-			i += len(s.closer) - 1
+			// Consume 4-quote and 5-quote endings so the final 3 quotes close
+			// the multiline string without opening a phantom single-line quote.
+			q := s.closer[0]
+			run := len(s.closer)
+			for run < 5 && i+run < len(line) && line[i+run] == q {
+				run++
+			}
+			i += run - 1
 			s.closer = ""
 			continue
 		}

@@ -52,3 +52,25 @@ func TestUnquoteMalformedFallback(t *testing.T) {
 		t.Fatalf("Unquote(%q) = %q, want %q", input, got, `\z`)
 	}
 }
+
+func TestUnquoteSingleQuotedLiteral(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "plain literal", input: `'hello'`, want: "hello"},
+		{name: "empty literal", input: `''`, want: ""},
+		{name: "preserves backslash escapes literally", input: `'C:\Users\new\tab'`, want: `C:\Users\new\tab`},
+		{name: "preserves double quotes", input: `'say "hi"'`, want: `say "hi"`},
+		{name: "single quote char unchanged", input: `'`, want: `'`},
+		{name: "unclosed single quote unchanged", input: `'hello`, want: `'hello`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Unquote(tt.input); got != tt.want {
+				t.Errorf("Unquote(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}

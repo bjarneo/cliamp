@@ -1008,10 +1008,15 @@ func sectionHeader(line string) (string, bool) {
 	return "", false
 }
 
-// canonicalSection returns the name that Load uses for a section header. It
-// ignores letter case, and [yt], [youtube] and [ytmusic] all configure the
-// same YouTube providers.
+// canonicalSection returns the name that Load uses for a section header.
+// It lowercases built-in section names and the plugins. prefix, keeps the
+// letter case of the plugin name after plugins., and maps yt and youtube to
+// ytmusic.
 func canonicalSection(name string) string {
+	const prefix = "plugins."
+	if len(name) >= len(prefix) && strings.EqualFold(name[:len(prefix)], prefix) {
+		return prefix + name[len(prefix):]
+	}
 	name = strings.ToLower(name)
 	switch name {
 	case "yt", "youtube":
@@ -1170,14 +1175,27 @@ func (c *Config) setTopLevel(key, val string) {
 	}
 }
 
+// validConfigKey reports whether key is valid as a TOML key name.
+func validConfigKey(key string) bool {
+	return strings.TrimSpace(key) != "" && !strings.ContainsAny(key, "\r\n=#[")
+}
+
+// validConfigSection reports whether section is valid as a TOML table header.
+func validConfigSection(section string) bool {
+	return strings.TrimSpace(section) != "" && !strings.ContainsAny(section, "\r\n[]")
+}
+
 // save updates only the given key in the existing config file, preserving
 // all other content, comments, and formatting. If the key doesn't exist,
 // it is appended. If no config file exists, one is created with just that key.
 // The file always ends with a newline. value is the TOML text of the value.
 // The typed savers SaveString, SaveBool, SaveFloat and SaveFloats format it.
 func save(key, value string) error {
-	if strings.ContainsAny(key+value, "\r\n") {
-		return fmt.Errorf("save %s: a key or value holds a line break", key)
+	if !validConfigKey(key) {
+		return fmt.Errorf("save %q: invalid config key", key)
+	}
+	if strings.ContainsAny(value, "\r\n") {
+		return fmt.Errorf("save %s: value holds a line break", key)
 	}
 	line := fmt.Sprintf("%s = %s", key, value)
 	return update(func(data string) string { return editTopLevel(data, key, line) })
@@ -1325,9 +1343,15 @@ type KeyValue struct {
 // the way Load reads them, so section "ytmusic" also edits [youtube] or [yt].
 // A missing section is added at the end, and a missing file is created.
 func SaveSection(section string, kv []KeyValue, owned []string) error {
+	if !validConfigSection(section) {
+		return fmt.Errorf("save [%q]: invalid section name", section)
+	}
 	for _, e := range kv {
-		if strings.ContainsAny(e.Key+e.Value, "\r\n") {
-			return fmt.Errorf("save [%s] %s: a key or value holds a line break", section, e.Key)
+		if !validConfigKey(e.Key) {
+			return fmt.Errorf("save [%s] %q: invalid config key", section, e.Key)
+		}
+		if strings.ContainsAny(e.Value, "\r\n") {
+			return fmt.Errorf("save [%s] %s: value holds a line break", section, e.Key)
 		}
 	}
 	return update(func(data string) string { return editSection(data, section, kv, owned) })
@@ -1464,9 +1488,15 @@ func (c Config) SeekStepLargeDuration() time.Duration {
 
 // clamp constrains all Config fields to their valid ranges.
 func (c *Config) clamp() {
+	if math.IsNaN(c.VolumeMin) || math.IsInf(c.VolumeMin, 0) {
+		c.VolumeMin = -50
+	}
 	c.VolumeMin = max(min(c.VolumeMin, 0), -90)
+	if math.IsNaN(c.Volume) || math.IsInf(c.Volume, 0) {
+		c.Volume = 0
+	}
 	c.Volume = max(min(c.Volume, 6), c.VolumeMin)
-	if c.Speed < 0.25 || c.Speed > 2.0 {
+	if math.IsNaN(c.Speed) || math.IsInf(c.Speed, 0) || c.Speed < 0.25 || c.Speed > 2.0 {
 		c.Speed = 1.0
 	}
 	c.SeekStepLarge = max(min(c.SeekStepLarge, 600), 6)

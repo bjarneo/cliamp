@@ -1,6 +1,8 @@
 package bandcamp
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -812,5 +814,157 @@ func TestTruncationWarnsOncePerOpen(t *testing.T) {
 	}
 	if n := count(); n != 1 {
 		t.Errorf("cached open warned %d times, want 1", n)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+func TestProbeStreamSanitizesErrors(t *testing.T) {
+	tests := []struct {
+		name      string
+		streamURL string
+		rtErr     error
+		wantClean string
+		forbidden []string
+	}{
+		{
+			name:      "sanitizes nested proxy error url",
+			streamURL: "https://bandcamp.com/api/subsonic/rest/stream?u=fan&t=SECRET_TOKEN&s=SECRET_SALT&id=42",
+			rtErr:     errors.New("resolve proxy for https://fan:secretpass@bandcamp.com/api/subsonic/rest/stream?u=fan&t=SECRET_TOKEN&s=SECRET_SALT: bad proxy"),
+			wantClean: "https://bandcamp.com/api/subsonic/rest/stream",
+			forbidden: []string{"SECRET_TOKEN", "SECRET_SALT", "secretpass", "u=fan"},
+		},
+		{
+			name:      "sanitizes signed cdn redirect url in error",
+			streamURL: "https://bandcamp.com/api/subsonic/rest/stream?t=SECRET_TOKEN&s=SECRET_SALT",
+			rtErr:     errors.New("redirect to https://t4.bcbits.com/stream/abc?p=0&ts=99&t=CDN_SIG failed"),
+			wantClean: "https://t4.bcbits.com/stream/abc",
+			forbidden: []string{"SECRET_TOKEN", "SECRET_SALT", "CDN_SIG"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			probeStreamWithTransport(context.Background(), &buf, "stream", tt.streamURL, roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return nil, tt.rtErr
+			}))
+			out := buf.String()
+			if !strings.Contains(out, tt.wantClean) {
+				t.Errorf("output = %q, want %q", out, tt.wantClean)
+			}
+			for _, secret := range tt.forbidden {
+				if strings.Contains(out, secret) {
+					t.Errorf("output %q leaked sensitive text %q", out, secret)
+				}
+			}
+		})
+	}
+}
+
+func TestRegisterFetchRejectsStaleGeneration(t *testing.T) {
+	srv := fakeServer(t, false, false, nil)
+	defer srv.Close()
+
+	p := newTestProvider(srv.URL)
+	gen := p.refreshGen
+	p.Refresh()
+
+	ctx, cancel, err := p.registerFetch(gen, &p.allCancel, time.Second)
+	if !errors.Is(err, errRefreshed) {
+		t.Fatalf("registerFetch() error = %v, want errRefreshed", err)
+	}
+	if ctx != nil || cancel != nil {
+		t.Errorf("registerFetch() returned non-nil ctx/cancel for stale generation")
+	}
+	p.mu.Lock()
+	slot := p.allCancel
+	p.mu.Unlock()
+	if slot != nil {
+		t.Errorf("allCancel was populated for a stale generation")
+	}
+}
+
+func TestFetchAllStaleGenerationDoesNotSetTruncationNotice(t *testing.T) {
+	// Refresh prevents a stale truncated fetch from setting p.allTruncated.
+	var prov atomic.Pointer[Provider]
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		prov.Load().Refresh()
+		var sb strings.Builder
+		sb.WriteString(`{"subsonic-response":{"status":"ok","searchResult3":{"song":[`)
+		for i := range allPageSize {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			fmt.Fprintf(&sb, `{"id":"s-%d","title":"T","artist":"A","album":"LP","track":%d,"duration":1}`, i, i)
+		}
+		sb.WriteString(`]}}}`)
+		_, _ = w.Write([]byte(sb.String()))
+	}))
+	defer srv.Close()
+
+	p := newTestProvider(srv.URL)
+	prov.Store(p)
+	gen := p.refreshGen
+
+	_, _, err := p.fetchAll(gen)
+	if !errors.Is(err, errRefreshed) {
+		t.Fatalf("fetchAll() error = %v, want errRefreshed", err)
+	}
+	if got := p.truncationNotice(); got != "" {
+		t.Errorf("truncationNotice() = %q, want empty after stale fetch", got)
+	}
+}
+
+func TestRandomTracksClonesBoundedBackingArray(t *testing.T) {
+	const total = randomSampleSize * 4
+	srv, _ := collectionServer(t, total, allPageSize, nil)
+	defer srv.Close()
+
+	p := newTestProvider(srv.URL)
+	tracks, err := p.Tracks(randomPurchasesID)
+	if err != nil {
+		t.Fatalf("Tracks(random) error: %v", err)
+	}
+	if len(tracks) != randomSampleSize {
+		t.Fatalf("len(tracks) = %d, want %d", len(tracks), randomSampleSize)
+	}
+	if cap(tracks) >= total {
+		t.Errorf("cap(tracks) = %d, want smaller than collection size %d so the full backing array is not pinned", cap(tracks), total)
+	}
+}
+
+func TestFetchAllCaseInsensitiveStableSort(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("songOffset") != "0" {
+			_, _ = w.Write([]byte(`{"subsonic-response":{"status":"ok","searchResult3":{"song":[]}}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"subsonic-response":{"status":"ok","searchResult3":{"song":[
+			{"id":"1","title":"Beta","artist":"zebra","album":"Album","track":1,"duration":10},
+			{"id":"2","title":"SecondSame","artist":"Alpha","album":"beta","track":1,"duration":10},
+			{"id":"3","title":"FirstSame","artist":"alpha","album":"Beta","track":1,"duration":10},
+			{"id":"4","title":"Track2","artist":"alpha","album":"alpha","track":2,"duration":10},
+			{"id":"5","title":"Track1","artist":"ALPHA","album":"ALPHA","track":1,"duration":10}
+		]}}}`))
+	}))
+	defer srv.Close()
+
+	p := newTestProvider(srv.URL)
+	tracks, err := p.Tracks(allPurchasesID)
+	if err != nil {
+		t.Fatalf("Tracks(all) error: %v", err)
+	}
+	got := make([]string, len(tracks))
+	for i, tr := range tracks {
+		got[i] = tr.Title
+	}
+	want := []string{"Track1", "Track2", "SecondSame", "FirstSame", "Beta"}
+	if !slices.Equal(got, want) {
+		t.Errorf("sorted titles = %v, want %v", got, want)
 	}
 }

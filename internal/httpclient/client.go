@@ -218,10 +218,25 @@ type socks5RoundTripper struct {
 	transport *http.Transport
 }
 
+// redactedRequestURL returns u with only scheme, host, and path so proxy errors
+// do not include userinfo or query parameters.
+func redactedRequestURL(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	clean := url.URL{
+		Scheme:  u.Scheme,
+		Host:    u.Host,
+		Path:    u.Path,
+		RawPath: u.RawPath,
+	}
+	return clean.String()
+}
+
 func (rt *socks5RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	decision, err := dialDecisionFor(req)
 	if err != nil {
-		return nil, fmt.Errorf("resolve proxy dial decision for %s: %w", req.URL, err)
+		return nil, fmt.Errorf("resolve proxy dial decision for %s: %w", redactedRequestURL(req.URL), err)
 	}
 	ctx := context.WithValue(req.Context(), dialDecisionKey{}, decision)
 	return rt.transport.RoundTrip(req.WithContext(ctx))
@@ -283,7 +298,7 @@ func transportProxy(req *http.Request) (*url.URL, error) {
 	stdFn, _ := currentEnvProxyFuncs()
 	u, err := stdFn(req.URL)
 	if err != nil {
-		return nil, fmt.Errorf("resolve proxy for %s: %w", req.URL, err)
+		return nil, fmt.Errorf("resolve proxy for %s: %w", redactedRequestURL(req.URL), err)
 	}
 	if u == nil {
 		return nil, nil

@@ -47,6 +47,55 @@ func TestFetchTagsCleansDuplicatesAndSortsByStationCount(t *testing.T) {
 	}
 }
 
+func TestFetchTagsSortsCaseInsensitivelyOnCountTies(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  []Tag
+		want []Tag
+	}{
+		{
+			name: "equal counts sort by lowercase name",
+			raw: []Tag{
+				{Name: "Zebra", StationCount: 50},
+				{Name: "ambient", StationCount: 50},
+				{Name: "Jazz", StationCount: 50},
+				{Name: "blues", StationCount: 50},
+			},
+			want: []Tag{
+				{Name: "ambient", StationCount: 50},
+				{Name: "blues", StationCount: 50},
+				{Name: "Jazz", StationCount: 50},
+				{Name: "Zebra", StationCount: 50},
+			},
+		},
+		{
+			name: "merged case duplicates update sort order",
+			raw: []Tag{
+				{Name: "Pop", StationCount: 40},
+				{Name: "rock", StationCount: 60},
+				{Name: "pop", StationCount: 30},
+			},
+			want: []Tag{
+				{Name: "Pop", StationCount: 70},
+				{Name: "rock", StationCount: 60},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := &directory{tags: tt.raw}
+			d.serve(t)
+			got, err := FetchTags()
+			if err != nil {
+				t.Fatalf("FetchTags: %v", err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("FetchTags() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFetchTagsWrapsTheOperationOnFailure(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "down", http.StatusInternalServerError)

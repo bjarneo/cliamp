@@ -492,3 +492,80 @@ func TestHomeRegionsFollowTheHomeCountry(t *testing.T) {
 		}
 	}
 }
+
+func TestGenresFetchesStatesWithRawCountryName(t *testing.T) {
+	tests := []struct {
+		name         string
+		code         string
+		rawCountry   string
+		displayName  string
+		wantEscaped  string
+		stateName    string
+		stationCount int
+	}{
+		{
+			name:         "United States preserves leading article for states query",
+			code:         "US",
+			rawCountry:   "The United States Of America",
+			displayName:  "United States Of America",
+			wantEscaped:  "/json/states/The%20United%20States%20Of%20America/",
+			stateName:    "California",
+			stationCount: 420,
+		},
+		{
+			name:         "Netherlands preserves leading article for states query",
+			code:         "NL",
+			rawCountry:   "The Netherlands",
+			displayName:  "Netherlands",
+			wantEscaped:  "/json/states/The%20Netherlands/",
+			stateName:    "Noord-Holland",
+			stationCount: 180,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotStatesPath string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/countries"):
+					_ = json.NewEncoder(w).Encode([]Country{
+						{Name: tt.rawCountry, Code: tt.code, StationCount: 1000},
+					})
+				case strings.Contains(r.URL.Path, "/states/"):
+					gotStatesPath = r.URL.EscapedPath()
+					if gotStatesPath == tt.wantEscaped {
+						_ = json.NewEncoder(w).Encode([]State{
+							{Name: tt.stateName, Country: tt.rawCountry, StationCount: tt.stationCount},
+						})
+						return
+					}
+					_ = json.NewEncoder(w).Encode([]State{})
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer srv.Close()
+			installCatalogClient(t, srv.URL)
+
+			p := newPlaceProvider(t, tt.code)
+			genres, err := p.Genres()
+			if err != nil {
+				t.Fatalf("Genres: %v", err)
+			}
+			if gotStatesPath != tt.wantEscaped {
+				t.Fatalf("states request path = %q, want %q", gotStatesPath, tt.wantEscaped)
+			}
+			if len(genres) != 2 {
+				t.Fatalf("genres = %+v, want state and country rows", genres)
+			}
+			if genres[0].ID != tt.code+"/"+tt.stateName || genres[0].Group != tt.displayName {
+				t.Errorf("state genre = %+v, want ID %q and Group %q", genres[0], tt.code+"/"+tt.stateName, tt.displayName)
+			}
+			wantCountryLabel := tt.displayName + " (1000)"
+			if genres[1].ID != tt.code || genres[1].Name != wantCountryLabel {
+				t.Errorf("country genre = %+v, want ID %q and Name %q", genres[1], tt.code, wantCountryLabel)
+			}
+		})
+	}
+}

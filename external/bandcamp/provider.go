@@ -361,11 +361,15 @@ func (p *Provider) truncationNotice() string {
 }
 
 // registerFetch builds a deadline-bounded context for a library fetch and
-// parks its cancel in slot so Refresh can abort it. The returned cancel
-// clears the slot as well as releasing the context.
-func (p *Provider) registerFetch(slot *context.CancelFunc, timeout time.Duration) (context.Context, context.CancelFunc) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+// stores its cancel function in slot so Refresh can abort it. It returns
+// errRefreshed when Refresh runs after the caller reads gen.
+func (p *Provider) registerFetch(gen uint64, slot *context.CancelFunc, timeout time.Duration) (context.Context, context.CancelFunc, error) {
 	p.mu.Lock()
+	if gen != p.refreshGen {
+		p.mu.Unlock()
+		return nil, nil, errRefreshed
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	*slot = cancel
 	p.mu.Unlock()
 	return ctx, func() {
@@ -373,7 +377,7 @@ func (p *Provider) registerFetch(slot *context.CancelFunc, timeout time.Duration
 		*slot = nil
 		p.mu.Unlock()
 		cancel()
-	}
+	}, nil
 }
 
 // stale reports whether Refresh has run since generation gen was read.
@@ -387,7 +391,10 @@ func (p *Provider) stale(gen uint64) bool {
 // Partial results are usable (some albums may fail on the beta) but neither
 // silent nor cached; it errors only when nothing loaded at all.
 func (p *Provider) fetchRecent(gen uint64) ([]playlist.Track, bool, error) {
-	ctx, cancel := p.registerFetch(&p.recentCancel, recentFetchTimeout)
+	ctx, cancel, err := p.registerFetch(gen, &p.recentCancel, recentFetchTimeout)
+	if err != nil {
+		return nil, false, err
+	}
 	defer cancel()
 
 	albums, err := p.AlbumListContext(ctx, subsonicapi.SortNewest, 0, recentAlbumCount)
@@ -461,7 +468,10 @@ func (p *Provider) fetchRecent(gen uint64) ([]playlist.Track, bool, error) {
 // page cap — is short of the real collection, so it is announced rather
 // than passed off as everything the fan owns.
 func (p *Provider) fetchAll(gen uint64) ([]playlist.Track, bool, error) {
-	ctx, cancel := p.registerFetch(&p.allCancel, allCrawlTimeout)
+	ctx, cancel, err := p.registerFetch(gen, &p.allCancel, allCrawlTimeout)
+	if err != nil {
+		return nil, false, err
+	}
 	defer cancel()
 
 	tracks := make([]playlist.Track, 0, allPageSize)
@@ -470,6 +480,9 @@ func (p *Provider) fetchAll(gen uint64) ([]playlist.Track, bool, error) {
 	var cutShort string
 	offset := 0
 	for page := 0; page < maxAllPages; page++ {
+		if p.stale(gen) {
+			return nil, false, errRefreshed
+		}
 		batch, err := p.SearchTracksFrom(ctx, "", offset, allPageSize)
 		if err != nil {
 			// Refresh cancels this context, so a stale generation explains
@@ -484,6 +497,9 @@ func (p *Provider) fetchAll(gen uint64) ([]playlist.Track, bool, error) {
 			// than making one bad page cost the whole crawl.
 			cutShort = fmt.Sprintf("the listing failed partway (%v)", err)
 			break
+		}
+		if p.stale(gen) {
+			return nil, false, errRefreshed
 		}
 		offset += len(batch)
 		if len(batch) == 0 {
@@ -512,6 +528,9 @@ func (p *Provider) fetchAll(gen uint64) ([]playlist.Track, bool, error) {
 			break
 		}
 	}
+	if p.stale(gen) {
+		return nil, false, errRefreshed
+	}
 	if !complete && cutShort == "" {
 		cutShort = fmt.Sprintf("the %d-page limit was reached", maxAllPages)
 	}
@@ -519,19 +538,37 @@ func (p *Provider) fetchAll(gen uint64) ([]playlist.Track, bool, error) {
 	// so keep it — but never silently. Recorded here, announced by the row
 	// that was opened, so a fresh crawl and a cache hit warn exactly once.
 	p.mu.Lock()
-	if cutShort == "" {
-		p.allTruncated = ""
-	} else {
-		p.allTruncated = fmt.Sprintf("bandcamp: showing %d purchases, not the whole collection — %s; press Ctrl+R to retry", len(tracks), cutShort)
+	if gen == p.refreshGen {
+		if cutShort == "" {
+			p.allTruncated = ""
+		} else {
+			p.allTruncated = fmt.Sprintf("bandcamp: showing %d purchases, not the whole collection — %s; press Ctrl+R to retry", len(tracks), cutShort)
+		}
 	}
 	p.mu.Unlock()
-	slices.SortStableFunc(tracks, func(a, b playlist.Track) int {
+	type keyedTrack struct {
+		track  playlist.Track
+		artist string
+		album  string
+	}
+	ordered := make([]keyedTrack, len(tracks))
+	for i, t := range tracks {
+		ordered[i] = keyedTrack{
+			track:  t,
+			artist: strings.ToLower(t.Artist),
+			album:  strings.ToLower(t.Album),
+		}
+	}
+	slices.SortStableFunc(ordered, func(a, b keyedTrack) int {
 		return cmp.Or(
-			strings.Compare(strings.ToLower(a.Artist), strings.ToLower(b.Artist)),
-			strings.Compare(strings.ToLower(a.Album), strings.ToLower(b.Album)),
-			cmp.Compare(a.TrackNumber, b.TrackNumber),
+			strings.Compare(a.artist, b.artist),
+			strings.Compare(a.album, b.album),
+			cmp.Compare(a.track.TrackNumber, b.track.TrackNumber),
 		)
 	})
+	for i, e := range ordered {
+		tracks[i] = e.track
+	}
 	return tracks, true, nil
 }
 
@@ -556,5 +593,5 @@ func (p *Provider) randomTracks() ([]playlist.Track, error) {
 	}
 	p.warnIfTruncated()
 	rand.Shuffle(len(all), func(i, j int) { all[i], all[j] = all[j], all[i] })
-	return all[:min(randomSampleSize, len(all))], nil
+	return slices.Clone(all[:min(randomSampleSize, len(all))]), nil
 }

@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/bjarneo/cliamp/config"
@@ -100,15 +102,29 @@ func Probe(ctx context.Context, w io.Writer, cfg config.BandcampConfig) error {
 	return nil
 }
 
-// redactURL strips any userinfo and query from a URL so it can be printed.
-// The configured endpoint is user-supplied and may carry proxy credentials.
+// redactURL strips userinfo, query, and fragment from a URL for safe display.
 func redactURL(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return "(unparsable URL)"
 	}
+	u.User = nil
 	u.RawQuery = ""
-	return u.Redacted()
+	u.ForceQuery = false
+	u.Fragment = ""
+	return u.String()
+}
+
+var urlTokenPattern = regexp.MustCompile(`(?i)[a-z][a-z0-9+.-]*://[^\s"'<>)\]]+`)
+
+// sanitizeProbeError removes query strings and userinfo from any URL in err.
+func sanitizeProbeError(err error) string {
+	msg := subsonicapi.SanitizeURLError(err).Error()
+	return urlTokenPattern.ReplaceAllStringFunc(msg, func(tok string) string {
+		trimmed := strings.TrimRight(tok, ":.,;")
+		suffix := tok[len(trimmed):]
+		return redactURL(trimmed) + suffix
+	})
 }
 
 // probeStream GETs a stream URL over the player's streaming transport
@@ -117,9 +133,13 @@ func redactURL(raw string) string {
 // status, content type, and a magic-byte sniff — never a URL query (it
 // carries auth, and post-redirect URLs are signed).
 func probeStream(ctx context.Context, w io.Writer, label, streamURL string) {
+	probeStreamWithTransport(ctx, w, label, streamURL, httpclient.Streaming.Transport)
+}
+
+func probeStreamWithTransport(ctx context.Context, w io.Writer, label, streamURL string, transport http.RoundTripper) {
 	var redirectHost string
 	client := &http.Client{
-		Transport: httpclient.Streaming.Transport,
+		Transport: transport,
 		Timeout:   30 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 10 {
@@ -139,9 +159,8 @@ func probeStream(ctx context.Context, w io.Writer, label, streamURL string) {
 	req.Header.Set("User-Agent", httpclient.UserAgent)
 	resp, err := client.Do(req)
 	if err != nil {
-		// A *url.Error carries the full URL, whose query holds the auth
-		// token (and, after the redirect, the CDN signature).
-		fmt.Fprintf(w, "%s: FAILED: %v\n", label, subsonicapi.SanitizeURLError(err))
+		// Strip query parameters and userinfo from every URL in err.
+		fmt.Fprintf(w, "%s: FAILED: %s\n", label, sanitizeProbeError(err))
 		return
 	}
 	defer resp.Body.Close()

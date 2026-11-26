@@ -147,6 +147,93 @@ func TestTracksRejectsEmptyID(t *testing.T) {
 	}
 }
 
+func TestValidatePlaylistID(t *testing.T) {
+	tests := []struct {
+		name    string
+		id      string
+		wantErr bool
+	}{
+		{name: "https root host", id: "https://soundcloud.com/alice/tracks"},
+		{name: "https www host", id: "https://www.soundcloud.com/alice/likes"},
+		{name: "https mobile host", id: "https://m.soundcloud.com/alice/reposts"},
+		{name: "https subdomain", id: "https://on.soundcloud.com/QSWjV6ABJR5SICzGB3"},
+		{name: "https mixed case host", id: "HTTPS://API.SoundCloud.COM/playlists/1"},
+		{name: "scsearch bare", id: "scsearch:ambient"},
+		{name: "scsearch numbered", id: "scsearch50:hip hop"},
+		{name: "empty", id: "", wantErr: true},
+		{name: "http scheme", id: "http://soundcloud.com/alice/tracks", wantErr: true},
+		{name: "file scheme", id: "file:///etc/passwd", wantErr: true},
+		{name: "ssh scheme", id: "ssh://attacker.example/tracks", wantErr: true},
+		{name: "ytsearch prefix", id: "ytsearch10:ambient", wantErr: true},
+		{name: "youtube host", id: "https://youtube.com/watch?v=dQw4w9WgXcQ", wantErr: true},
+		{name: "netease host", id: "https://music.163.com/#/playlist?id=1", wantErr: true},
+		{name: "suffix spoof host", id: "https://evil-soundcloud.com/alice/tracks", wantErr: true},
+		{name: "prefix spoof host", id: "https://soundcloud.com.evil.com/alice/tracks", wantErr: true},
+		{name: "leading dot host", id: "https://.soundcloud.com/alice/tracks", wantErr: true},
+		{name: "double dot host", id: "https://www..soundcloud.com/alice/tracks", wantErr: true},
+		{name: "userinfo present", id: "https://user:pass@soundcloud.com/alice/tracks", wantErr: true},
+		{name: "empty userinfo present", id: "https://@soundcloud.com/alice/tracks", wantErr: true},
+		{name: "opaque https url", id: "https:soundcloud.com/alice/tracks", wantErr: true},
+		{name: "scsearch without query", id: "scsearch:", wantErr: true},
+		{name: "scsearch whitespace query", id: "scsearch50:   ", wantErr: true},
+		{name: "scsearch non-digit count", id: "scsearchabc:ambient", wantErr: true},
+		{name: "scsearch negative count", id: "scsearch-1:ambient", wantErr: true},
+		{name: "scsearch without colon", id: "scsearch50", wantErr: true},
+		{name: "local path", id: "/etc/passwd", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validatePlaylistID(tt.id)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validatePlaylistID(%q) error = %v, wantErr %v", tt.id, err, tt.wantErr)
+			}
+			if err != nil && strings.Contains(err.Error(), "pass") {
+				t.Errorf("error leaks credential: %v", err)
+			}
+		})
+	}
+}
+
+func TestTracksValidatesPlaylistIDBeforeExec(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping Unix shell script test on Windows")
+	}
+	tmpDir := t.TempDir()
+	marker := filepath.Join(tmpDir, "invoked")
+	fakeYTDL := filepath.Join(tmpDir, "yt-dlp")
+	script := "#!/bin/sh\necho invoked > " + marker + "\nprintf '{\"title\":\"Track\",\"webpage_url\":\"https://soundcloud.com/a/b\"}\\n'\n"
+	if err := os.WriteFile(fakeYTDL, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", tmpDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	p := NewFromConfig(Config{Enabled: true})
+	rejected := []string{
+		"file:///etc/passwd",
+		"http://soundcloud.com/alice/tracks",
+		"ytsearch10:ambient",
+		"https://youtube.com/watch?v=1",
+		"https://music.163.com/#/playlist?id=1",
+		"https://user:pass@soundcloud.com/alice/tracks",
+	}
+	for _, id := range rejected {
+		if _, err := p.Tracks(id); err == nil {
+			t.Errorf("Tracks(%q) returned nil error, want rejection", id)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Fatalf("Tracks(%q) invoked yt-dlp despite invalid playlist id", id)
+		}
+	}
+
+	tracks, err := p.Tracks("https://soundcloud.com/alice/tracks")
+	if err != nil {
+		t.Fatalf("Tracks(valid URL) error = %v", err)
+	}
+	if len(tracks) != 1 || tracks[0].Title != "Track" {
+		t.Fatalf("Tracks(valid URL) = %+v, want 1 track", tracks)
+	}
+}
+
 func TestConfigIsSet(t *testing.T) {
 	if (Config{}).IsSet() {
 		t.Error("Config{} should not be set (opt-in)")

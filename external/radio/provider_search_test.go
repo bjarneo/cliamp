@@ -179,3 +179,57 @@ func TestProviderSearchStations(t *testing.T) {
 		})
 	}
 }
+
+func TestSearchCatalogReturnsFilteredCount(t *testing.T) {
+	tests := []struct {
+		name      string
+		stations  []CatalogStation
+		wantCount int
+		wantURLs  []string
+	}{
+		{
+			name: "excludes non-http stations from returned count",
+			stations: []CatalogStation{
+				{Name: "Good One", URL: "  HTTPS://one.example/stream "},
+				{Name: "Hostile SSH", URL: "ssh://attacker.example/cmd"},
+				{Name: "Hostile File", URL: "file:///etc/passwd"},
+				{Name: "Good Two", URL: "HTTP://two.example/live"},
+			},
+			wantCount: 2,
+			wantURLs:  []string{"https://one.example/stream", "http://two.example/live"},
+		},
+		{
+			name: "returns zero when all stations are filtered",
+			stations: []CatalogStation{
+				{Name: "Bad", URL: "ftp://example.com/stream"},
+			},
+			wantCount: 0,
+			wantURLs:  nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(tt.stations)
+			}))
+			defer srv.Close()
+			installCatalogClient(t, srv.URL)
+
+			p := newTestProvider(t)
+			count, err := p.SearchCatalog("test")
+			if err != nil {
+				t.Fatalf("SearchCatalog() error = %v", err)
+			}
+			if count != tt.wantCount {
+				t.Fatalf("SearchCatalog() count = %d, want %d", count, tt.wantCount)
+			}
+			for i, wantURL := range tt.wantURLs {
+				tracks, err := p.Tracks("s:" + itoa(i))
+				if err != nil || len(tracks) != 1 || tracks[0].Path != wantURL {
+					t.Errorf("Tracks(s:%d) = %+v, %v, want path %q", i, tracks, err, wantURL)
+				}
+			}
+		})
+	}
+}

@@ -246,3 +246,96 @@ name = "C"
 		t.Fatalf("UnknownHeaders = %v, want nil", got)
 	}
 }
+
+func TestParseNamedSectionsInlineCommentsAndSingleQuotes(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+		want map[string]string
+	}{
+		{
+			name: "double quoted value with trailing comment",
+			data: "[[station]]\nname = \"Radio A\" # primary\nurl = \"https://example.com/#/live\" # keeps hash inside quotes\n",
+			want: map[string]string{"name": "Radio A", "url": "https://example.com/#/live"},
+		},
+		{
+			name: "single quoted literal value with trailing comment",
+			data: "[[station]]\nname = 'Rock #1' # comment\npath = 'C:\\Music\\track.mp3' # windows path\n",
+			want: map[string]string{"name": "Rock #1", "path": `C:\Music\track.mp3`},
+		},
+		{
+			name: "bare value with trailing comment",
+			data: "[[station]]\nbitrate = 128 # kbps\nrecursive = false#tight comment\n",
+			want: map[string]string{"bitrate": "128", "recursive": "false"},
+		},
+		{
+			name: "escaped quote and backslash before comment",
+			data: "[[station]]\nname = \"Say \\\"hi #1\\\"\" # note\ntrail = \"dir\\\\\" # backslash\n",
+			want: map[string]string{"name": `Say "hi #1"`, "trail": `dir\`},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got []map[string]string
+			ParseSections([]byte(tt.data), "station", func(f map[string]string) {
+				got = append(got, f)
+			})
+			if len(got) != 1 || !reflect.DeepEqual(got[0], tt.want) {
+				t.Fatalf("ParseSections = %#v, want [%#v]", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseNamedSectionsMultilineFourAndFiveQuoteEndings(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+		want []string
+	}{
+		{
+			name: "four double quotes inside inline array",
+			data: "[[station]]\nname = \"A\"\ntags = [\"\"\"foo\"\"\"\"]\n[[station]]\nname = \"B\"\n",
+			want: []string{"A", "B"},
+		},
+		{
+			name: "five double quotes inside inline array",
+			data: "[[station]]\nname = \"A\"\ntags = [\"\"\"foo\"\"\"\"\"]\n[[station]]\nname = \"B\"\n",
+			want: []string{"A", "B"},
+		},
+		{
+			name: "four single quotes inside inline array",
+			data: "[[station]]\nname = \"A\"\ntags = ['''foo'''']\n[[station]]\nname = \"B\"\n",
+			want: []string{"A", "B"},
+		},
+		{
+			name: "five single quotes inside inline array",
+			data: "[[station]]\nname = \"A\"\ntags = ['''foo''''']\n[[station]]\nname = \"B\"\n",
+			want: []string{"A", "B"},
+		},
+		{
+			name: "multiline block ending with four quotes inside array",
+			data: "[[station]]\nname = \"A\"\ntags = [\n\"\"\"\n[NotAHeader]\nfoo\"\"\"\"\n]\n[[station]]\nname = \"B\"\n",
+			want: []string{"A", "B"},
+		},
+		{
+			name: "multiline literal block ending with five quotes inside array",
+			data: "[[station]]\nname = \"A\"\ntags = [\n'''\n[NotAHeader]\nfoo'''''\n]\n[[station]]\nname = \"B\"\n",
+			want: []string{"A", "B"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got []string
+			ParseNamedSections([]byte(tt.data), []string{"station"}, func(_ string, f map[string]string) {
+				got = append(got, f["name"])
+			})
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("ParseNamedSections = %v, want %v", got, tt.want)
+			}
+			if unknown := UnknownHeaders([]byte(tt.data), "station"); unknown != nil {
+				t.Fatalf("UnknownHeaders = %v, want nil", unknown)
+			}
+		})
+	}
+}

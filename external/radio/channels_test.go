@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // channelServer serves a channel list with one live channel and one song
@@ -158,5 +160,56 @@ func TestChannelClientUsesChannelTimeout(t *testing.T) {
 	}
 	if channelClient.Timeout != channelTimeout {
 		t.Fatalf("channelClient.Timeout = %v, want %v", channelClient.Timeout, channelTimeout)
+	}
+}
+
+func TestChannelProviderRefreshDropsInFlightChannels(t *testing.T) {
+	var calls atomic.Int32
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if calls.Add(1) == 1 {
+			close(started)
+			<-release
+			fmt.Fprint(w, `{"stations":[{"id":"stale","name":"Stale","stream":"https://radio.cliamp.stream/stale"}]}`)
+			return
+		}
+		fmt.Fprint(w, `{"stations":[{"id":"fresh","name":"Fresh","stream":"https://radio.cliamp.stream/fresh"}]}`)
+	}))
+	t.Cleanup(srv.Close)
+	installCatalogClient(t, srv.URL)
+
+	p := NewChannels()
+	done := make(chan error, 1)
+	go func() {
+		_, err := p.Playlists()
+		done <- err
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the first channel request")
+	}
+	p.Refresh()
+	unblock()
+	if err := <-done; err != nil {
+		t.Fatalf("first Playlists() error = %v", err)
+	}
+
+	infos, err := p.Playlists()
+	if err != nil {
+		t.Fatalf("second Playlists() error = %v", err)
+	}
+	if len(infos) != 1 || infos[0].ID != "fresh" {
+		t.Fatalf("Playlists() after Refresh = %+v, want fresh channel", infos)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Errorf("channel list requests = %d, want 2", got)
 	}
 }

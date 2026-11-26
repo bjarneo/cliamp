@@ -103,6 +103,7 @@ func New(surface Surface) *Globe {
 
 // Resize sets the character grid the globe is drawn into.
 func (g *Globe) Resize(cols, rows int) {
+	cols, rows = max(cols, 0), max(rows, 0)
 	if cols == g.cols && rows == g.rows {
 		return
 	}
@@ -214,11 +215,11 @@ func (g *Globe) project(lat, lon float64) (x, y, depth float64) {
 
 // Render draws the globe as Rows lines of Cols cells each.
 func (g *Globe) Render(marks []Mark, p Palette) string {
-	if g.stale {
-		g.prepare()
-	}
 	if g.cols <= 0 || g.rows <= 0 {
 		return ""
+	}
+	if g.stale {
+		g.prepare()
 	}
 	for i := range g.cells {
 		g.cells[i] = cell{r: ' '}

@@ -3,6 +3,7 @@ package ytdlcookies
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
 )
@@ -105,5 +106,65 @@ func TestArgsPassesPrivateCopyOfCookiesFile(t *testing.T) {
 	cleanup()
 	if _, err := os.Stat(got[1]); !os.IsNotExist(err) {
 		t.Errorf("copy %q still exists after cleanup: %v", got[1], err)
+	}
+}
+
+func TestCopyToTemp(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		missing bool
+		badTmp  bool
+		wantErr bool
+	}{
+		{name: "copies netscape cookies", content: "# Netscape HTTP Cookie File\n.example.com\tTRUE\t/\tTRUE\t0\tsid\tval\n"},
+		{name: "copies empty file", content: ""},
+		{name: "fails on missing source", missing: true, wantErr: true},
+		{name: "fails on missing temp dir", content: "secret", badTmp: true, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src := filepath.Join(t.TempDir(), "cookies.txt")
+			if !tt.missing {
+				if err := os.WriteFile(src, []byte(tt.content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tt.badTmp {
+				t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "does-not-exist"))
+			}
+
+			dst, err := copyToTemp(src)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("copyToTemp() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				if dst != "" {
+					t.Errorf("copyToTemp() returned path %q on error", dst)
+				}
+				return
+			}
+			defer os.Remove(dst)
+
+			if dst == src {
+				t.Errorf("copyToTemp() returned source path %q", dst)
+			}
+			got, err := os.ReadFile(dst)
+			if err != nil {
+				t.Fatalf("ReadFile(%q): %v", dst, err)
+			}
+			if string(got) != tt.content {
+				t.Errorf("copy content = %q, want %q", got, tt.content)
+			}
+			if runtime.GOOS != "windows" {
+				info, err := os.Stat(dst)
+				if err != nil {
+					t.Fatalf("Stat(%q): %v", dst, err)
+				}
+				if perm := info.Mode().Perm(); perm != 0o600 {
+					t.Errorf("temp file perm = %o, want 0600", perm)
+				}
+			}
+		})
 	}
 }

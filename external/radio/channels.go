@@ -55,8 +55,9 @@ func (c Channel) hasSongs() bool { return c.Tracks > 0 && c.TracksURL != "" }
 // channel. It is the view cliamp opens on. The Radio Browser directory stays
 // in the Radio provider.
 type ChannelProvider struct {
-	mu       sync.Mutex
-	channels []Channel // nil until the channel list loads
+	mu         sync.Mutex
+	channels   []Channel // nil until the channel list loads
+	generation uint64
 }
 
 // NewChannels creates a provider for the cliamp radio channels. It loads the
@@ -125,14 +126,17 @@ func (p *ChannelProvider) Tracks(id string) ([]playlist.Track, error) {
 func (p *ChannelProvider) Refresh() {
 	p.mu.Lock()
 	p.channels = nil
+	p.generation++
 	p.mu.Unlock()
 }
 
 // loadedChannels returns the channel list, and downloads it when no list is
 // loaded. A failed download leaves the list empty, so the next call retries.
+// A generation check prevents an in-flight download from storing stale data.
 func (p *ChannelProvider) loadedChannels() ([]Channel, error) {
 	p.mu.Lock()
 	channels := p.channels
+	generation := p.generation
 	p.mu.Unlock()
 	if channels != nil {
 		return channels, nil
@@ -145,7 +149,9 @@ func (p *ChannelProvider) loadedChannels() ([]Channel, error) {
 		return nil, fmt.Errorf("cliamp radio channels: %w", err)
 	}
 	p.mu.Lock()
-	p.channels = channels
+	if p.generation == generation && p.channels == nil {
+		p.channels = channels
+	}
 	p.mu.Unlock()
 	return channels, nil
 }

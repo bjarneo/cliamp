@@ -84,7 +84,7 @@ func Args(rawURL string) (args []string, cleanup func(), err error) {
 	return nil, cleanup, nil
 }
 
-// copyToTemp copies path to a new private temp file and returns its path.
+// copyToTemp writes the contents of path to a new private temp file and returns its path.
 func copyToTemp(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -94,12 +94,17 @@ func copyToTemp(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dst.Close()
-	if err := os.WriteFile(dst.Name(), data, 0o600); err != nil {
-		os.Remove(dst.Name())
+	name := dst.Name()
+	if _, err := dst.Write(data); err != nil {
+		_ = dst.Close()
+		_ = os.Remove(name)
 		return "", err
 	}
-	return dst.Name(), nil
+	if err := dst.Close(); err != nil {
+		_ = os.Remove(name)
+		return "", err
+	}
+	return name, nil
 }
 
 // ForURL returns the browser cookie source associated with rawURL. yt-dlp

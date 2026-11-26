@@ -98,12 +98,18 @@ func Lookup(ctx context.Context, embedded, artist, title string, sources ...Sour
 		return lines, nil
 	}
 	for _, source := range sources {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		sourceCtx, cancel := context.WithTimeout(ctx, sourceTimeout)
 		lines, err := source(sourceCtx)
 		cancel()
 		if err == nil && len(lines) > 0 {
 			return lines, nil
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	return fetch(ctx, artist, title)
 }
@@ -196,17 +202,23 @@ func fetchLRCLIB(ctx context.Context, query string) ([]Line, error) {
 		return nil, ErrNotFound
 	}
 
-	// Prefer synced lyrics.
+	// Prefer synced lyrics that contain at least one timestamped line.
 	for _, r := range results {
-		if r.SyncedLyrics != "" {
-			return parseLRC(r.SyncedLyrics), nil
+		if r.SyncedLyrics == "" {
+			continue
+		}
+		if lines := parseLRC(r.SyncedLyrics); len(lines) > 0 {
+			return lines, nil
 		}
 	}
 
-	// Fallback to plain lyrics (all lines at timestamp 0).
-	if results[0].PlainLyrics != "" {
+	// Fall back to the first result with non-empty plain lyrics.
+	for _, r := range results {
+		if strings.TrimSpace(r.PlainLyrics) == "" {
+			continue
+		}
 		var lines []Line
-		for raw := range strings.SplitSeq(results[0].PlainLyrics, "\n") {
+		for raw := range strings.SplitSeq(r.PlainLyrics, "\n") {
 			lines = append(lines, Line{Start: 0, Text: strings.TrimSpace(raw)})
 		}
 		return lines, nil
