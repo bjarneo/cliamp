@@ -1,9 +1,13 @@
 package player
 
 import (
+	"math"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/gopxl/beep/v2"
 )
 
 type sequenceStreamer struct {
@@ -211,5 +215,107 @@ func TestTapWaveformReadsAudiblePositionAfterRefill(t *testing.T) {
 	// written = 10, speakerFrames = 8, elapsed = 0 -> window ends at frame 2.
 	if want := []float64{0, 1}; !reflect.DeepEqual(buf, want) {
 		t.Fatalf("WaveformSamplesInto() = %v, want %v", buf, want)
+	}
+}
+
+func TestTapLargeWriteAndConcurrentReadsRaceFree(t *testing.T) {
+	// Write larger than ring capacity preserves the newest frames in order.
+	samples := [][2]float64{
+		{0, 0}, {1, 1}, {2, 2}, {3, 3}, {4, 4}, {5, 5}, {6, 6},
+	}
+	tp := newTap(&sequenceStreamer{samples: samples}, 4, 44100, 2)
+	out := make([][2]float64, len(samples))
+	if n, _ := tp.Stream(out); n != len(samples) {
+		t.Fatalf("Stream() = %d, want %d", n, len(samples))
+	}
+	stereo := make([][2]float64, 4)
+	if n := tp.StereoSamplesInto(stereo); n != 4 {
+		t.Fatalf("StereoSamplesInto() = %d, want 4", n)
+	}
+	want := [][2]float64{{3, 3}, {4, 4}, {5, 5}, {6, 6}}
+	if !reflect.DeepEqual(stereo, want) {
+		t.Fatalf("StereoSamplesInto() = %v, want %v", stereo, want)
+	}
+
+	// Concurrent reads and writes must stay race-free under -race.
+	liveTap := newTap(&fakeStreamer{val: [2]float64{0.5, -0.5}, count: 100000}, 128, 44100, 32)
+	var wg sync.WaitGroup
+	wg.Add(4)
+	go func() {
+		defer wg.Done()
+		buf := make([][2]float64, 64)
+		for range 300 {
+			liveTap.Stream(buf)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		buf := make([]float64, 64)
+		for range 300 {
+			liveTap.SamplesInto(buf)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		buf := make([]float64, 64)
+		for range 300 {
+			liveTap.WaveformSamplesInto(buf)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		buf := make([][2]float64, 64)
+		for range 300 {
+			liveTap.StereoSamplesInto(buf)
+		}
+	}()
+	wg.Wait()
+}
+
+func TestDurationAndFrameConversionsNoOverflow(t *testing.T) {
+	tests := []struct {
+		name      string
+		dur       time.Duration
+		sr        int
+		wantFrame int64
+	}{
+		{name: "zero duration", dur: 0, sr: 44100, wantFrame: 0},
+		{name: "negative duration", dur: -time.Second, sr: 44100, wantFrame: 0},
+		{name: "fractional second", dur: 5 * time.Millisecond, sr: 44100, wantFrame: 220},
+		{name: "100 hours at 192kHz", dur: 100 * time.Hour, sr: 192000, wantFrame: 100 * 3600 * 192000},
+		{name: "100 days at 192kHz", dur: 100 * 24 * time.Hour, sr: 192000, wantFrame: 100 * 86400 * 192000},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := durationToFrames(tt.dur, tt.sr); got != tt.wantFrame {
+				t.Fatalf("durationToFrames(%v, %d) = %d, want %d", tt.dur, tt.sr, got, tt.wantFrame)
+			}
+			if tt.wantFrame > 0 {
+				back := framesToDuration(tt.wantFrame, beep.SampleRate(tt.sr))
+				if back <= 0 {
+					t.Fatalf("framesToDuration(%d, %d) = %v, want positive duration", tt.wantFrame, tt.sr, back)
+				}
+				if diff := tt.dur - back; diff < 0 || diff >= time.Second/time.Duration(tt.sr)+time.Nanosecond {
+					t.Fatalf("round-trip duration = %v, want within 1 frame of %v", back, tt.dur)
+				}
+			}
+		})
+	}
+
+	// Verify WaveformSamplesInto does not overflow after a multi-day stall.
+	now := time.Unix(1, 0)
+	tp := newTap(&sequenceStreamer{samples: [][2]float64{{1, 1}, {2, 2}, {3, 3}, {4, 4}}}, 8, 192000, 2)
+	tp.now = func() time.Time { return now }
+	tp.Stream(make([][2]float64, 4))
+	now = now.Add(10 * 24 * time.Hour)
+	buf := make([]float64, 2)
+	if n := tp.WaveformSamplesInto(buf); n != 2 {
+		t.Fatalf("WaveformSamplesInto() = %d, want 2", n)
+	}
+	if !reflect.DeepEqual(buf, []float64{3, 4}) {
+		t.Fatalf("WaveformSamplesInto() after 10-day stall = %v, want [3 4]", buf)
+	}
+	if got := durationToFrames(time.Duration(math.MaxInt64), 192000); got <= 0 {
+		t.Fatalf("durationToFrames(MaxInt64, 192000) = %d, want positive", got)
 	}
 }

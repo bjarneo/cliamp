@@ -72,26 +72,52 @@ type replayReadCloser struct {
 	io.Closer
 }
 
-// parseMP3Gapless skips an ID3v2 tag, finds the first MPEG audio frame and
-// parses its gapless metadata. It returns the zero value when there is none.
-func parseMP3Gapless(r io.Reader) mp3Gapless {
-	br := bufio.NewReaderSize(r, 4096)
-	if hdr, err := br.Peek(10); err == nil && string(hdr[:3]) == "ID3" {
-		size := int(hdr[6]&0x7f)<<21 | int(hdr[7]&0x7f)<<14 | int(hdr[8]&0x7f)<<7 | int(hdr[9]&0x7f)
+func id3v2TagSize(hdr []byte) int {
+	size := int(hdr[6]&0x7f)<<21 | int(hdr[7]&0x7f)<<14 | int(hdr[8]&0x7f)<<7 | int(hdr[9]&0x7f)
+	size += 10
+	if hdr[5]&0x10 != 0 { // footer present
 		size += 10
-		if hdr[5]&0x10 != 0 { // footer present
-			size += 10
-		}
-		if _, err := br.Discard(size); err != nil {
-			return mp3Gapless{}
-		}
 	}
+	return size
+}
+
+// parseMP3Gapless skips an ID3v2 tag, finds the first MPEG audio frame, and
+// parses its gapless metadata. It returns the zero value when there is none.
+// Seekable readers jump over ID3v2 tags with Seek. Non-seekable readers skip
+// gapless parsing when the ID3v2 tag exceeds mp3SyncScan.
+func parseMP3Gapless(r io.Reader) mp3Gapless {
+	var hdr [10]byte
+	n, err := io.ReadFull(r, hdr[:])
+	if n == 0 || (err != nil && err != io.ErrUnexpectedEOF) {
+		return mp3Gapless{}
+	}
+	var src io.Reader
+	if n == len(hdr) && string(hdr[:3]) == "ID3" {
+		size := id3v2TagSize(hdr[:])
+		if s, ok := r.(io.ReadSeeker); ok {
+			if _, err := s.Seek(int64(size-len(hdr)), io.SeekCurrent); err != nil {
+				return mp3Gapless{}
+			}
+			src = s
+		} else {
+			if size > mp3SyncScan {
+				return mp3Gapless{}
+			}
+			if _, err := io.CopyN(io.Discard, r, int64(size-len(hdr))); err != nil {
+				return mp3Gapless{}
+			}
+			src = r
+		}
+	} else {
+		src = io.MultiReader(bytes.NewReader(hdr[:n]), r)
+	}
+	br := bufio.NewReaderSize(src, 4096)
 	for range mp3SyncScan {
-		hdr, err := br.Peek(4)
+		fh, err := br.Peek(4)
 		if err != nil {
 			return mp3Gapless{}
 		}
-		if mp3FrameHeaderValid(hdr) {
+		if mp3FrameHeaderValid(fh) {
 			frame, _ := br.Peek(mp3FrameProbe)
 			return parseMP3Frame(frame)
 		}

@@ -16,7 +16,8 @@ import (
 // A measured length always beats the metadata hint, because feeds understate
 // an episode's length by however much advertising was inserted.
 func TestNavStreamerLenPrefersProbedLength(t *testing.T) {
-	s := &navFFmpegStreamer{ffmpegPipe: ffmpegPipe{pipeReport: pipeReport{total: 1000}}}
+	s := &navFFmpegStreamer{}
+	s.setTotal(1000)
 
 	if got := s.Len(); got != 1000 {
 		t.Errorf("Len() = %d before probing, want the metadata hint 1000", got)
@@ -30,7 +31,8 @@ func TestNavStreamerLenPrefersProbedLength(t *testing.T) {
 }
 
 func TestNavStreamerLenIgnoresFailedProbe(t *testing.T) {
-	s := &navFFmpegStreamer{ffmpegPipe: ffmpegPipe{pipeReport: pipeReport{total: 1000}}}
+	s := &navFFmpegStreamer{}
+	s.setTotal(1000)
 
 	// probeFrames returns 0 when ffprobe is missing or the file is gone.
 	s.probed.Store(0)

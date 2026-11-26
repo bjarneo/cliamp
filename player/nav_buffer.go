@@ -429,7 +429,16 @@ func (r *navReader) Close() error {
 // The path is only valid until Close removes the file, so a caller must treat
 // a vanished file as an ordinary failure rather than a bug.
 func (b *navBuffer) completedPath() (string, bool) {
-	<-b.downloadDone
+	return b.completedPathContext(context.Background())
+}
+
+// completedPathContext waits for downloadDone or ctx cancellation.
+func (b *navBuffer) completedPathContext(ctx context.Context) (string, bool) {
+	select {
+	case <-b.downloadDone:
+	case <-ctx.Done():
+		return "", false
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.closed || !b.done || b.err != nil || b.path == "" {

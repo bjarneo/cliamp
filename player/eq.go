@@ -32,7 +32,27 @@ func newBiquad(s beep.Streamer, freq, q float64, gain *atomic.Uint64, sr float64
 	return &biquad{s: s, freq: freq, q: q, gain: gain, sr: sr}
 }
 
+func (b *biquad) resetState() {
+	b.x1 = [2]float64{}
+	b.x2 = [2]float64{}
+	b.y1 = [2]float64{}
+	b.y2 = [2]float64{}
+}
+
+func (b *biquad) bypassed(dB float64) bool {
+	return b.sr <= 0 || b.freq <= 0 || b.freq >= b.sr*0.495 || (dB > -0.1 && dB < 0.1) || math.IsNaN(dB) || math.IsInf(dB, 0)
+}
+
 func (b *biquad) calcCoeffs(dB float64) {
+	if b.bypassed(dB) {
+		b.resetState()
+		b.b0, b.b1, b.b2, b.a1, b.a2 = 1, 0, 0, 0, 0
+		if !math.IsNaN(dB) {
+			b.lastGain = dB
+			b.inited = true
+		}
+		return
+	}
 	if b.inited && dB == b.lastGain {
 		return
 	}
@@ -63,8 +83,9 @@ func (b *biquad) Stream(samples [][2]float64) (int, bool) {
 	n, ok := b.s.Stream(samples)
 	dB := math.Float64frombits(b.gain.Load())
 
-	// Skip processing when gain is effectively zero
-	if dB > -0.1 && dB < 0.1 {
+	// Bypass and clear filter history near zero gain or near Nyquist.
+	if b.bypassed(dB) {
+		b.resetState()
 		return n, ok
 	}
 
@@ -73,7 +94,20 @@ func (b *biquad) Stream(samples [][2]float64) (int, bool) {
 	for i := range n {
 		for ch := range 2 {
 			x := samples[i][ch]
+			if math.IsNaN(x) || math.IsInf(x, 0) {
+				b.x1[ch], b.x2[ch], b.y1[ch], b.y2[ch] = 0, 0, 0, 0
+				samples[i][ch] = 0
+				continue
+			}
 			y := b.b0*x + b.b1*b.x1[ch] + b.b2*b.x2[ch] - b.a1*b.y1[ch] - b.a2*b.y2[ch]
+			if math.IsNaN(y) || math.IsInf(y, 0) {
+				b.x1[ch], b.x2[ch], b.y1[ch], b.y2[ch] = 0, 0, 0, 0
+				samples[i][ch] = 0
+				continue
+			}
+			if math.Abs(y) < 1e-30 {
+				y = 0
+			}
 			b.x2[ch] = b.x1[ch]
 			b.x1[ch] = x
 			b.y2[ch] = b.y1[ch]

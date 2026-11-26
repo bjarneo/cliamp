@@ -233,12 +233,14 @@ func TestPlayerHooksSendYTDLPagesToYTDLP(t *testing.T) {
 	}}
 	engine := &player.Player{}
 	set.registerPlayerHooks(engine)
+	engine.SetPlaybackGeneration(1)
+	preloadGen := engine.BeginPreload()
 	for _, op := range []struct {
 		name string
 		open func(path string) error
 	}{
 		{name: "play", open: func(path string) error { return engine.PlayAtForGeneration(path, time.Minute, 0, 1) }},
-		{name: "preload", open: func(path string) error { return engine.PreloadForGeneration(path, time.Minute, 1) }},
+		{name: "preload", open: func(path string) error { return engine.PreloadForGeneration(path, time.Minute, preloadGen) }},
 	} {
 		t.Run(op.name, func(t *testing.T) {
 			err := op.open("https://www.youtube.com/watch?v=abc")

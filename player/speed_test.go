@@ -175,9 +175,9 @@ func TestSearchBestOffsetSparsePhaseFallback(t *testing.T) {
 			t.Fatalf("coarse score at %d = %v, want no usable candidates", off, score)
 		}
 	}
-	want := exhaustiveBestOffset(ss, expected)
-	if got := ss.searchBestOffset(expected); got != want || got != target {
-		t.Fatalf("searchBestOffset(%d) = %d, exhaustive = %d, target = %d", expected, got, want, target)
+	// When coarse search finds no candidates, return expected without an exhaustive scan.
+	if got := ss.searchBestOffset(expected); got != expected {
+		t.Fatalf("searchBestOffset(%d) = %d, want fallback to expected %d", expected, got, expected)
 	}
 }
 
@@ -217,6 +217,131 @@ func TestSearchBestOffsetNoAllocations(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Fatalf("searchBestOffset() allocations = %v, want 0", allocs)
+	}
+}
+
+func TestSearchBestOffsetSilentTailReturnsExpected(t *testing.T) {
+	tests := []struct {
+		name     string
+		tailVal  float64
+		expected int
+		want     int
+	}{
+		{name: "zero tail inside range", tailVal: 0, expected: tsSearch + 100, want: tsSearch + 100},
+		{name: "below energy threshold", tailVal: 1e-7, expected: tsSearch + 50, want: tsSearch + 50},
+		{name: "clamped below zero", tailVal: 0, expected: -10, want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ss := searchFixture(2*tsSearch+tsWin+300, tsSearch+200)
+			for i := range ss.tail {
+				ss.tail[i] = [2]float64{tt.tailVal, tt.tailVal}
+			}
+			if got := ss.searchBestOffset(tt.expected); got != tt.want {
+				t.Fatalf("searchBestOffset(%d) = %d, want %d", tt.expected, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSpeedStreamerOutputCompactionNoSteadyStateAllocs(t *testing.T) {
+	for _, ratio := range []float64{0.5, 1.5, 2.0} {
+		t.Run(fmt.Sprintf("%.1fx", ratio), func(t *testing.T) {
+			src := &sineStreamer{freq: 440, sr: 44100, count: 1_000_000}
+			var speed atomic.Uint64
+			speed.Store(math.Float64bits(ratio))
+			ss := newSpeedStreamer(src, &speed)
+			out := make([][2]float64, 1024)
+			initialCap := cap(ss.out)
+
+			// Warm up the first frame.
+			if n, ok := ss.Stream(out); n != len(out) || !ok {
+				t.Fatalf("warmup Stream() = (%d, %v)", n, ok)
+			}
+			allocs := testing.AllocsPerRun(20, func() {
+				if n, ok := ss.Stream(out); n != len(out) || !ok {
+					t.Fatalf("Stream() = (%d, %v)", n, ok)
+				}
+			})
+			if allocs != 0 {
+				t.Fatalf("steady-state Stream allocations = %v, want 0", allocs)
+			}
+			if cap(ss.out) != initialCap {
+				t.Fatalf("out buffer grew from %d to %d", initialCap, cap(ss.out))
+			}
+		})
+	}
+}
+
+func TestSpeedStreamerReset(t *testing.T) {
+	src := &sineStreamer{freq: 440, sr: 44100, count: 100000}
+	var speed atomic.Uint64
+	speed.Store(math.Float64bits(1.5))
+	ss := newSpeedStreamer(src, &speed)
+	out := make([][2]float64, 1024)
+	if n, ok := ss.Stream(out); n != len(out) || !ok {
+		t.Fatalf("Stream() = (%d, %v)", n, ok)
+	}
+	if !ss.tailValid || ss.inN == 0 || ss.outWr == 0 {
+		t.Fatalf("expected populated WSOLA state before Reset: tailValid=%v inN=%d outWr=%d", ss.tailValid, ss.inN, ss.outWr)
+	}
+
+	ss.Reset()
+	if ss.tailValid || ss.inN != 0 || ss.inPos != 0 || ss.outRd != 0 || ss.outWr != 0 {
+		t.Fatalf("Reset left state: tailValid=%v inN=%d inPos=%v outRd=%d outWr=%d", ss.tailValid, ss.inN, ss.inPos, ss.outRd, ss.outWr)
+	}
+	for i, v := range ss.tail {
+		if v != ([2]float64{}) {
+			t.Fatalf("tail[%d] = %v after Reset, want zero", i, v)
+		}
+	}
+	for i, v := range ss.in {
+		if v != ([2]float64{}) {
+			t.Fatalf("in[%d] = %v after Reset, want zero", i, v)
+		}
+	}
+	for i, v := range ss.out {
+		if v != ([2]float64{}) {
+			t.Fatalf("out[%d] = %v after Reset, want zero", i, v)
+		}
+	}
+}
+
+func TestWSOLAFrameClampsShortTail(t *testing.T) {
+	tests := []struct {
+		name      string
+		totalIn   int
+		wantValid int
+	}{
+		{name: "exact sequence length", totalIn: tsSeq, wantValid: 0},
+		{name: "partial tail near EOF", totalIn: tsSeq + 100, wantValid: 100},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var speed atomic.Uint64
+			speed.Store(math.Float64bits(1.5))
+			ss := newSpeedStreamer(&fakeStreamer{val: [2]float64{0.25, -0.25}, count: tt.totalIn}, &speed)
+			// Pre-fill stale values beyond totalIn to verify clamping and zeroing.
+			for i := range ss.in {
+				ss.in[i] = [2]float64{9, 9}
+			}
+			for i := range ss.tail {
+				ss.tail[i] = [2]float64{7, 7}
+			}
+			if !ss.wsolaFrame(1.5) {
+				t.Fatal("wsolaFrame() = false, want true")
+			}
+			for i := range tt.wantValid {
+				if ss.tail[i] != ([2]float64{0.25, -0.25}) {
+					t.Fatalf("tail[%d] = %v, want [0.25 -0.25]", i, ss.tail[i])
+				}
+			}
+			for i := tt.wantValid; i < tsOvlp; i++ {
+				if ss.tail[i] != ([2]float64{}) {
+					t.Fatalf("tail[%d] = %v, want zeroed remainder", i, ss.tail[i])
+				}
+			}
+		})
 	}
 }
 

@@ -102,6 +102,30 @@ func (ss *speedStreamer) passthrough(samples [][2]float64) (int, bool) {
 	return total, ok || total > 0
 }
 
+// Reset clears buffered WSOLA state after a track change or seek.
+func (ss *speedStreamer) Reset() {
+	if ss == nil {
+		return
+	}
+	clear(ss.in)
+	clear(ss.out)
+	ss.tail = [tsOvlp][2]float64{}
+	ss.tailValid = false
+	ss.inN = 0
+	ss.inPos = 0
+	ss.outRd = 0
+	ss.outWr = 0
+}
+
+func (ss *speedStreamer) compactOut() {
+	rem := ss.outWr - ss.outRd
+	if rem > 0 && ss.outRd > 0 {
+		copy(ss.out, ss.out[ss.outRd:ss.outWr])
+	}
+	ss.outRd = 0
+	ss.outWr = rem
+}
+
 func (ss *speedStreamer) drainOut(dst [][2]float64) int {
 	avail := ss.outWr - ss.outRd
 	n := min(len(dst), avail)
@@ -110,13 +134,11 @@ func (ss *speedStreamer) drainOut(dst [][2]float64) int {
 	}
 	copy(dst[:n], ss.out[ss.outRd:ss.outRd+n])
 	ss.outRd += n
-	if ss.outRd > 8192 {
-		rem := ss.outWr - ss.outRd
-		if rem > 0 {
-			copy(ss.out, ss.out[ss.outRd:ss.outWr])
-		}
+	if ss.outRd == ss.outWr {
 		ss.outRd = 0
-		ss.outWr = rem
+		ss.outWr = 0
+	} else if ss.outRd >= tsSeq {
+		ss.compactOut()
 	}
 	return n
 }
@@ -180,8 +202,11 @@ func (ss *speedStreamer) wsolaFrame(speed float64) bool {
 		return false
 	}
 
-	// Grow output buffer if needed.
-	if ss.outWr+tsSeq > cap(ss.out) {
+	// Compact consumed output before growing the output slice.
+	if ss.outWr+tsSeq > len(ss.out) && ss.outRd > 0 {
+		ss.compactOut()
+	}
+	if ss.outWr+tsSeq > len(ss.out) {
 		newOut := make([][2]float64, ss.outWr+tsSeq+4096)
 		copy(newOut[:ss.outWr], ss.out[:ss.outWr])
 		ss.out = newOut
@@ -205,8 +230,14 @@ func (ss *speedStreamer) wsolaFrame(speed float64) bool {
 	}
 	ss.outWr += tsSeq
 
-	// Save tail for next frame's crossfade.
-	copy(ss.tail[:], ss.in[srcOff+tsSeq:srcOff+tsWin])
+	// Copy available tail samples and zero any missing remainder.
+	tailStart := srcOff + tsSeq
+	tailEnd := min(srcOff+tsWin, ss.inN)
+	copied := 0
+	if tailStart < tailEnd {
+		copied = copy(ss.tail[:], ss.in[tailStart:tailEnd])
+	}
+	clear(ss.tail[copied:])
 	ss.tailValid = true
 
 	ss.inPos += float64(tsSeq) * speed
@@ -223,6 +254,15 @@ func (ss *speedStreamer) searchBestOffset(expected int) int {
 	hi := max(min(maxOff, expected+tsSearch), lo)
 
 	bestOff := min(max(expected, lo), hi)
+
+	var tailEnergy float64
+	for i := range tsOvlp {
+		tailEnergy += ss.tail[i][0]*ss.tail[i][0] + ss.tail[i][1]*ss.tail[i][1]
+	}
+	if tailEnergy < 1e-9 {
+		return bestOff
+	}
+
 	bestScore := ss.offsetScore(bestOff, 1)
 
 	// Score every offset using a strided subset of the overlap. Retaining a few
@@ -260,14 +300,6 @@ func (ss *speedStreamer) searchBestOffset(expected int) int {
 		refineLo := max(lo, candidate.off-tsCoarse+1)
 		refineHi := min(hi, candidate.off+tsCoarse-1)
 		for off := refineLo; off <= refineHi; off++ {
-			score := ss.offsetScore(off, 1)
-			if score > bestScore || (score == bestScore && score > 0 && off < bestOff) {
-				bestOff, bestScore = off, score
-			}
-		}
-	}
-	if topN == 0 {
-		for off := lo; off <= hi; off++ {
 			score := ss.offsetScore(off, 1)
 			if score > bestScore || (score == bestScore && score > 0 && off < bestOff) {
 				bestOff, bestScore = off, score

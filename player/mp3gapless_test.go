@@ -161,3 +161,140 @@ func TestMP3GaplessDecoderSeek(t *testing.T) {
 		t.Error("Seek past end succeeded")
 	}
 }
+
+type countingReadSeeker struct {
+	data      []byte
+	pos       int64
+	bytesRead int
+}
+
+func (c *countingReadSeeker) Read(p []byte) (int, error) {
+	if c.pos >= int64(len(c.data)) {
+		return 0, io.EOF
+	}
+	n := copy(p, c.data[c.pos:])
+	c.pos += int64(n)
+	c.bytesRead += n
+	return n, nil
+}
+
+func (c *countingReadSeeker) Seek(offset int64, whence int) (int64, error) {
+	var next int64
+	switch whence {
+	case io.SeekStart:
+		next = offset
+	case io.SeekCurrent:
+		next = c.pos + offset
+	case io.SeekEnd:
+		next = int64(len(c.data)) + offset
+	}
+	if next < 0 {
+		return 0, io.ErrUnexpectedEOF
+	}
+	c.pos = next
+	return next, nil
+}
+
+func (c *countingReadSeeker) Close() error { return nil }
+
+type nonSeekableCountingReader struct {
+	data      []byte
+	pos       int
+	bytesRead int
+}
+
+func (r *nonSeekableCountingReader) Read(p []byte) (int, error) {
+	if r.pos >= len(r.data) {
+		return 0, io.EOF
+	}
+	n := copy(p, r.data[r.pos:])
+	r.pos += n
+	r.bytesRead += n
+	return n, nil
+}
+
+func (r *nonSeekableCountingReader) Close() error { return nil }
+
+func makeID3v2MP3(tagBodySize int, frame []byte) []byte {
+	hdr := [10]byte{
+		'I', 'D', '3', 4, 0, 0,
+		byte((tagBodySize >> 21) & 0x7f),
+		byte((tagBodySize >> 14) & 0x7f),
+		byte((tagBodySize >> 7) & 0x7f),
+		byte(tagBodySize & 0x7f),
+	}
+	buf := make([]byte, 0, 10+tagBodySize+len(frame))
+	buf = append(buf, hdr[:]...)
+	buf = append(buf, make([]byte, tagBodySize)...)
+	buf = append(buf, frame...)
+	return buf
+}
+
+func TestReadMP3GaplessID3LimitsAndSeek(t *testing.T) {
+	frame := mp3TestFrame(mpeg1Stereo, 32, "Info", true, 576, 672)
+	wantGapless := mp3Gapless{skip: 1152 + 576 + 529, padding: 672 - 529}
+
+	tests := []struct {
+		name         string
+		seekable     bool
+		tagBodySize  int
+		wantGapless  mp3Gapless
+		maxBytesRead int
+	}{
+		{
+			name:         "seekable giant ID3 uses Seek without reading body",
+			seekable:     true,
+			tagBodySize:  256 << 10,
+			wantGapless:  wantGapless,
+			maxBytesRead: 8192,
+		},
+		{
+			name:         "non-seekable small ID3 parses gapless",
+			seekable:     false,
+			tagBodySize:  128,
+			wantGapless:  wantGapless,
+			maxBytesRead: 8192,
+		},
+		{
+			name:         "non-seekable giant ID3 caps RAM buffering",
+			seekable:     false,
+			tagBodySize:  256 << 10,
+			wantGapless:  mp3Gapless{},
+			maxBytesRead: 64,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw := makeID3v2MP3(tt.tagBodySize, frame)
+			if tt.seekable {
+				src := &countingReadSeeker{data: raw}
+				rc, got := readMP3Gapless(src)
+				if got != tt.wantGapless {
+					t.Fatalf("readMP3Gapless() = %+v, want %+v", got, tt.wantGapless)
+				}
+				if src.bytesRead > tt.maxBytesRead {
+					t.Fatalf("seekable read %d bytes during ID3 skip, want <= %d", src.bytesRead, tt.maxBytesRead)
+				}
+				replayed, err := io.ReadAll(rc)
+				if err != nil || !bytes.Equal(replayed, raw) {
+					t.Fatalf("replayed bytes mismatch (len=%d, want %d, err=%v)", len(replayed), len(raw), err)
+				}
+				return
+			}
+
+			src := &nonSeekableCountingReader{data: raw}
+			rc, got := readMP3Gapless(src)
+			if got != tt.wantGapless {
+				t.Fatalf("readMP3Gapless() = %+v, want %+v", got, tt.wantGapless)
+			}
+			if src.bytesRead > tt.maxBytesRead {
+				t.Fatalf("non-seekable buffered %d bytes during giant ID3 check, want <= %d", src.bytesRead, tt.maxBytesRead)
+			}
+			replayed, err := io.ReadAll(rc)
+			if err != nil || !bytes.Equal(replayed, raw) {
+				t.Fatalf("replayed bytes mismatch (len=%d, want %d, err=%v)", len(replayed), len(raw), err)
+			}
+		})
+	}
+}

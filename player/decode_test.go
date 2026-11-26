@@ -3,8 +3,12 @@ package player
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/bjarneo/cliamp/internal/httpclient"
 	"github.com/bjarneo/cliamp/playlist"
@@ -119,5 +123,46 @@ func TestOpenSourceClassifiesHTTPResponse(t *testing.T) {
 				t.Fatalf("prefetch/live = %v/%v, want %v/%v (Content-Length %d)", src.prefetch, src.live, tt.prefetch, tt.live, src.contentLength)
 			}
 		})
+	}
+}
+
+func TestOpenSSHSourcePrefetchInterruptAndDoubleClose(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX shell fixture")
+	}
+	dir := t.TempDir()
+	writeExecutable(t, filepath.Join(dir, "ssh"), "#!/bin/sh\nexec sleep 30\n")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	src, err := openSSHSource("ssh://host/music/song.wav")
+	if err != nil {
+		t.Fatalf("openSSHSource() error = %v", err)
+	}
+	if !src.prefetch {
+		t.Fatal("openSSHSource() prefetch = false, want true")
+	}
+	rc, ok := src.body.(*sshReadCloser)
+	if !ok {
+		_ = src.body.Close()
+		t.Fatalf("body type = %T, want *sshReadCloser", src.body)
+	}
+
+	readDone := make(chan error, 1)
+	go func() {
+		_, err := rc.Read(make([]byte, 8))
+		readDone <- err
+	}()
+	rc.interrupt()
+	select {
+	case <-readDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("interrupt() did not unblock Read")
+	}
+
+	if err := rc.Close(); err != nil {
+		t.Fatalf("first Close() error = %v", err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Fatalf("second Close() error = %v", err)
 	}
 }

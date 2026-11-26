@@ -59,23 +59,31 @@ func newChainedOggStreamer(rc io.ReadCloser, targetSR beep.SampleRate, resampleQ
 	return cs, cs.format, nil
 }
 
+const vorbisBatchFrames = 1024
+
+type vorbisFloatReader interface {
+	Read([]float32) (int, error)
+}
+
 // initDecoder sets up the raw decoder and resampler for a new logical bitstream.
 func (cs *chainedOggStreamer) initDecoder(reader *oggvorbis.Reader) {
 	cs.reader = reader
 
-	channels := min(reader.Channels(), 2)
+	ch := reader.Channels()
+	channels := min(ch, 2)
 	cs.format = beep.Format{
 		SampleRate:  beep.SampleRate(reader.SampleRate()),
 		NumChannels: channels,
 		Precision:   2,
 	}
 
-	left, right := vorbisChannelIndices(reader.Channels())
+	left, right := vorbisChannelIndices(ch)
 	cs.raw = &rawVorbisStreamer{
-		reader: reader,
-		tmp:    make([]float32, reader.Channels()),
-		left:   left,
-		right:  right,
+		reader:   reader,
+		channels: ch,
+		tmp:      make([]float32, vorbisBatchFrames*ch),
+		left:     left,
+		right:    right,
 	}
 
 	cs.stream = resampleWithHeadroom(cs.resampleQuality, cs.format.SampleRate, cs.targetSR, cs.raw)
@@ -97,6 +105,12 @@ func (cs *chainedOggStreamer) notifyMeta() {
 // live radio — this prevents the gapless streamer from treating a partial
 // fill at a chain boundary as track exhaustion.
 func (cs *chainedOggStreamer) Stream(samples [][2]float64) (int, bool) {
+	if cs.err != nil {
+		return 0, false
+	}
+	if len(samples) == 0 {
+		return 0, true
+	}
 	total := 0
 	for total < len(samples) {
 		n, ok := cs.stream.Stream(samples[total:])
@@ -104,7 +118,11 @@ func (cs *chainedOggStreamer) Stream(samples [][2]float64) (int, bool) {
 		if ok {
 			continue
 		}
-		// Stream exhausted — chain to the next logical bitstream.
+		if cs.raw != nil && cs.raw.err != nil {
+			cs.err = cs.raw.err
+			break
+		}
+		// Chain to the next logical bitstream after clean EOS.
 		if err := cs.chain(); err != nil {
 			cs.err = err
 			break
@@ -129,7 +147,10 @@ func (cs *chainedOggStreamer) Err() error {
 	if cs.err != nil {
 		return cs.err
 	}
-	return cs.raw.err
+	if cs.raw != nil {
+		return cs.raw.err
+	}
+	return nil
 }
 
 // Len returns 0 — live streams have no known length.
@@ -146,12 +167,11 @@ func (cs *chainedOggStreamer) Close() error {
 	return cs.rc.Close()
 }
 
-// rawVorbisStreamer reads audio samples from an oggvorbis.Reader.
-// It mirrors beep's vorbis decoder but gives us direct access to the
-// underlying reader for Vorbis comment extraction.
+// rawVorbisStreamer reads batched audio frames from a Vorbis reader.
 type rawVorbisStreamer struct {
-	reader      *oggvorbis.Reader
-	tmp         []float32 // per-frame buffer (channels wide)
+	reader      vorbisFloatReader
+	channels    int
+	tmp         []float32 // multi-frame batch buffer
 	left, right int       // channel indices
 	err         error
 }
@@ -160,22 +180,39 @@ func (s *rawVorbisStreamer) Stream(samples [][2]float64) (int, bool) {
 	if s.err != nil {
 		return 0, false
 	}
-	var n int
-	for i := range samples {
-		dn, err := s.reader.Read(s.tmp)
-		if dn == 0 {
-			break
+	if len(samples) == 0 {
+		return 0, true
+	}
+	ch := s.channels
+	if ch <= 0 {
+		return 0, false
+	}
+	n := 0
+	for n < len(samples) {
+		wantFrames := len(samples) - n
+		maxFrames := len(s.tmp) / ch
+		if maxFrames == 0 {
+			maxFrames = 1
+			s.tmp = make([]float32, ch)
 		}
-		if dn < len(s.tmp) {
-			break // partial frame — treat as EOS
+		if wantFrames > maxFrames {
+			wantFrames = maxFrames
 		}
-		samples[i][0] = float64(s.tmp[s.left])
-		samples[i][1] = float64(s.tmp[s.right])
-		n++
+		dn, err := s.reader.Read(s.tmp[:wantFrames*ch])
+		frames := dn / ch
+		for i := range frames {
+			base := i * ch
+			samples[n+i][0] = float64(s.tmp[base+s.left])
+			samples[n+i][1] = float64(s.tmp[base+s.right])
+		}
+		n += frames
 		if err != nil {
 			if err != io.EOF {
 				s.err = err
 			}
+			break
+		}
+		if frames == 0 {
 			break
 		}
 	}

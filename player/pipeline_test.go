@@ -622,3 +622,158 @@ func TestBuildPipelineSendsFFmpegFormatsPastNativeDecoders(t *testing.T) {
 		}
 	}
 }
+
+func TestSetKnownDurationPreservesPositiveDuration(t *testing.T) {
+	tests := []struct {
+		name    string
+		initial time.Duration
+		hint    time.Duration
+		wantDur time.Duration
+		wantLen int
+	}{
+		{name: "zero hint keeps factory duration", initial: 3 * time.Minute, hint: 0, wantDur: 3 * time.Minute},
+		{name: "negative hint keeps factory duration", initial: 2 * time.Minute, hint: -time.Second, wantDur: 2 * time.Minute},
+		{name: "positive hint updates duration and ffmpeg total", initial: time.Minute, hint: 5 * time.Second, wantDur: 5 * time.Second, wantLen: 500},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			decoder := &localFFmpegStreamer{sr: beep.SampleRate(100)}
+			tp := &trackPipeline{decoder: decoder, knownDuration: tt.initial}
+			tp.setKnownDuration(tt.hint)
+			if tp.knownDuration != tt.wantDur {
+				t.Fatalf("knownDuration = %v, want %v", tp.knownDuration, tt.wantDur)
+			}
+			if decoder.Len() != tt.wantLen {
+				t.Fatalf("decoder.Len() = %d, want %d", decoder.Len(), tt.wantLen)
+			}
+		})
+	}
+}
+
+func TestSSHSourcePipelineBehavior(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX shell fixtures")
+	}
+	wavData := testWAV(t)
+	tests := []struct {
+		name         string
+		sshPayload   []byte
+		wantErr      string
+		wantSeekable bool
+		wantPrefetch bool
+	}{
+		{
+			name:         "native ssh wav is prefetched and non-seekable",
+			sshPayload:   wavData,
+			wantSeekable: false,
+			wantPrefetch: true,
+		},
+		{
+			name:       "corrupt ssh wav does not fall back to localFFmpegPipeline",
+			sshPayload: []byte("corrupt wav data"),
+			wantErr:    "decode ssh:",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			payloadPath := filepath.Join(dir, "payload.bin")
+			if err := os.WriteFile(payloadPath, tt.sshPayload, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			writeExecutable(t, filepath.Join(dir, "ssh"), "#!/bin/sh\ncat \"$TEST_SSH_PAYLOAD\"\n")
+			writeExecutable(t, filepath.Join(dir, "ffmpeg"), "#!/bin/sh\nprintf '\\000\\100\\000\\300'\n")
+			writeExecutable(t, filepath.Join(dir, "ffprobe"), "#!/bin/sh\nprintf '1\\n'\n")
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv("TEST_SSH_PAYLOAD", payloadPath)
+
+			p := &Player{sr: beep.SampleRate(44100), bitDepth: 16, resampleQuality: 1}
+			tp, err := p.buildPipeline("ssh://host/music/song.wav", 0, nil)
+			if tt.wantErr != "" {
+				if tp != nil {
+					tp.close()
+				}
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("buildPipeline() error = %v, want containing %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("buildPipeline() error = %v", err)
+			}
+			defer tp.close()
+			if tp.seekable != tt.wantSeekable {
+				t.Fatalf("seekable = %v, want %v", tp.seekable, tt.wantSeekable)
+			}
+			if (tp.livePrefetch != nil) != tt.wantPrefetch {
+				t.Fatalf("prefetch = %v, want %v", tp.livePrefetch != nil, tt.wantPrefetch)
+			}
+		})
+	}
+}
+
+func TestStreamTitleNotClearedOnBuildAndGatedByActivePipeline(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX shell fixtures")
+	}
+	fixtures := installPipelineRouteFixtures(t)
+	wavData := testWAV(t)
+	local := filepath.Join(fixtures, "tone.wav")
+	if err := os.WriteFile(local, wavData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16, resampleQuality: 1, gapless: &gaplessStreamer{}, suspended: true}
+	activeMeta := &pipelineMeta{}
+	activeMeta.latest.Store("Active Radio - Track 1")
+	activeDec := newPlaybackTestDecoder()
+	activeTP := &trackPipeline{decoder: activeDec, stream: activeDec, meta: activeMeta}
+	if err := p.playPipelineForGeneration(activeTP, 0); err != nil {
+		t.Fatalf("playPipelineForGeneration: %v", err)
+	}
+	defer func() {
+		p.suspended = true
+		p.Stop()
+	}()
+
+	if got := p.StreamTitle(); got != "Active Radio - Track 1" {
+		t.Fatalf("StreamTitle() after commit = %q, want %q", got, "Active Radio - Track 1")
+	}
+
+	// Building another pipeline must not clear the active streamTitle.
+	preloaded, err := p.buildPipeline(local, 0, nil)
+	if err != nil {
+		t.Fatalf("buildPipeline: %v", err)
+	}
+	defer preloaded.close()
+	if got := p.StreamTitle(); got != "Active Radio - Track 1" {
+		t.Fatalf("buildPipeline cleared active StreamTitle: got %q", got)
+	}
+
+	// Inactive pipeline metadata callback must not overwrite the active title.
+	staleMeta := &pipelineMeta{}
+	p.setStreamTitleFor(staleMeta, "Stale Station - Wrong")
+	if got := p.StreamTitle(); got != "Active Radio - Track 1" {
+		t.Fatalf("stale onMeta overwrote StreamTitle: got %q", got)
+	}
+
+	// Active pipeline metadata callback updates streamTitle.
+	p.setStreamTitleFor(activeMeta, "Active Radio - Track 2")
+	if got := p.StreamTitle(); got != "Active Radio - Track 2" {
+		t.Fatalf("active onMeta did not update StreamTitle: got %q", got)
+	}
+
+	// Committing a track without inline metadata clears streamTitle.
+	if err := p.playPipelineForGeneration(preloaded, 0); err != nil {
+		t.Fatalf("playPipelineForGeneration(preloaded): %v", err)
+	}
+	if got := p.StreamTitle(); got != "" {
+		t.Fatalf("StreamTitle() after committing local file = %q, want empty", got)
+	}
+
+	// Late metadata from the replaced pipeline must be ignored.
+	p.setStreamTitleFor(activeMeta, "Old Radio - Late")
+	if got := p.StreamTitle(); got != "" {
+		t.Fatalf("late onMeta from replaced pipeline updated StreamTitle: got %q", got)
+	}
+}
