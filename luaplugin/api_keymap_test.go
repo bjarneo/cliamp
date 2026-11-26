@@ -364,3 +364,44 @@ func TestNewRefusesReservedKeyAtTopLevel(t *testing.T) {
 		t.Fatalf("plugin log = %q, %v, want the reserved key warning", logged, err)
 	}
 }
+
+func TestEmitCommandTimeoutCancelsWaitingHandler(t *testing.T) {
+	oldTimeout, oldGrace := commandTimeout, commandWaitGrace
+	commandTimeout = 30 * time.Millisecond
+	commandWaitGrace = 20 * time.Millisecond
+	t.Cleanup(func() {
+		commandTimeout = oldTimeout
+		commandWaitGrace = oldGrace
+	})
+
+	m := newTestManager()
+	t.Cleanup(m.Close)
+	p := loadTestPlugin(t, m, "slowcmd", `
+		local p = plugin.register({name = "slowcmd", type = "hook"})
+		_G.ran = false
+		p:command("go", function()
+			_G.ran = true
+			return "ran"
+		end)
+	`)
+
+	// Hold the plugin lock past the command wait timeout so EmitCommand times out
+	// while the goroutine is still waiting to acquire p.mu.
+	p.mu.Lock()
+	_, err := m.EmitCommand(context.Background(), "slowcmd", "go", nil)
+	p.mu.Unlock()
+
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("EmitCommand() err = %v, want timeout error", err)
+	}
+
+	// Wait for the command goroutine to finish and verify it saw the cancelled
+	// context and skipped running the Lua callback.
+	m.wg.Wait()
+	p.mu.Lock()
+	ran := p.L.GetGlobal("ran")
+	p.mu.Unlock()
+	if ran != lua.LFalse {
+		t.Fatalf("command callback ran after EmitCommand timed out: ran = %v", ran)
+	}
+}

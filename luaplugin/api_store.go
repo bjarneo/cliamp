@@ -2,6 +2,7 @@ package luaplugin
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,14 +13,13 @@ import (
 	"github.com/bjarneo/cliamp/internal/appdir"
 )
 
+// maxStoreBytes caps the serialized JSON size of one plugin store.
+const maxStoreBytes = 1 << 20 // 1 MiB
+
 // pluginStore is a per-plugin key/value store persisted as a single JSON file
 // at ~/.local/share/cliamp/plugins/<name>/store.json. Values round-trip through
 // the same Lua<->JSON conversion as cliamp.json, so tables, numbers, strings,
 // and booleans all survive a restart.
-//
-// The cliamp.store functions reach only the store of their own plugin, keyed
-// by the installed name. The store is not secret: cliamp.fs can read and write
-// the store file of any plugin.
 type pluginStore struct {
 	mu     sync.Mutex
 	path   string         // store.json path; empty if the data dir is unavailable
@@ -49,7 +49,7 @@ func (s *pluginStore) load() {
 	}
 	data, err := os.ReadFile(s.path)
 	if err != nil {
-		return // missing file (first run) or unreadable — start empty
+		return // missing file or unreadable: start empty
 	}
 	var m map[string]any
 	if json.Unmarshal(data, &m) == nil && m != nil {
@@ -57,22 +57,21 @@ func (s *pluginStore) load() {
 	}
 }
 
-// save writes the in-memory state back to disk. Caller must hold s.mu.
-//
-// The store may hold plugin credentials (API keys, tokens), so the directory
-// and file are owner-only (0o700/0o600). The write is atomic: a temp file in
-// the same directory is renamed into place so a crash mid-write can never leave
-// a truncated or partially written store.
+// save marshals the store once, enforces maxStoreBytes, and writes the file
+// atomically. Caller must hold s.mu.
 func (s *pluginStore) save() error {
+	data, err := json.Marshal(s.data)
+	if err != nil {
+		return err
+	}
+	if len(data) > maxStoreBytes {
+		return fmt.Errorf("store exceeds %d byte limit", maxStoreBytes)
+	}
 	if s.path == "" {
 		return nil
 	}
 	dir := filepath.Dir(s.path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	data, err := json.Marshal(s.data)
-	if err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(dir, ".store-*.tmp")
@@ -96,8 +95,7 @@ func (s *pluginStore) save() error {
 }
 
 // registerStoreAPI adds cliamp.store.{get,set,delete,keys,clear} to the cliamp
-// table, backed by a per-plugin JSON file. No permission is required: a plugin
-// can only ever touch its own namespace.
+// table, backed by a per-plugin JSON file.
 func registerStoreAPI(L *lua.LState, cliamp *lua.LTable, pluginName string) {
 	store := newPluginStore(pluginName)
 	tbl := L.NewTable()
@@ -120,16 +118,23 @@ func registerStoreAPI(L *lua.LState, cliamp *lua.LTable, pluginName string) {
 	// cliamp.store.set(key, value) -> true or (nil, error)
 	L.SetField(tbl, "set", L.NewFunction(func(L *lua.LState) int {
 		key := L.CheckString(1)
-		val := luaToGo(L.CheckAny(2))
-		// Reject a value that JSON cannot hold, such as NaN, before it goes
-		// into the map. Otherwise each later save fails on it.
-		if _, err := json.Marshal(val); err != nil {
+		val, err := luaToGoCtx(callContext(L), L.CheckAny(2))
+		if err != nil {
 			return pushErr(L, err.Error())
 		}
 		store.mu.Lock()
 		store.load()
+		prev, hadPrev := store.data[key]
 		store.data[key] = val
-		err := store.save()
+		err = store.save()
+		if err != nil {
+			// Restore the previous value so memory matches disk.
+			if hadPrev {
+				store.data[key] = prev
+			} else {
+				delete(store.data, key)
+			}
+		}
 		store.mu.Unlock()
 		return pushResult(L, err)
 	}))
@@ -139,8 +144,14 @@ func registerStoreAPI(L *lua.LState, cliamp *lua.LTable, pluginName string) {
 		key := L.CheckString(1)
 		store.mu.Lock()
 		store.load()
-		delete(store.data, key)
+		prev, hadPrev := store.data[key]
+		if hadPrev {
+			delete(store.data, key)
+		}
 		err := store.save()
+		if err != nil && hadPrev {
+			store.data[key] = prev
+		}
 		store.mu.Unlock()
 		return pushResult(L, err)
 	}))
@@ -155,7 +166,7 @@ func registerStoreAPI(L *lua.LState, cliamp *lua.LTable, pluginName string) {
 		}
 		store.mu.Unlock()
 		sort.Strings(keys)
-		out := L.NewTable()
+		out := L.CreateTable(len(keys), 0)
 		for i, k := range keys {
 			out.RawSetInt(i+1, lua.LString(k))
 		}
@@ -166,9 +177,13 @@ func registerStoreAPI(L *lua.LState, cliamp *lua.LTable, pluginName string) {
 	// cliamp.store.clear() -> true or (nil, error)
 	L.SetField(tbl, "clear", L.NewFunction(func(L *lua.LState) int {
 		store.mu.Lock()
+		store.load()
+		prev := store.data
 		store.data = map[string]any{}
-		store.loaded = true
 		err := store.save()
+		if err != nil {
+			store.data = prev
+		}
 		store.mu.Unlock()
 		return pushResult(L, err)
 	}))

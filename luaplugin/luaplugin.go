@@ -4,9 +4,11 @@
 package luaplugin
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,8 +19,12 @@ import (
 	lua "github.com/yuin/gopher-lua"
 
 	"github.com/bjarneo/cliamp/internal/appdir"
+	"github.com/bjarneo/cliamp/internal/kittyimg"
 	"github.com/bjarneo/cliamp/internal/plugintrust"
 )
+
+// maxPluginSize caps the byte size of one Lua plugin file read at load.
+const maxPluginSize = 1 << 20 // 1 MiB
 
 // Plugin represents a single loaded Lua plugin.
 //
@@ -165,6 +171,7 @@ type Manager struct {
 	execs          *execManager
 	logger         *pluginLogger
 	mu             sync.RWMutex
+	closeOnce      sync.Once               // makes Close idempotent
 	closing        bool                    // set under mu.Lock during Close; blocks new async dispatch
 	queues         sync.WaitGroup          // tracks the queue worker of each loaded plugin
 	dropQueued     atomic.Bool             // set when closeDrainBudget ends; see runQueue
@@ -184,6 +191,8 @@ type Manager struct {
 // plugin runs, so a bind in the top-level chunk is refused too.
 // Returns a Manager (possibly with 0 plugins) and any non-fatal load error.
 func New(pluginCfg map[string]map[string]string, publisher EventPublisher, reservedKeys map[string]bool) (*Manager, error) {
+	// Capture write rules before any plugin executes.
+	initWriteRules()
 	m := newManager(resolveAllowedBinaries(pluginCfg), publisher)
 	m.reservedKeys = reservedKeys
 	privateAddrs, invalidAddrs := resolveAllowedPrivateAddrs(pluginCfg)
@@ -245,7 +254,12 @@ func New(pluginCfg map[string]map[string]string, publisher EventPublisher, reser
 				continue
 			}
 		}
-		if err := plugintrust.Verify(trustManifest, f.Name, f.Path); err != nil {
+		data, err := readPluginFile(f.Path)
+		if err != nil {
+			loadErrs = append(loadErrs, fmt.Sprintf("%s: %v", f.Name, err))
+			continue
+		}
+		if err := plugintrust.VerifyBytes(trustManifest, f.Name, data); err != nil {
 			if trustErr != nil {
 				loadErrs = append(loadErrs, fmt.Sprintf("%s: %v", f.Name, err))
 			} else {
@@ -254,7 +268,7 @@ func New(pluginCfg map[string]map[string]string, publisher EventPublisher, reser
 			continue
 		}
 
-		if _, err := m.loadPlugin(f.Path, f.Name, cfg, approvedPermissions(trustManifest, f)); err != nil {
+		if _, err := m.loadPluginBytes(f.Path, f.Name, data, cfg, approvedPermissions(trustManifest, f.Name, data)); err != nil {
 			loadErrs = append(loadErrs, fmt.Sprintf("%s: %v", f.Name, err))
 		}
 	}
@@ -267,18 +281,31 @@ func New(pluginCfg map[string]map[string]string, publisher EventPublisher, reser
 	return m, nil
 }
 
-// approvedPermissions returns the permissions that the user approved for f.
-// install and trust record the permissions that their prompt showed. An
-// approval without that record, such as one from an older cliamp, approves
-// what ReadMetadata finds in the file. The hash matches the approval, so that
-// is what the prompt showed for this content.
-func approvedPermissions(manifest plugintrust.Manifest, f PluginFile) map[string]bool {
-	perms, ok := manifest.Permissions[f.Name]
+// readPluginFile opens path as a regular file without blocking on a FIFO and
+// reads at most maxPluginSize bytes.
+func readPluginFile(path string) ([]byte, error) {
+	f, err := openRegular(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxPluginSize+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxPluginSize {
+		return nil, fmt.Errorf("plugin %s exceeds %d byte limit", path, maxPluginSize)
+	}
+	return data, nil
+}
+
+// approvedPermissions returns the permissions that the user approved for name.
+// When the manifest omits a recorded list, it inspects data in memory.
+func approvedPermissions(manifest plugintrust.Manifest, name string, data []byte) map[string]bool {
+	perms, ok := manifest.Permissions[name]
 	if !ok {
-		if data, err := os.ReadFile(f.Path); err == nil {
-			if md, err := ReadMetadata(string(data)); err == nil {
-				perms = md.Permissions
-			}
+		if md, err := ReadMetadataBytes(data); err == nil {
+			perms = md.Permissions
 		}
 	}
 	approved := make(map[string]bool, len(perms))
@@ -311,17 +338,19 @@ func newManager(allowed []string, publisher EventPublisher) *Manager {
 	}
 }
 
-// loadPlugin creates an isolated Lua VM, registers the cliamp API,
-// and executes the plugin file. Returns nil (no error) if the file
-// doesn't call plugin.register(). On success it adds the plugin to m.plugins
-// and starts its queue worker, so Close always stops the worker. approved
-// holds the permissions that the user approved. A plugin.register() call
-// with another permission fails.
+// loadPlugin reads path once as a regular file and runs it in an isolated VM.
 func (m *Manager) loadPlugin(path, name string, cfg map[string]string, approved map[string]bool) (*Plugin, error) {
-	L := lua.NewState(lua.Options{
-		SkipOpenLibs: false,
-	})
-	sandbox(L)
+	data, err := readPluginFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return m.loadPluginBytes(path, name, data, cfg, approved)
+}
+
+// loadPluginBytes creates an isolated sandboxed Lua VM, registers the cliamp
+// API, and executes data as the chunk named path.
+func (m *Manager) loadPluginBytes(path, name string, data []byte, cfg map[string]string, approved map[string]bool) (*Plugin, error) {
+	L := newSandboxedState()
 
 	p := &Plugin{
 		Name:        name,
@@ -346,7 +375,11 @@ func (m *Manager) loadPlugin(path, name string, cfg map[string]string, approved 
 	ctx, cancel := context.WithTimeout(context.Background(), loadTimeout)
 	p.mu.Lock()
 	L.SetContext(ctx)
-	err := L.DoFile(path)
+	fn, err := L.Load(bytes.NewReader(data), path)
+	if err == nil {
+		L.Push(fn)
+		err = L.PCall(0, lua.MultRet, nil)
+	}
 	if err != nil && ctx.Err() != nil {
 		err = fmt.Errorf("load did not finish in %v: %w", loadTimeout, err)
 	}
@@ -532,7 +565,7 @@ func (m *Manager) registerCliampAPI(L *lua.LState, p *Plugin) {
 	registerStoreAPI(L, cliamp, p.installName)
 	registerCryptoAPI(L, cliamp)
 	registerFSAPI(L, cliamp)
-	registerImageAPI(L, cliamp, p)
+	registerImageAPI(L, cliamp, p, m)
 	registerLayoutAPI(L, cliamp, p, m)
 	registerUIAPI(L, cliamp, p, m)
 	registerHTTPAPI(L, cliamp)
@@ -665,6 +698,8 @@ func (m *Manager) SetControlProvider(cp ControlProvider) {
 // It is safe to call while plugins run.
 func (m *Manager) SetUIProvider(up UIProvider) {
 	m.ui.Store(&up)
+	// Disable Kitty TTY writes when no interactive UI selector exists.
+	kittyimg.SetTTYEnabled(up.ShowSelect != nil)
 }
 
 // loadProvider returns a func that loads the provider that p holds. Before
@@ -685,73 +720,78 @@ func loadProvider[T any](p *atomic.Pointer[T]) func() *T {
 var closeDrainBudget = 2 * time.Second
 
 // Close fires the "app.quit" event synchronously and shuts down all Lua VMs.
+// It is safe to call more than once.
 func (m *Manager) Close() {
-	// Block new async dispatch before tearing anything down.
-	m.mu.Lock()
-	m.closing = true
-	m.mu.Unlock()
-	// Stop the commands that run. A command can hold the plugin lock for up
-	// to commandTimeout, and the queued events and app.quit need that lock.
-	m.cmdCancel(errClosed)
+	if m == nil {
+		return
+	}
+	m.closeOnce.Do(func() {
+		// Block new async dispatch before tearing anything down.
+		m.mu.Lock()
+		m.closing = true
+		m.mu.Unlock()
+		// Stop the commands that run. A command can hold the plugin lock for up
+		// to commandTimeout, and the queued events and app.quit need that lock.
+		m.cmdCancel(errClosed)
 
-	// Run the events that are already queued, so app.quit is the last event
-	// each plugin sees. Emit, EmitKey and queueVis send only under m.mu while
-	// closing is false, so no send can reach a closed queue. After
-	// closeDrainBudget, drop the calls that still wait. The call that runs
-	// then stops within hookTimeout.
-	for _, p := range m.plugins {
-		close(p.queue)
-	}
-	drained := make(chan struct{})
-	go func() {
-		m.queues.Wait()
-		close(drained)
-	}()
-	select {
-	case <-drained:
-	case <-time.After(closeDrainBudget):
-		m.dropQueued.Store(true)
-		<-drained
-	}
-
-	m.EmitSync(EventAppQuit, nil)
-	m.timers.stopAll()
-	m.execs.stopAll()
-	// Stop the Lua that still runs, such as a timer callback. It stops at
-	// its next instruction, and each later call returns errClosed. Thus the
-	// waits below do not take up to hookTimeout.
-	m.cancel(errClosed)
-	// Wait for any in-flight command goroutines to finish before closing
-	// the LStates they call into.
-	m.wg.Wait()
-	// Close each VM under its lock. A timer or exec callback that runs now
-	// finishes first, and each later call sees closed and returns errClosed.
-	for _, p := range m.plugins {
-		p.mu.Lock()
-		p.closed = true
-		p.L.Close()
-		p.mu.Unlock()
-	}
-	// No Lua runs from here on. Stop the timers and processes that a
-	// callback started after the first stop.
-	m.timers.stopAll()
-	m.execs.stopAll()
-	// Drop retained events only once every publisher has stopped, so a late
-	// callback cannot leave a retained value behind.
-	m.mu.RLock()
-	publisher := m.publisher
-	m.mu.RUnlock()
-	if publisher != nil {
+		// Run the events that are already queued, so app.quit is the last event
+		// each plugin sees. Emit, EmitKey and queueVis send only under m.mu while
+		// closing is false, so no send can reach a closed queue. After
+		// closeDrainBudget, drop the calls that still wait. The call that runs
+		// then stops within hookTimeout.
 		for _, p := range m.plugins {
-			if p.namespaceErr != nil {
-				continue // never owned the namespace, so nothing of its own is retained
-			}
-			publisher.ClearPrefix("plugin." + p.namespace + ".")
+			close(p.queue)
 		}
-	}
-	if m.logger != nil {
-		m.logger.close()
-	}
+		drained := make(chan struct{})
+		go func() {
+			m.queues.Wait()
+			close(drained)
+		}()
+		select {
+		case <-drained:
+		case <-time.After(closeDrainBudget):
+			m.dropQueued.Store(true)
+			<-drained
+		}
+
+		m.EmitSync(EventAppQuit, nil)
+		// Cancel the manager context right after app.quit so running timers,
+		// exec callbacks, and image workers stop before stopAll waits on them.
+		m.cancel(errClosed)
+		m.timers.stopAll()
+		m.execs.stopAll()
+		// Wait for any in-flight command goroutines to finish before closing
+		// the LStates they call into.
+		m.wg.Wait()
+		// Close each VM under its lock. A timer or exec callback that runs now
+		// finishes first, and each later call sees closed and returns errClosed.
+		for _, p := range m.plugins {
+			p.mu.Lock()
+			p.closed = true
+			p.L.Close()
+			p.mu.Unlock()
+		}
+		// No Lua runs from here on. Stop any timers and processes started right
+		// before the VMs closed.
+		m.timers.stopAll()
+		m.execs.stopAll()
+		// Drop retained events only once every publisher has stopped, so a late
+		// callback cannot leave a retained value behind.
+		m.mu.RLock()
+		publisher := m.publisher
+		m.mu.RUnlock()
+		if publisher != nil {
+			for _, p := range m.plugins {
+				if p.namespaceErr != nil {
+					continue // never owned the namespace, so nothing of its own is retained
+				}
+				publisher.ClearPrefix("plugin." + p.namespace + ".")
+			}
+		}
+		if m.logger != nil {
+			m.logger.close()
+		}
+	})
 }
 
 // PluginCount returns the number of loaded plugins.

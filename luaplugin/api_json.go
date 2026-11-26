@@ -1,10 +1,23 @@
 package luaplugin
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 
 	lua "github.com/yuin/gopher-lua"
 )
+
+const (
+	// maxLuaConvertDepth bounds table nesting accepted by luaToGo.
+	maxLuaConvertDepth = 64
+
+	// maxLuaConvertNodes caps total nodes visited during one Lua-to-Go
+	// conversion to block exponential DAG denial of service.
+	maxLuaConvertNodes = 10000
+)
+
+var errLuaConvertLimit = errors.New("table exceeds maximum node limit")
 
 // registerJSONAPI adds cliamp.json.{encode,decode} to the cliamp table.
 func registerJSONAPI(L *lua.LState, cliamp *lua.LTable) {
@@ -24,7 +37,10 @@ func registerJSONAPI(L *lua.LState, cliamp *lua.LTable) {
 	// cliamp.json.encode(table) -> string
 	L.SetField(tbl, "encode", L.NewFunction(func(L *lua.LState) int {
 		val := L.Get(1)
-		goVal := luaToGo(val)
+		goVal, err := luaToGoCtx(callContext(L), val)
+		if err != nil {
+			return pushErr(L, err.Error())
+		}
 		data, err := json.Marshal(goVal)
 		if err != nil {
 			return pushErr(L, err.Error())
@@ -36,19 +52,53 @@ func registerJSONAPI(L *lua.LState, cliamp *lua.LTable) {
 	L.SetField(cliamp, "json", tbl)
 }
 
-// maxLuaConvertDepth bounds table nesting accepted by luaToGo. Lua can build a
-// deeply nested table cheaply, and unbounded recursion here would overflow the
-// Go stack — a fatal error the plugin sandbox cannot contain.
-const maxLuaConvertDepth = 64
-
 func luaToGo(val lua.LValue) any {
-	return luaToGoValue(val, nil, 0)
+	v, _ := luaToGoCtx(context.Background(), val)
+	return v
 }
 
-// luaToGoValue converts val to its Go equivalent. Tables already being
-// converted on the current path (cycles) and tables nested deeper than
-// maxLuaConvertDepth become nil instead of recursing forever.
-func luaToGoValue(val lua.LValue, path map[*lua.LTable]struct{}, depth int) any {
+// luaToGoCtx converts val to a Go value while enforcing depth, node budget,
+// and context cancellation limits.
+func luaToGoCtx(ctx context.Context, val lua.LValue) (any, error) {
+	c := luaConverter{ctx: ctx}
+	out := c.convert(val, 0)
+	if c.err != nil {
+		return nil, c.err
+	}
+	return out, nil
+}
+
+type luaConverter struct {
+	ctx   context.Context
+	path  map[*lua.LTable]struct{}
+	nodes int
+	err   error
+}
+
+func (c *luaConverter) step() bool {
+	if c.err != nil {
+		return false
+	}
+	c.nodes++
+	if c.nodes > maxLuaConvertNodes {
+		c.err = errLuaConvertLimit
+		return false
+	}
+	if c.ctx != nil && c.nodes&0xff == 0 {
+		if err := c.ctx.Err(); err != nil {
+			c.err = err
+			return false
+		}
+	}
+	return true
+}
+
+// convert converts val to its Go equivalent. Cycles and tables nested deeper
+// than maxLuaConvertDepth become nil.
+func (c *luaConverter) convert(val lua.LValue, depth int) any {
+	if !c.step() {
+		return nil
+	}
 	switch v := val.(type) {
 	case *lua.LNilType:
 		return nil
@@ -62,32 +112,47 @@ func luaToGoValue(val lua.LValue, path map[*lua.LTable]struct{}, depth int) any 
 		if depth >= maxLuaConvertDepth {
 			return nil
 		}
-		if _, cyclic := path[v]; cyclic {
+		if _, cyclic := c.path[v]; cyclic {
 			return nil
 		}
-		if path == nil {
-			path = make(map[*lua.LTable]struct{})
+		if c.path == nil {
+			c.path = make(map[*lua.LTable]struct{})
 		}
-		// Tracking only the active path keeps repeated sibling references
-		// (a DAG) convertible while still catching true cycles.
-		path[v] = struct{}{}
-		defer delete(path, v)
+		// Track only the active path so repeated sibling references stay
+		// convertible within the total node budget.
+		c.path[v] = struct{}{}
+		defer delete(c.path, v)
 
-		// Detect if it's an array (sequential integer keys starting at 1).
 		maxN := v.MaxN()
 		if maxN > 0 {
-			arr := make([]any, 0, maxN)
+			capHint := min(maxN, maxLuaConvertNodes-c.nodes+1)
+			if capHint < 0 {
+				capHint = 0
+			}
+			arr := make([]any, 0, capHint)
 			for i := 1; i <= maxN; i++ {
-				arr = append(arr, luaToGoValue(v.RawGetInt(i), path, depth+1))
+				elem := c.convert(v.RawGetInt(i), depth+1)
+				if c.err != nil {
+					return nil
+				}
+				arr = append(arr, elem)
 			}
 			return arr
 		}
 		m := make(map[string]any)
-		v.ForEach(func(key, value lua.LValue) {
-			if ks, ok := key.(lua.LString); ok {
-				m[string(ks)] = luaToGoValue(value, path, depth+1)
+		for k, value := v.Next(lua.LNil); k != lua.LNil; k, value = v.Next(k) {
+			ks, ok := k.(lua.LString)
+			if !ok {
+				if !c.step() {
+					return nil
+				}
+				continue
 			}
-		})
+			m[string(ks)] = c.convert(value, depth+1)
+			if c.err != nil {
+				return nil
+			}
+		}
 		return m
 	default:
 		return nil

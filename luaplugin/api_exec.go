@@ -7,12 +7,39 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
 )
+
+// blockedYTDLPFlags lists yt-dlp flags that run commands or load untrusted code.
+var blockedYTDLPFlags = []string{
+	"--exec",
+	"--exec-before-download",
+	"--config-location",
+	"--config-locations",
+	"--plugin-dirs",
+}
+
+// blockedExecFlag returns the first disallowed flag for binary, or empty string.
+func blockedExecFlag(binary string, argv []string) string {
+	base := strings.TrimSuffix(strings.ToLower(filepath.Base(binary)), ".exe")
+	if base != "yt-dlp" {
+		return ""
+	}
+	for _, arg := range argv {
+		for _, flag := range blockedYTDLPFlags {
+			if arg == flag || strings.HasPrefix(arg, flag+"=") {
+				return flag
+			}
+		}
+	}
+	return ""
+}
 
 // Default binaries plugins may invoke via cliamp.exec.run(). Users can widen
 // this via [plugins] allowed_binaries = "yt-dlp,ffmpeg,ffprobe" in config.toml.
@@ -164,27 +191,25 @@ func (m *Manager) registerExecAPI(L *lua.LState, cliamp *lua.LTable, p *Plugin) 
 			return pushErr(L, "binary not in allowlist: "+binary)
 		}
 
+		// Read argv sequentially from 1..Len so order is deterministic and
+		// every element must be a string.
+		n := argsTbl.Len()
+		argv := make([]string, 0, n)
+		for i := 1; i <= n; i++ {
+			v := argsTbl.RawGetInt(i)
+			if v.Type() != lua.LTString {
+				return pushErr(L, "args must all be strings")
+			}
+			argv = append(argv, string(v.(lua.LString)))
+		}
+
+		if flag := blockedExecFlag(binary, argv); flag != "" {
+			return pushErr(L, "flag not allowed for "+binary+": "+flag)
+		}
+
 		path, err := exec.LookPath(binary)
 		if err != nil {
 			return pushErr(L, "binary not found on PATH: "+binary)
-		}
-
-		// Flatten argv. Every entry must be a string; reject non-strings rather
-		// than coercing, so plugins can't sneak nested tables into argv.
-		var argv []string
-		var argErr error
-		argsTbl.ForEach(func(_, v lua.LValue) {
-			if argErr != nil {
-				return
-			}
-			if v.Type() != lua.LTString {
-				argErr = errors.New("args must all be strings")
-				return
-			}
-			argv = append(argv, v.String())
-		})
-		if argErr != nil {
-			return pushErr(L, argErr.Error())
 		}
 
 		var onStdout, onStderr, onExit *lua.LFunction
@@ -271,6 +296,9 @@ func (m *Manager) registerExecAPI(L *lua.LState, cliamp *lua.LTable, p *Plugin) 
 			// Allow longer lines than default 64KiB for noisy tools like ffmpeg.
 			scanner.Buffer(make([]byte, 64*1024), 1<<20)
 			for scanner.Scan() {
+				if ctx.Err() != nil {
+					return
+				}
 				line := scanner.Text()
 				if outUsed.Add(int64(len(line)+1)) > execMaxOutputBytes {
 					return // The budget is used up. Drop the rest silently.

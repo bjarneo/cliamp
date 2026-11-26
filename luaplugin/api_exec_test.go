@@ -526,3 +526,122 @@ func TestExecBinaryNotOnPath(t *testing.T) {
 		t.Fatalf("err = %q, want PATH mention", s)
 	}
 }
+
+func TestExecBlocksDangerousYTDLPFlags(t *testing.T) {
+	tests := []struct {
+		name    string
+		binary  string
+		args    []string
+		blocked string
+	}{
+		{"--exec", "yt-dlp", []string{"--exec", "id", "https://example.com"}, "--exec"},
+		{"--exec=", "yt-dlp", []string{"--exec=id", "https://example.com"}, "--exec"},
+		{"--exec-before-download", "yt-dlp", []string{"--exec-before-download", "id"}, "--exec-before-download"},
+		{"--exec-before-download=", "yt-dlp", []string{"--exec-before-download=id"}, "--exec-before-download"},
+		{"--config-locations", "yt-dlp", []string{"--config-locations", "/tmp/cfg"}, "--config-locations"},
+		{"--config-locations=", "yt-dlp", []string{"--config-locations=/tmp/cfg"}, "--config-locations"},
+		{"--config-location", "yt-dlp", []string{"--config-location", "/tmp/cfg"}, "--config-location"},
+		{"--config-location=", "yt-dlp", []string{"--config-location=/tmp/cfg"}, "--config-location"},
+		{"--plugin-dirs", "yt-dlp", []string{"--plugin-dirs", "/tmp/plugs"}, "--plugin-dirs"},
+		{"--plugin-dirs=", "yt-dlp", []string{"--plugin-dirs=/tmp/plugs"}, "--plugin-dirs"},
+		{"flag after url", "yt-dlp", []string{"https://example.com", "--exec=id"}, "--exec"},
+		{"allowed flag passes flag check", "yt-dlp", []string{"--version"}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			L := newSandboxedState()
+			defer L.Close()
+			p := &Plugin{Name: "test", L: L, perms: map[string]bool{PermExec: true}}
+			m := newManager([]string{"yt-dlp"}, nil)
+			m.logger = newPluginLogger("")
+			cliamp := L.NewTable()
+			m.registerExecAPI(L, cliamp, p)
+			L.SetGlobal("cliamp", cliamp)
+
+			// Clear PATH so allowed commands stop at LookPath instead of launching yt-dlp.
+			t.Setenv("PATH", t.TempDir())
+			if err := L.DoString(fmt.Sprintf(`
+				_G.h, _G.err = cliamp.exec.run(%q, {%s}, {})
+			`, tt.binary, luaStringList(tt.args))); err != nil {
+				t.Fatal(err)
+			}
+			if L.GetGlobal("h") != lua.LNil {
+				t.Fatal("expected nil handle")
+			}
+			gotErr := L.GetGlobal("err").String()
+			if tt.blocked != "" {
+				if !strings.Contains(gotErr, "flag not allowed") || !strings.Contains(gotErr, tt.blocked) {
+					t.Errorf("err = %q, want flag not allowed for %q", gotErr, tt.blocked)
+				}
+			} else if strings.Contains(gotErr, "flag not allowed") {
+				t.Errorf("allowed flag was blocked: %q", gotErr)
+			}
+		})
+	}
+}
+
+func TestExecArgsIteratedSequentially(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses echo")
+	}
+	L, p, _, cleanup := newExecTestState(t, []string{"exec"})
+	defer cleanup()
+
+	p.mu.Lock()
+	err := L.DoString(`
+		_G.out = nil
+		_G.done = nil
+		local args = {"one", "two", "three", extra = "ignored"}
+		cliamp.exec.run("echo", args, {
+			on_stdout = function(line) _G.out = line end,
+			on_exit = function(code) _G.done = code end,
+		})
+	`)
+	p.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitExec(t, p, L, "done", 10*time.Second)
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if got := strings.TrimSpace(L.GetGlobal("out").String()); got != "one two three" {
+		t.Fatalf("stdout = %q, want %q", got, "one two three")
+	}
+}
+
+func TestExecPipeStreamStopsCallbacksAfterCancel(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses sh")
+	}
+	L, p, em, cleanup := newExecTestState(t, []string{"exec"})
+	defer cleanup()
+
+	p.mu.Lock()
+	err := L.DoString(`
+		_G.lines = 0
+		_G.done = nil
+		_G.h = cliamp.exec.run("sh", {"-c", "i=0; while [ $i -lt 5000 ]; do echo line-$i; i=$((i+1)); done"}, {
+			on_stdout = function()
+				_G.lines = _G.lines + 1
+				if _G.lines == 1 then
+					_G.h:cancel()
+				end
+			end,
+			on_exit = function(code) _G.done = code end,
+		})
+	`)
+	p.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitExec(t, p, L, "done", 10*time.Second)
+	em.stopAll()
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	lines := int(L.GetGlobal("lines").(lua.LNumber))
+	if lines >= 5000 {
+		t.Fatalf("on_stdout ran %d times after cancel, expected early stop", lines)
+	}
+}

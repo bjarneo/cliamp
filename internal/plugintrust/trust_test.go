@@ -2,10 +2,12 @@ package plugintrust
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"sync"
 	"testing"
 )
 
@@ -169,5 +171,110 @@ func TestApproveDropsRecordedPermissions(t *testing.T) {
 	}
 	if perms, ok := m.Permissions["example"]; ok {
 		t.Errorf("recorded permissions = %v, want none", perms)
+	}
+}
+
+func TestVerifyBytesAndHashBytes(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte(`plugin.register({name = "bytes", type = "hook"})`)
+	path := filepath.Join(dir, "bytes.lua")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fileHash, err := HashFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := HashBytes(content); got != fileHash {
+		t.Fatalf("HashBytes = %q, want HashFile %q", got, fileHash)
+	}
+
+	m := Manifest{
+		Version: 1,
+		Plugins: map[string]string{"bytes": HashBytes(content)},
+	}
+	tests := []struct {
+		name    string
+		plugin  string
+		data    []byte
+		wantErr error
+	}{
+		{"matching bytes", "bytes", content, nil},
+		{"modified bytes", "bytes", []byte("tampered"), ErrHashMismatch},
+		{"untrusted plugin", "other", content, ErrUntrusted},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := VerifyBytes(m, tt.plugin, tt.data); !errors.Is(err, tt.wantErr) {
+				t.Errorf("VerifyBytes() = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestConcurrentApproveAndRevoke(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("LockFile is a no-op placeholder on Windows")
+	}
+	dir := t.TempDir()
+	const count = 12
+	paths := make([]string, count)
+	for i := range count {
+		name := fmt.Sprintf("plug-%d", i)
+		p := filepath.Join(dir, name+".lua")
+		if err := os.WriteFile(p, []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		paths[i] = p
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, count*2)
+	for i := range count {
+		idx := i
+		name := fmt.Sprintf("plug-%d", idx)
+		wg.Go(func() {
+			if err := ApproveHash(dir, name, paths[idx], HashBytes([]byte(name)), []string{"control"}); err != nil {
+				errs <- err
+			}
+		})
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent ApproveHash: %v", err)
+	}
+
+	// Revoke the even plugins concurrently while keeping the odd ones.
+	var rwg sync.WaitGroup
+	rerrs := make(chan error, count)
+	for i := 0; i < count; i += 2 {
+		name := fmt.Sprintf("plug-%d", i)
+		rwg.Go(func() {
+			if err := Revoke(dir, name); err != nil {
+				rerrs <- err
+			}
+		})
+	}
+	rwg.Wait()
+	close(rerrs)
+	for err := range rerrs {
+		t.Fatalf("concurrent Revoke: %v", err)
+	}
+
+	m, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load after concurrent updates: %v", err)
+	}
+	for i := range count {
+		name := fmt.Sprintf("plug-%d", i)
+		_, ok := m.Plugins[name]
+		want := i%2 == 1
+		if ok != want {
+			t.Errorf("manifest has %s = %v, want %v", name, ok, want)
+		}
+	}
+	if _, err := os.Stat(ManifestPath(dir) + ".lock"); err != nil {
+		t.Errorf("expected lock file to exist: %v", err)
 	}
 }

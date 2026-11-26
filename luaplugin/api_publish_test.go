@@ -226,3 +226,34 @@ func TestManagerCloseClearsRetainedAfterPublishersStop(t *testing.T) {
 		}
 	}
 }
+
+func TestPluginPublishRetainedTopicCap(t *testing.T) {
+	manager := newTestManager()
+	t.Cleanup(manager.Close)
+	publisher := &capturePublisher{}
+	manager.SetEventPublisher(publisher)
+
+	p := loadTestPlugin(t, manager, "capped", `
+		local p = plugin.register({name = "capped", type = "hook"})
+		for i = 1, 32 do
+			local ok, err = p:publish("topic" .. i, {n = i}, {retain = true})
+			assert(ok, tostring(err))
+		end
+		-- Updating an existing retained topic succeeds.
+		local okUpdate, errUpdate = p:publish("topic1", {n = 99}, {retain = true})
+		assert(okUpdate, tostring(errUpdate))
+		-- A 33rd distinct retained topic fails.
+		_G.over_ok, _G.over_err = p:publish("topic33", {n = 33}, {retain = true})
+		-- Non-retained topics are unaffected by the retained cap.
+		_G.nonret_ok, _G.nonret_err = p:publish("topic33", {n = 33})
+	`)
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.L.GetGlobal("over_ok") != lua.LNil || !strings.Contains(p.L.GetGlobal("over_err").String(), "limit") {
+		t.Errorf("33rd retained topic = %v, %v; want nil and limit error", p.L.GetGlobal("over_ok"), p.L.GetGlobal("over_err"))
+	}
+	if p.L.GetGlobal("nonret_ok") != lua.LTrue {
+		t.Errorf("non-retained publish = %v, %v; want true", p.L.GetGlobal("nonret_ok"), p.L.GetGlobal("nonret_err"))
+	}
+}

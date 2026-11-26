@@ -2072,3 +2072,297 @@ func TestRenderErrorsLogOnceAndSkipStderr(t *testing.T) {
 		})
 	}
 }
+
+func TestUISelectSafeAfterCloseAndSequentialOptions(t *testing.T) {
+	m := newTestManager()
+	var (
+		gotOpts  []string
+		onDone   func(int)
+		onCancel func()
+	)
+	m.SetUIProvider(UIProvider{
+		ShowSelect: func(_ string, options []string, _ int, done func(int), cancel func()) {
+			gotOpts = slices.Clone(options)
+			onDone = done
+			onCancel = cancel
+		},
+	})
+	loadTestPlugin(t, m, "sel", `
+		plugin.register({name = "sel", type = "hook", permissions = {"ui"}})
+		local ok, err = cliamp.ui.select({
+			title = "Pick",
+			options = {"first", "second", "third", extra = "ignored"},
+			on_select = function(i) _G.choice = i end,
+			on_cancel = function() _G.cancelled = true end,
+		})
+		assert(ok, tostring(err))
+	`)
+	if !slices.Equal(gotOpts, []string{"first", "second", "third"}) {
+		t.Fatalf("options = %v, want [first second third]", gotOpts)
+	}
+
+	// Close the manager first, then fire UI callbacks. Neither may panic.
+	m.Close()
+	onDone(1)
+	onCancel()
+}
+
+func TestCloseIsIdempotent(t *testing.T) {
+	m := newTestManager()
+	loadTestPlugin(t, m, "idem", `
+		local p = plugin.register({name = "idem", type = "hook"})
+		p:on("app.quit", function() end)
+	`)
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() { m.Close() })
+	}
+	wg.Wait()
+}
+
+func TestEmitSyncDispatchesPluginsConcurrently(t *testing.T) {
+	m := newTestManager()
+	t.Cleanup(m.Close)
+
+	p1 := loadTestPlugin(t, m, "p1", `
+		local p = plugin.register({name = "p1", type = "hook"})
+		p:on("sync.test", function() cliamp.sleep(0.15); record("p1-a") end)
+		p:on("sync.test", function() record("p1-b") end)
+	`)
+	p2 := loadTestPlugin(t, m, "p2", `
+		local p = plugin.register({name = "p2", type = "hook"})
+		p:on("sync.test", function() cliamp.sleep(0.15); record("p2-a") end)
+	`)
+	var r1, r2 recorder
+	r1.install(p1)
+	r2.install(p2)
+
+	start := time.Now()
+	m.EmitSync("sync.test", nil)
+	elapsed := time.Since(start)
+	if elapsed > 260*time.Millisecond {
+		t.Errorf("EmitSync took %v for two 150ms plugins, expected concurrent execution", elapsed)
+	}
+	if got := r1.values(); !slices.Equal(got, []string{"p1-a", "p1-b"}) {
+		t.Errorf("p1 hooks ran as %v, want [p1-a p1-b]", got)
+	}
+	if got := r2.values(); !slices.Equal(got, []string{"p2-a"}) {
+		t.Errorf("p2 hooks ran as %v, want [p2-a]", got)
+	}
+}
+
+func TestTimerValidationOwnershipCapAndWait(t *testing.T) {
+	t.Run("invalid intervals rejected", func(t *testing.T) {
+		tests := []struct {
+			name string
+			code string
+		}{
+			{"after zero", `cliamp.timer.after(0, function() end)`},
+			{"after negative", `cliamp.timer.after(-1, function() end)`},
+			{"after NaN", `cliamp.timer.after(0/0, function() end)`},
+			{"after +Inf", `cliamp.timer.after(1/0, function() end)`},
+			{"after -Inf", `cliamp.timer.after(-1/0, function() end)`},
+			{"every zero", `cliamp.timer.every(0, function() end)`},
+			{"every negative", `cliamp.timer.every(-0.5, function() end)`},
+			{"every NaN", `cliamp.timer.every(0/0, function() end)`},
+			{"every +Inf", `cliamp.timer.every(1/0, function() end)`},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				m := newTestManager()
+				defer m.Close()
+				p := loadTestPlugin(t, m, "bad-timer", `
+					plugin.register({name = "bad-timer", type = "hook"})
+					_G.ok, _G.err = pcall(function() `+tt.code+` end)
+				`)
+				p.mu.Lock()
+				ok := p.L.GetGlobal("ok")
+				p.mu.Unlock()
+				if ok != lua.LFalse {
+					t.Errorf("%s succeeded, want error", tt.code)
+				}
+			})
+		}
+	})
+
+	t.Run("huge interval clamped and tiny every floored", func(t *testing.T) {
+		d, ok := parseTimerDuration(1e30, false)
+		if !ok || d != maxTimerDuration {
+			t.Fatalf("parseTimerDuration(1e30, false) = %v, %v; want %v, true", d, ok, maxTimerDuration)
+		}
+		d, ok = parseTimerDuration(0.0001, true)
+		if !ok || d != minEveryInterval {
+			t.Fatalf("parseTimerDuration(0.0001, true) = %v, %v; want %v, true", d, ok, minEveryInterval)
+		}
+	})
+
+	t.Run("cross-plugin cancel is ignored", func(t *testing.T) {
+		m := newTestManager()
+		defer m.Close()
+		p1 := loadTestPlugin(t, m, "owner", `
+			plugin.register({name = "owner", type = "hook"})
+			_G.id = cliamp.timer.after(0.06, function() _G.fired = true end)
+		`)
+		p1.mu.Lock()
+		id := int64(p1.L.GetGlobal("id").(lua.LNumber))
+		p1.mu.Unlock()
+
+		loadTestPlugin(t, m, "other", fmt.Sprintf(`
+			plugin.register({name = "other", type = "hook"})
+			cliamp.timer.cancel(%d)
+		`, id))
+
+		waitGlobal(t, p1, "fired")
+		p1.mu.Lock()
+		fired := p1.L.GetGlobal("fired")
+		p1.mu.Unlock()
+		if fired != lua.LTrue {
+			t.Fatal("other plugin cancelled owner's timer")
+		}
+	})
+
+	t.Run("per-plugin timer cap", func(t *testing.T) {
+		m := newTestManager()
+		defer m.Close()
+		p := loadTestPlugin(t, m, "cap-timer", `
+			plugin.register({name = "cap-timer", type = "hook"})
+			_G.ids = {}
+			for i = 1, 32 do
+				local id, err = cliamp.timer.after(60, function() end)
+				assert(id, tostring(err))
+				table.insert(_G.ids, id)
+			end
+			_G.over_id, _G.over_err = cliamp.timer.after(60, function() end)
+			cliamp.timer.cancel(_G.ids[1])
+			_G.retry_id, _G.retry_err = cliamp.timer.after(60, function() end)
+		`)
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if p.L.GetGlobal("over_id") != lua.LNil || !strings.Contains(p.L.GetGlobal("over_err").String(), "limit") {
+			t.Errorf("33rd timer = %v, %v; want nil and limit error", p.L.GetGlobal("over_id"), p.L.GetGlobal("over_err"))
+		}
+		if p.L.GetGlobal("retry_id") == lua.LNil {
+			t.Errorf("timer after cancel failed: %v", p.L.GetGlobal("retry_err"))
+		}
+	})
+}
+
+func TestPluginLoggerCloseIsRaceFree(t *testing.T) {
+	path := filepath.Join(t.TempDir(), pluginLogName)
+	logger := newPluginLogger(path)
+
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() {
+			for range 50 {
+				logger.log("p", "info", "msg")
+			}
+		})
+	}
+	time.Sleep(time.Millisecond)
+	logger.close()
+	wg.Wait()
+
+	before, _ := os.ReadFile(path)
+	logger.log("p", "info", "after-close")
+	after, _ := os.ReadFile(path)
+	if len(after) != len(before) {
+		t.Fatalf("logger wrote after close: before=%d after=%d", len(before), len(after))
+	}
+}
+
+func TestRenderVisCacheKeyedByDimensionsAndClearedOnDestroy(t *testing.T) {
+	setRenderTimeout(t, time.Second)
+	m := newTestManager()
+	t.Cleanup(m.Close)
+	p := loadTestPlugin(t, m, "dim-vis", `
+		local v = plugin.register({name = "dim-vis", type = "visualizer"})
+		function v:render(bands, frame, rows, cols)
+			return tostring(rows) .. "x" .. tostring(cols) .. ":" .. tostring(frame)
+		end
+	`)
+	m.finalizeVisualizers()
+
+	if got := m.RenderVis("dim-vis", [10]float64{}, 8, 40, 1); got != "8x40:1" {
+		t.Fatalf("RenderVis(8,40) = %q, want %q", got, "8x40:1")
+	}
+
+	// While busy, matching dimensions reuse the cached frame, while different
+	// dimensions return empty instead of stale geometry.
+	p.mu.Lock()
+	if got := m.RenderVis("dim-vis", [10]float64{}, 8, 40, 2); got != "8x40:1" {
+		t.Errorf("busy same dims = %q, want %q", got, "8x40:1")
+	}
+	if got := m.RenderVis("dim-vis", [10]float64{}, 12, 60, 3); got != "" {
+		t.Errorf("busy different dims = %q, want empty", got)
+	}
+	p.mu.Unlock()
+
+	// DestroyVis clears the cached frame even without a Lua destroy callback.
+	m.DestroyVis("dim-vis")
+	p.mu.Lock()
+	if got := m.RenderVis("dim-vis", [10]float64{}, 8, 40, 4); got != "" {
+		t.Errorf("after DestroyVis, busy render = %q, want empty", got)
+	}
+	p.mu.Unlock()
+}
+
+func TestNewRejectsOversizedAndFIFOPlugins(t *testing.T) {
+	t.Run("oversized plugin", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		dir := filepath.Join(home, ".config", "cliamp", "plugins")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(dir, "huge.lua")
+		data := []byte("-- " + strings.Repeat("a", maxPluginSize) + "\n")
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := plugintrust.Approve(dir, "huge", path); err != nil {
+			t.Fatal(err)
+		}
+
+		m, err := New(nil, nil, nil)
+		if err == nil || !strings.Contains(err.Error(), "exceeds") {
+			if m != nil {
+				m.Close()
+			}
+			t.Fatalf("New() error = %v, want size limit error", err)
+		}
+		defer m.Close()
+		if m.PluginCount() != 0 {
+			t.Fatalf("PluginCount() = %d, want 0", m.PluginCount())
+		}
+	})
+
+	t.Run("FIFO plugin does not hang", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("no mkfifo on Windows")
+		}
+		mkfifo, err := exec.LookPath("mkfifo")
+		if err != nil {
+			t.Skip("mkfifo not available")
+		}
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		dir := filepath.Join(home, ".config", "cliamp", "plugins")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		fifo := filepath.Join(dir, "pipe.lua")
+		if out, err := exec.Command(mkfifo, fifo).CombinedOutput(); err != nil {
+			t.Skipf("mkfifo: %v: %s", err, out)
+		}
+
+		m, err := New(nil, nil, nil)
+		if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+			if m != nil {
+				m.Close()
+			}
+			t.Fatalf("New() error = %v, want non-regular file error", err)
+		}
+		defer m.Close()
+	})
+}

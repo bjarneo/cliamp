@@ -9,7 +9,9 @@ package kittyimg
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -18,9 +20,12 @@ import (
 	"image/png"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/charmbracelet/x/term"
 
 	"github.com/bjarneo/cliamp/applog"
 )
@@ -62,22 +67,93 @@ type Placement struct {
 	Rows int
 }
 
-var (
-	mu     sync.Mutex
-	placed = map[int]Placement{}
-	lastID = 1000
+const (
+	// maxShowWorkers bounds concurrent image decode, scale, and transmit jobs.
+	maxShowWorkers = 4
 
-	pulse   atomic.Bool
-	writeMu sync.Mutex
-	ttyOnce sync.Once
-	ttyFile *os.File
-	ttyErr  error
+	// maxShowPending bounds total active and queued Show workers.
+	maxShowPending = 16
 )
 
-// Show decodes source (a data: URL, a file:// URL, or a path), scales it to the
-// pixel size of a cols x rows cell block, and transmits it as a virtual
-// placement. Call Block to get the text that displays it.
+var (
+	// maxPlaced caps the entries kept in placed before evicting the oldest ID.
+	maxPlaced = 256
+
+	mu          sync.Mutex
+	placed      = map[int]Placement{}
+	placedOrder []int
+	lastID      = 1000
+
+	showSem     = make(chan struct{}, maxShowWorkers)
+	showPending = make(chan struct{}, maxShowPending)
+
+	pulse       atomic.Bool
+	ttyDisabled atomic.Bool
+	writeMu     sync.Mutex
+	ttyOpened   bool
+	ttyFile     io.WriteCloser
+	ttyErr      error
+	openTTY     = defaultOpenTTY
+
+	errTTYUnavailable = errors.New("kittyimg: terminal is unavailable")
+)
+
+// SetTTYEnabled turns Kitty graphics TTY writes on or off. Headless mode
+// calls SetTTYEnabled(false) so plugins never write escape sequences to a TTY.
+func SetTTYEnabled(enabled bool) {
+	ttyDisabled.Store(!enabled)
+}
+
+func defaultOpenTTY() (io.WriteCloser, error) {
+	if !term.IsTerminal(os.Stdout.Fd()) {
+		return nil, errTTYUnavailable
+	}
+	return os.OpenFile("/dev/tty", os.O_WRONLY, 0)
+}
+
+// storePlacedLocked stores p in placed and evicts the oldest entry when placed
+// reaches maxPlaced. Caller must hold mu.
+func storePlacedLocked(p Placement) {
+	if _, exists := placed[p.ID]; exists {
+		placed[p.ID] = p
+		if idx := slices.Index(placedOrder, p.ID); idx >= 0 {
+			placedOrder = append(placedOrder[:idx], placedOrder[idx+1:]...)
+		}
+		placedOrder = append(placedOrder, p.ID)
+		return
+	}
+	for len(placed) >= maxPlaced && len(placedOrder) > 0 {
+		oldest := placedOrder[0]
+		placedOrder = placedOrder[1:]
+		delete(placed, oldest)
+	}
+	placed[p.ID] = p
+	placedOrder = append(placedOrder, p.ID)
+}
+
+// deletePlacedLocked removes id from placed and placedOrder. Caller must hold mu.
+func deletePlacedLocked(id int) {
+	delete(placed, id)
+	if idx := slices.Index(placedOrder, id); idx >= 0 {
+		placedOrder = append(placedOrder[:idx], placedOrder[idx+1:]...)
+	}
+}
+
+// Show decodes source, scales it to the pixel size of a cols x rows cell block,
+// and transmits it as a virtual placement. Call Block to get the text that
+// displays it.
 func Show(source string, cols, rows int, reuseID int) (Placement, error) {
+	return ShowContext(context.Background(), source, cols, rows, reuseID)
+}
+
+// ShowContext behaves like Show and stops background work when ctx ends.
+func ShowContext(ctx context.Context, source string, cols, rows int, reuseID int) (Placement, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return Placement{}, err
+	}
 	if cols <= 0 || rows <= 0 {
 		return Placement{}, fmt.Errorf("kittyimg: bad size %dx%d", cols, rows)
 	}
@@ -95,6 +171,17 @@ func Show(source string, cols, rows int, reuseID int) (Placement, error) {
 	if reuseID < 0 || reuseID > 0xFFFFFF {
 		return Placement{}, fmt.Errorf("kittyimg: image id out of range: %d", reuseID)
 	}
+
+	// Skip spawning a worker when TTY output is disabled in headless mode.
+	disabled := ttyDisabled.Load()
+	if !disabled {
+		select {
+		case showPending <- struct{}{}:
+		default:
+			return Placement{}, fmt.Errorf("kittyimg: too many pending image loads")
+		}
+	}
+
 	mu.Lock()
 	id := reuseID
 	if id <= 0 {
@@ -108,17 +195,32 @@ func Show(source string, cols, rows int, reuseID int) (Placement, error) {
 		lastID = id
 	}
 	placement := Placement{ID: id, Cols: cols, Rows: rows}
-	placed[id] = placement
+	storePlacedLocked(placement)
 	mu.Unlock()
 
-	// Decoding, scaling and the terminal write happen off the caller's thread:
-	// this runs from a plugin render, which is capped at 50ms and must not
-	// block the UI loop. The placeholders are text, so they can go out before
-	// the image arrives; the terminal composites it when it lands.
+	if disabled {
+		return placement, nil
+	}
+
+	// Decode, scale, and transmit off the caller's thread with bounded concurrency.
 	go func() {
+		defer func() { <-showPending }()
+		select {
+		case showSem <- struct{}{}:
+		case <-ctx.Done():
+			return
+		}
+		defer func() { <-showSem }()
+
+		if ctx.Err() != nil {
+			return
+		}
 		raw, err := load(source)
 		if err != nil {
 			applog.Warn("kittyimg: load: %v", err)
+			return
+		}
+		if ctx.Err() != nil {
 			return
 		}
 		img, err := decodeImage(raw)
@@ -126,10 +228,16 @@ func Show(source string, cols, rows int, reuseID int) (Placement, error) {
 			applog.Warn("kittyimg: %v", err)
 			return
 		}
-		// The terminal fits the image to the cell rectangle and keeps its
-		// aspect, so the pixel size only has to match the rectangle's shape.
+		if ctx.Err() != nil {
+			return
+		}
 		scaled := scale(img, cols*8, rows*16)
-		if err := transmit(id, scaled, cols, rows); err != nil {
+		if ctx.Err() != nil {
+			return
+		}
+		if err := transmitContext(ctx, id, scaled, cols, rows); err != nil &&
+			!errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) &&
+			!errors.Is(err, errTTYUnavailable) {
 			applog.Warn("kittyimg: transmit: %v", err)
 		}
 	}()
@@ -173,13 +281,18 @@ func (p Placement) Block() string {
 // Clear deletes a transmitted image. Placeholders that remain on screen stop
 // showing anything.
 func Clear(id int) {
-	if id == 0 {
+	if id <= 0 || id > 0xFFFFFF {
 		return
 	}
 	mu.Lock()
-	delete(placed, id)
+	deletePlacedLocked(id)
 	mu.Unlock()
-	writeTTY(fmt.Sprintf("\x1b_Ga=d,d=I,i=%d,q=2\x1b\\", id))
+	if ttyDisabled.Load() {
+		return
+	}
+	writeMu.Lock()
+	_ = writeTTYLocked(fmt.Sprintf("\x1b_Ga=d,d=I,i=%d,q=2\x1b\\", id))
+	writeMu.Unlock()
 }
 
 // Placement returns the placement stored under id.
@@ -210,6 +323,9 @@ func load(source string) ([]byte, error) {
 		header, payload := source[:comma], source[comma+1:]
 		if !strings.Contains(header, ";base64") {
 			return nil, fmt.Errorf("kittyimg: data URL is not base64")
+		}
+		if base64.StdEncoding.DecodedLen(len(payload)) > maxImageBytes {
+			return nil, fmt.Errorf("kittyimg: image is larger than %d bytes", maxImageBytes)
 		}
 		data, err := base64.StdEncoding.DecodeString(payload)
 		if err != nil {
@@ -299,20 +415,34 @@ func scale(src image.Image, w, h int) *image.NRGBA {
 	return dst
 }
 
-// transmit writes the image to the terminal as PNG in 4096-byte base64
-// chunks, with a virtual placement of cols x rows cells. PNG is the format the
-// protocol expects for f=100 and avoids the raw-pixel layout that some kitty
-// versions composite incorrectly.
-func transmit(id int, img *image.NRGBA, cols, rows int) error {
-	// Chunked transfers must not interleave: a second image would break the
-	// continuation of the first one.
-	writeMu.Lock()
-	defer writeMu.Unlock()
+// transmitContext encodes img as PNG and writes it to the terminal in 4096-byte
+// base64 chunks. It cancels before writing when ctx ends.
+func transmitContext(ctx context.Context, id int, img *image.NRGBA, cols, rows int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if ttyDisabled.Load() {
+		return nil
+	}
 
 	var encoded bytes.Buffer
 	if err := png.Encode(&encoded, img); err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	// Hold writeMu across all chunks so transfers and Clear never interleave.
+	writeMu.Lock()
+	defer writeMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if ttyDisabled.Load() {
+		return nil
+	}
+
 	payload := base64.StdEncoding.EncodeToString(encoded.Bytes())
 	const chunk = 4096
 	first := true
@@ -331,20 +461,25 @@ func transmit(id int, img *image.NRGBA, cols, rows int) error {
 		} else {
 			seq = fmt.Sprintf("\x1b_Gm=%d;%s\x1b\\", more, part)
 		}
-		if err := writeTTY(seq); err != nil {
+		if err := writeTTYLocked(seq); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func writeTTY(seq string) error {
-	ttyOnce.Do(func() {
-		ttyFile, ttyErr = os.OpenFile("/dev/tty", os.O_WRONLY, 0)
-	})
+// writeTTYLocked writes seq to the terminal device. Caller must hold writeMu.
+func writeTTYLocked(seq string) error {
+	if ttyDisabled.Load() {
+		return nil
+	}
+	if !ttyOpened {
+		ttyOpened = true
+		ttyFile, ttyErr = openTTY()
+	}
 	if ttyErr != nil {
 		return ttyErr
 	}
-	_, err := ttyFile.WriteString(seq)
+	_, err := io.WriteString(ttyFile, seq)
 	return err
 }

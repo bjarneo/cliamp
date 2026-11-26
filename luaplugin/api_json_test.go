@@ -1,7 +1,10 @@
 package luaplugin
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 
 	lua "github.com/yuin/gopher-lua"
@@ -216,5 +219,106 @@ func TestJSONEncodeSurvivesCyclicTable(t *testing.T) {
 	// The cyclic reference becomes null instead of crashing the process.
 	if got := L.GetGlobal("result").String(); got != `{"name":"loop","self":null}` {
 		t.Fatalf("encode(cyclic) = %q", got)
+	}
+}
+
+func TestLuaToGoNodeBudgetAndContextCancel(t *testing.T) {
+	tests := []struct {
+		name    string
+		build   func(L *lua.LState) lua.LValue
+		cancel  bool
+		wantErr error
+	}{
+		{
+			name: "exponential DAG hits node budget",
+			build: func(L *lua.LState) lua.LValue {
+				cur := L.NewTable()
+				cur.RawSetString("leaf", lua.LNumber(1))
+				for range 30 {
+					next := L.NewTable()
+					next.RawSetInt(1, cur)
+					next.RawSetInt(2, cur)
+					cur = next
+				}
+				return cur
+			},
+			wantErr: errLuaConvertLimit,
+		},
+		{
+			name: "wide table hits node budget",
+			build: func(L *lua.LState) lua.LValue {
+				tbl := L.NewTable()
+				for i := 1; i <= maxLuaConvertNodes+10; i++ {
+					tbl.RawSetInt(i, lua.LNumber(i))
+				}
+				return tbl
+			},
+			wantErr: errLuaConvertLimit,
+		},
+		{
+			name: "cancelled context aborts conversion",
+			build: func(L *lua.LState) lua.LValue {
+				tbl := L.NewTable()
+				for i := 1; i <= 512; i++ {
+					tbl.RawSetInt(i, lua.LNumber(i))
+				}
+				return tbl
+			},
+			cancel:  true,
+			wantErr: context.Canceled,
+		},
+		{
+			name: "small DAG succeeds",
+			build: func(L *lua.LState) lua.LValue {
+				cur := L.NewTable()
+				cur.RawSetString("leaf", lua.LNumber(1))
+				for range 4 {
+					next := L.NewTable()
+					next.RawSetInt(1, cur)
+					next.RawSetInt(2, cur)
+					cur = next
+				}
+				return cur
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			L := lua.NewState()
+			defer L.Close()
+			ctx, cancel := context.WithCancel(context.Background())
+			if tt.cancel {
+				cancel()
+			} else {
+				defer cancel()
+			}
+			_, err := luaToGoCtx(ctx, tt.build(L))
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("luaToGoCtx() err = %v, want %v", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("luaToGoCtx() unexpected error: %v", err)
+			}
+		})
+	}
+
+	// Verify cliamp.json.encode returns nil and an error on an exponential DAG.
+	L := newSandboxedState()
+	defer L.Close()
+	cliamp := L.NewTable()
+	registerJSONAPI(L, cliamp)
+	L.SetGlobal("cliamp", cliamp)
+	if err := L.DoString(`
+		local t = {a = 1}
+		for i = 1, 30 do t = {t, t} end
+		_G.res, _G.err = cliamp.json.encode(t)
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if L.GetGlobal("res") != lua.LNil || !strings.Contains(L.GetGlobal("err").String(), "node limit") {
+		t.Fatalf("encode(DAG) = %v, %v; want nil and node limit error", L.GetGlobal("res"), L.GetGlobal("err"))
 	}
 }

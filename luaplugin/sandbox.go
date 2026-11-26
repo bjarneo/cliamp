@@ -1,52 +1,436 @@
 package luaplugin
 
-import lua "github.com/yuin/gopher-lua"
+import (
+	"fmt"
+	"math"
+	"strings"
 
-// sandbox removes the Lua standard library functions that load code, run
-// programs or change files outside cliamp.fs. It does not hide data: a
-// plugin can still read files and the environment. It also adds
-// compatibility helpers missing from Lua 5.1 (e.g. utf8.char).
+	lua "github.com/yuin/gopher-lua"
+)
+
+const (
+	// maxStringOutputBytes caps output from string.rep, string.format, and
+	// string.gsub to block memory exhaustion inside Go stdlib calls.
+	maxStringOutputBytes = 4 << 20 // 4 MiB
+
+	// maxPatternInputBytes caps the subject string length for pattern matching.
+	maxPatternInputBytes = 1 << 20 // 1 MiB
+
+	// maxPatternBytes caps the pattern length for pattern matching.
+	maxPatternBytes = 1024
+)
+
+var safeOSFuncs = []string{"clock", "date", "difftime", "getenv", "time"}
+
+// newSandboxedState creates a Lua VM with only the safe allowlist of libraries.
+func newSandboxedState() *lua.LState {
+	L := lua.NewState(lua.Options{
+		SkipOpenLibs: true,
+	})
+	openSafeLibs(L)
+	sandbox(L)
+	return L
+}
+
+// openSafeLibs opens the allowed Lua standard libraries and builds a filtered
+// os table with only clock, date, difftime, getenv, and time.
+func openSafeLibs(L *lua.LState) {
+	for _, lib := range []struct {
+		name string
+		fn   lua.LGFunction
+	}{
+		{lua.BaseLibName, lua.OpenBase},
+		{lua.TabLibName, lua.OpenTable},
+		{lua.StringLibName, lua.OpenString},
+		{lua.MathLibName, lua.OpenMath},
+		{lua.CoroutineLibName, lua.OpenCoroutine},
+	} {
+		L.Push(L.NewFunction(lib.fn))
+		L.Push(lua.LString(lib.name))
+		L.Call(1, 0)
+	}
+
+	// Open the full os module briefly to copy the five allowed functions,
+	// then replace the global and registry entries with the filtered table.
+	L.Push(L.NewFunction(lua.OpenOs))
+	L.Push(lua.LString(lua.OsLibName))
+	L.Call(1, 0)
+	filterOSModule(L)
+}
+
+// filterOSModule replaces the global os table and its _LOADED entry with a
+// fresh table that contains only the five safe os functions.
+func filterOSModule(L *lua.LState) {
+	safeOS := L.NewTable()
+	if osTbl, ok := L.GetGlobal(lua.OsLibName).(*lua.LTable); ok {
+		for _, name := range safeOSFuncs {
+			if fn := osTbl.RawGetString(name); fn != lua.LNil {
+				safeOS.RawSetString(name, fn)
+			}
+		}
+	}
+	L.SetGlobal(lua.OsLibName, safeOS)
+	if reg, ok := L.Get(lua.RegistryIndex).(*lua.LTable); ok {
+		if loaded, ok := reg.RawGetString("_LOADED").(*lua.LTable); ok {
+			loaded.RawSetString(lua.OsLibName, safeOS)
+		}
+	}
+}
+
+// sandbox restricts a Lua VM to the safe global surface, wraps string
+// functions with memory and pattern limits, binds coroutine contexts, and adds
+// utf8.char.
 func sandbox(L *lua.LState) {
-	// Remove top-level functions that can load/execute arbitrary code.
-	for _, name := range []string{"dofile", "loadfile", "load", "loadstring", "require", "module"} {
+	// Remove unsafe base functions and libraries.
+	for _, name := range []string{
+		"dofile", "loadfile", "load", "loadstring",
+		"require", "module", "_printregs", "collectgarbage",
+		"package", "debug", "io", "channel",
+	} {
 		L.SetGlobal(name, lua.LNil)
 	}
-	L.SetGlobal("package", lua.LNil)
-	L.SetGlobal("debug", lua.LNil)
-
-	// Remove the io module entirely (replaced by cliamp.fs).
-	L.SetGlobal("io", lua.LNil)
-
-	// The base print writes to stdout. That corrupts the TUI, and before
-	// approval it lets a plugin write into the trust prompt. print does
-	// nothing here, and registerLogAPI sends it to plugins.log at runtime.
-	L.SetGlobal("print", L.NewFunction(func(*lua.LState) int { return 0 }))
-
-	// Keep time, date, clock and getenv from the os module. getenv reads
-	// every variable of the cliamp environment, so it hides no secret.
-	if os := L.GetGlobal("os"); os != lua.LNil {
-		if tbl, ok := os.(*lua.LTable); ok {
-			for _, fn := range []string{"execute", "remove", "rename", "exit", "setlocale", "tmpname"} {
-				tbl.RawSetString(fn, lua.LNil)
+	if reg, ok := L.Get(lua.RegistryIndex).(*lua.LTable); ok {
+		if loaded, ok := reg.RawGetString("_LOADED").(*lua.LTable); ok {
+			for _, name := range []string{"package", "debug", "io", "channel"} {
+				loaded.RawSetString(name, lua.LNil)
 			}
 		}
 	}
 
+	// Replace print with a no-op so untrusted metadata reads and early chunks
+	// do not write to stdout. registerLogAPI routes print to plugins.log later.
+	L.SetGlobal("print", L.NewFunction(func(*lua.LState) int { return 0 }))
+
+	filterOSModule(L)
+	wrapStringLib(L)
 	bindCoroutineContext(L)
 
-	// Provide utf8.char() for Lua 5.1 compatibility (GopherLua is 5.1).
-	// Plugins need this for Braille character rendering in visualizers.
+	// Provide utf8.char for Lua 5.1 compatibility in Braille visualizers.
 	utf8Tbl := L.NewTable()
 	L.SetField(utf8Tbl, "char", L.NewFunction(luaUTF8Char))
 	L.SetGlobal("utf8", utf8Tbl)
 }
 
-// bindCoroutineContext makes coroutine.resume and the functions of
-// coroutine.wrap run the coroutine under the context of the call that
-// resumes it. gopher-lua gives a coroutine a child of the context of the call
-// that created it. That context ends with its call, so a coroutine that the
-// top-level chunk or an earlier callback created failed with "context
-// canceled" when a later callback resumed it.
+// wrapStringLib wraps string functions to enforce output size and pattern caps.
+func wrapStringLib(L *lua.LState) {
+	strTbl, ok := L.GetGlobal(lua.StringLibName).(*lua.LTable)
+	if !ok {
+		return
+	}
+
+	strTbl.RawSetString("rep", L.NewFunction(luaBoundedStringRep))
+
+	if origFormat, ok := strTbl.RawGetString("format").(*lua.LFunction); ok {
+		strTbl.RawSetString("format", L.NewFunction(func(L *lua.LState) int {
+			return luaBoundedStringFormat(L, origFormat)
+		}))
+	}
+
+	for _, name := range []string{"find", "match", "gmatch", "gfind"} {
+		orig, ok := strTbl.RawGetString(name).(*lua.LFunction)
+		if !ok {
+			continue
+		}
+		fnName := name
+		strTbl.RawSetString(fnName, L.NewFunction(func(L *lua.LState) int {
+			checkPatternLimits(L, fnName)
+			n := L.GetTop()
+			L.Insert(orig, 1)
+			L.Call(n, lua.MultRet)
+			return L.GetTop()
+		}))
+	}
+
+	if origGsub, ok := strTbl.RawGetString("gsub").(*lua.LFunction); ok {
+		strTbl.RawSetString("gsub", L.NewFunction(func(L *lua.LState) int {
+			checkPatternLimits(L, "gsub")
+			if repl, ok := L.Get(3).(lua.LString); ok && len(repl) > maxStringOutputBytes {
+				L.RaiseError("string.gsub replacement exceeds %d bytes", maxStringOutputBytes)
+				return 0
+			}
+			n := L.GetTop()
+			L.Insert(origGsub, 1)
+			L.Call(n, lua.MultRet)
+			if L.GetTop() >= 1 {
+				if out, ok := L.Get(1).(lua.LString); ok && len(out) > maxStringOutputBytes {
+					L.SetTop(0)
+					L.RaiseError("string.gsub output exceeds %d bytes", maxStringOutputBytes)
+					return 0
+				}
+			}
+			return L.GetTop()
+		}))
+	}
+}
+
+// luaBoundedStringRep enforces maxStringOutputBytes before repeating a string.
+func luaBoundedStringRep(L *lua.LState) int {
+	s := L.CheckString(1)
+	nNum := float64(L.CheckNumber(2))
+	if math.IsNaN(nNum) || nNum <= 0 || len(s) == 0 {
+		L.Push(lua.LString(""))
+		return 1
+	}
+	if math.IsInf(nNum, 1) || nNum > float64(maxStringOutputBytes) {
+		L.RaiseError("string.rep output exceeds %d bytes", maxStringOutputBytes)
+		return 0
+	}
+	n := int(nNum)
+	if n > maxStringOutputBytes/len(s) {
+		L.RaiseError("string.rep output exceeds %d bytes", maxStringOutputBytes)
+		return 0
+	}
+	L.Push(lua.LString(strings.Repeat(s, n)))
+	return 1
+}
+
+// luaBoundedStringFormat validates format widths and output budget before
+// running Go's fmt.Sprintf, then checks the final output length.
+func luaBoundedStringFormat(L *lua.LState, orig *lua.LFunction) int {
+	fmtStr := L.CheckString(1)
+	if err := checkFormatBudget(L, fmtStr); err != nil {
+		L.RaiseError("%v", err)
+		return 0
+	}
+	n := L.GetTop()
+	L.Insert(orig, 1)
+	L.Call(n, 1)
+	if out, ok := L.Get(-1).(lua.LString); ok && len(out) > maxStringOutputBytes {
+		L.Pop(1)
+		L.RaiseError("string.format output exceeds %d bytes", maxStringOutputBytes)
+		return 0
+	}
+	return 1
+}
+
+// checkFormatBudget estimates an upper bound on fmt.Sprintf output for fmtStr
+// and rejects directives that would exceed maxStringOutputBytes.
+func checkFormatBudget(L *lua.LState, fmtStr string) error {
+	if len(fmtStr) > maxStringOutputBytes {
+		return fmt.Errorf("string.format output exceeds %d bytes", maxStringOutputBytes)
+	}
+	top := L.GetTop()
+	argAt := func(idx int) lua.LValue {
+		if idx >= 1 && idx+1 <= top {
+			return L.Get(idx + 1)
+		}
+		return lua.LNil
+	}
+
+	var total int64
+	nextArg := 1
+	for i := 0; i < len(fmtStr); {
+		if fmtStr[i] != '%' {
+			total++
+			if total > maxStringOutputBytes {
+				return fmt.Errorf("string.format output exceeds %d bytes", maxStringOutputBytes)
+			}
+			i++
+			continue
+		}
+		i++
+		if i >= len(fmtStr) {
+			break
+		}
+		if fmtStr[i] == '%' {
+			total++
+			if total > maxStringOutputBytes {
+				return fmt.Errorf("string.format output exceeds %d bytes", maxStringOutputBytes)
+			}
+			i++
+			continue
+		}
+
+		// Skip flags.
+		for i < len(fmtStr) && strings.IndexByte("+-# 0", fmtStr[i]) >= 0 {
+			i++
+		}
+
+		argIdx := nextArg
+		if idx, ok := parseBracketIndex(fmtStr, &i); ok {
+			argIdx = idx
+		}
+
+		// Parse field width.
+		var width int64
+		if i < len(fmtStr) && fmtStr[i] == '*' {
+			i++
+			w, err := dynamicFormatSize(argAt(argIdx))
+			if err != nil {
+				return err
+			}
+			width = w
+			argIdx++
+		} else {
+			w, err := parseFormatDigits(fmtStr, &i)
+			if err != nil {
+				return err
+			}
+			width = w
+		}
+
+		// Parse precision.
+		var prec int64
+		hasPrec := false
+		if i < len(fmtStr) && fmtStr[i] == '.' {
+			hasPrec = true
+			i++
+			if idx, ok := parseBracketIndex(fmtStr, &i); ok {
+				argIdx = idx
+			}
+			if i < len(fmtStr) && fmtStr[i] == '*' {
+				i++
+				p, err := dynamicFormatSize(argAt(argIdx))
+				if err != nil {
+					return err
+				}
+				prec = p
+				argIdx++
+			} else {
+				p, err := parseFormatDigits(fmtStr, &i)
+				if err != nil {
+					return err
+				}
+				prec = p
+			}
+		}
+
+		if idx, ok := parseBracketIndex(fmtStr, &i); ok {
+			argIdx = idx
+		}
+
+		var verb byte
+		if i < len(fmtStr) {
+			verb = fmtStr[i]
+			i++
+		}
+
+		itemLen := estimateFormatArg(argAt(argIdx), verb, prec, hasPrec, maxStringOutputBytes-total)
+		nextArg = argIdx + 1
+
+		contrib := max(width, itemLen)
+		total += contrib
+		if total > maxStringOutputBytes {
+			return fmt.Errorf("string.format output exceeds %d bytes", maxStringOutputBytes)
+		}
+	}
+	return nil
+}
+
+// parseBracketIndex reads a Go fmt explicit argument index such as [2].
+func parseBracketIndex(s string, pos *int) (int, bool) {
+	i := *pos
+	if i >= len(s) || s[i] != '[' {
+		return 0, false
+	}
+	i++
+	start := i
+	val := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		if val <= maxStringOutputBytes {
+			val = val*10 + int(s[i]-'0')
+		}
+		i++
+	}
+	if i == start || i >= len(s) || s[i] != ']' {
+		return 0, false
+	}
+	*pos = i + 1
+	return val, true
+}
+
+// parseFormatDigits reads a decimal width or precision and fails if it exceeds
+// maxStringOutputBytes.
+func parseFormatDigits(s string, pos *int) (int64, error) {
+	var val int64
+	for *pos < len(s) && s[*pos] >= '0' && s[*pos] <= '9' {
+		val = val*10 + int64(s[*pos]-'0')
+		if val > maxStringOutputBytes {
+			return 0, fmt.Errorf("string.format output exceeds %d bytes", maxStringOutputBytes)
+		}
+		*pos++
+	}
+	return val, nil
+}
+
+// dynamicFormatSize validates a dynamic * width or precision argument.
+func dynamicFormatSize(v lua.LValue) (int64, error) {
+	n, ok := v.(lua.LNumber)
+	if !ok {
+		return 0, nil
+	}
+	f := math.Abs(float64(n))
+	if math.IsNaN(f) || math.IsInf(f, 0) || f > float64(maxStringOutputBytes) {
+		return 0, fmt.Errorf("string.format output exceeds %d bytes", maxStringOutputBytes)
+	}
+	return int64(f), nil
+}
+
+// estimateFormatArg returns a conservative byte estimate for formatting v.
+func estimateFormatArg(v lua.LValue, verb byte, prec int64, hasPrec bool, remaining int64) int64 {
+	switch val := v.(type) {
+	case lua.LString:
+		s := string(val)
+		n := int64(len(s))
+		switch verb {
+		case 'q':
+			if hasPrec && prec < n {
+				n = prec
+			}
+			est := int64(2)
+			for i := int64(0); i < n; i++ {
+				b := s[i]
+				if b < 0x20 || b >= 0x7f || b == '"' || b == '\\' {
+					est += 4
+				} else {
+					est++
+				}
+				if est > remaining {
+					return est
+				}
+			}
+			return est
+		case 'x', 'X':
+			if hasPrec && prec < n {
+				n = prec
+			}
+			return n * 2
+		default:
+			if hasPrec && verb == 's' && prec < n {
+				return prec
+			}
+			return n
+		}
+	case lua.LNumber:
+		switch verb {
+		case 'f', 'F', 'e', 'E', 'g', 'G':
+			p := prec
+			if !hasPrec {
+				p = 6
+			}
+			return 320 + p
+		default:
+			return 64 + prec
+		}
+	default:
+		return 64
+	}
+}
+
+// checkPatternLimits enforces subject and pattern length caps before pattern matching.
+func checkPatternLimits(L *lua.LState, fnName string) {
+	subject := L.CheckString(1)
+	if len(subject) > maxPatternInputBytes {
+		L.RaiseError("string.%s input exceeds %d bytes", fnName, maxPatternInputBytes)
+	}
+	pattern := L.CheckString(2)
+	if len(pattern) > maxPatternBytes {
+		L.RaiseError("string.%s pattern exceeds %d bytes", fnName, maxPatternBytes)
+	}
+}
+
+// bindCoroutineContext makes coroutine.resume and coroutine.wrap run each
+// coroutine under the context of the call that resumes it.
 func bindCoroutineContext(L *lua.LState) {
 	co, ok := L.GetGlobal("coroutine").(*lua.LTable)
 	if !ok {
@@ -93,7 +477,6 @@ func bindCoroutineContext(L *lua.LState) {
 }
 
 // luaUTF8Char converts one or more integer codepoints to a UTF-8 string.
-// Equivalent to Lua 5.3's utf8.char().
 func luaUTF8Char(L *lua.LState) int {
 	n := L.GetTop()
 	buf := make([]rune, n)

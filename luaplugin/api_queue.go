@@ -19,17 +19,29 @@ func registerQueueAPI(L *lua.LState, cliamp *lua.LTable, loadState func() *State
 	tbl := L.NewTable()
 
 	// cliamp.queue.list() -> array of {title, artist, album, genre, year, path,
-	// duration, stream, index, queued}
+	// duration, stream, album_art_url, index, queued}
 	L.SetField(tbl, "list", L.NewFunction(func(L *lua.LState) int {
 		state := loadState()
-		out := L.NewTable()
-		if state.QueueList != nil {
-			for i, e := range state.QueueList() {
-				row := dataToTable(L, TrackData(e.Track))
-				row.RawSetString("index", lua.LNumber(e.Index))
-				row.RawSetString("queued", lua.LBool(e.Queued))
-				out.RawSetInt(i+1, row)
-			}
+		if state.QueueList == nil {
+			L.Push(L.NewTable())
+			return 1
+		}
+		list := state.QueueList()
+		out := L.CreateTable(len(list), 0)
+		for i, e := range list {
+			row := L.CreateTable(0, 11)
+			row.RawSetString("title", lua.LString(e.Title))
+			row.RawSetString("artist", lua.LString(e.Artist))
+			row.RawSetString("album", lua.LString(e.Album))
+			row.RawSetString("genre", lua.LString(e.Genre))
+			row.RawSetString("year", lua.LNumber(e.Year))
+			row.RawSetString("path", lua.LString(e.Path))
+			row.RawSetString("duration", lua.LNumber(e.Duration))
+			row.RawSetString("stream", lua.LBool(e.Stream))
+			row.RawSetString("album_art_url", lua.LString(e.ArtURL))
+			row.RawSetString("index", lua.LNumber(e.Index))
+			row.RawSetString("queued", lua.LBool(e.Queued))
+			out.RawSetInt(i+1, row)
 		}
 		L.Push(out)
 		return 1

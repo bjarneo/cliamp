@@ -1,6 +1,7 @@
 package luaplugin
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -55,31 +56,32 @@ func parseRegisterOpts(opts *lua.LTable) (Metadata, error) {
 	if !ok {
 		return md, errors.New("permissions must be an array")
 	}
-	var err error
-	tbl.ForEach(func(_, v lua.LValue) {
-		permission := v.String()
-		if err == nil && !knownPermissions[permission] {
-			err = fmt.Errorf("unknown permission %q", permission)
+	n := tbl.Len()
+	for i := 1; i <= n; i++ {
+		permission := tbl.RawGetInt(i).String()
+		if !knownPermissions[permission] {
+			return md, fmt.Errorf("unknown permission %q", permission)
 		}
 		md.Permissions = append(md.Permissions, permission)
-	})
-	return md, err
+	}
+	return md, nil
 }
 
 // metadataTimeout bounds ReadMetadata, which runs the whole plugin source.
 const metadataTimeout = 250 * time.Millisecond
 
-// ReadMetadata runs a plugin source in the sandbox and returns what it passes
-// to plugin.register(). It checks the call the same way the player does.
-// The cliamp table and the plugin object are stubs that do nothing, because
-// a plugin is inspected before the user trusts it. An error after a
-// plugin.register() call that passed the checks comes from a stub, so
-// ReadMetadata ignores it. A source that never calls plugin.register()
-// returns empty Metadata and no error, because the player skips such a file.
+// ReadMetadata runs plugin source in the sandbox and returns what it passes
+// to plugin.register().
 func ReadMetadata(source string) (Metadata, error) {
-	L := lua.NewState()
+	return ReadMetadataBytes([]byte(source))
+}
+
+// ReadMetadataBytes runs plugin bytes in the sandbox and returns what it
+// passes to plugin.register(). The cliamp table and plugin object are stubs so
+// untrusted plugins cannot perform side effects during inspection.
+func ReadMetadataBytes(data []byte) (Metadata, error) {
+	L := newSandboxedState()
 	defer L.Close()
-	sandbox(L)
 	ctx, cancel := context.WithTimeout(context.Background(), metadataTimeout)
 	defer cancel()
 	L.SetContext(ctx)
@@ -105,7 +107,11 @@ func ReadMetadata(source string) (Metadata, error) {
 	L.SetGlobal("plugin", pluginTbl)
 	L.SetGlobal("cliamp", stub)
 
-	err := L.DoString(source)
+	fn, err := L.Load(bytes.NewReader(data), "<string>")
+	if err == nil {
+		L.Push(fn)
+		err = L.PCall(0, lua.MultRet, nil)
+	}
 	switch {
 	case regErr != nil:
 		return md, regErr
@@ -150,17 +156,21 @@ func Discover(dir string) ([]PluginFile, error) {
 	isFile := make(map[string]bool)
 	for _, e := range entries {
 		if name, ok := strings.CutSuffix(e.Name(), ".lua"); ok && !e.IsDir() {
+			if name == "" || name == "." || name == ".." {
+				continue
+			}
 			files = append(files, PluginFile{Name: name, Path: filepath.Join(dir, e.Name())})
 			isFile[name] = true
 		}
 	}
 	for _, e := range entries {
-		if !e.IsDir() || isFile[e.Name()] {
+		name := e.Name()
+		if !e.IsDir() || name == "" || name == "." || name == ".." || isFile[name] {
 			continue
 		}
-		init := filepath.Join(dir, e.Name(), "init.lua")
+		init := filepath.Join(dir, name, "init.lua")
 		if _, err := os.Stat(init); err == nil {
-			files = append(files, PluginFile{Name: e.Name(), Path: init})
+			files = append(files, PluginFile{Name: name, Path: init})
 		}
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })

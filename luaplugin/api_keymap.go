@@ -155,6 +155,11 @@ func (m *Manager) EmitCommand(ctx context.Context, pluginName, cmdName string, a
 	m.wg.Add(1)
 	m.mu.RUnlock()
 
+	// Create callCtx before starting the goroutine so the timeout branch
+	// cancels a handler that is still waiting for the plugin lock.
+	callCtx, cancel := context.WithCancelCause(m.cmdCtx)
+	stop := context.AfterFunc(ctx, func() { cancel(context.Cause(ctx)) })
+
 	type result struct {
 		out string
 		err error
@@ -163,16 +168,13 @@ func (m *Manager) EmitCommand(ctx context.Context, pluginName, cmdName string, a
 
 	go func() {
 		defer m.wg.Done()
-		// The call stops when Close cancels m.cmdCtx or when ctx ends.
-		callCtx, cancel := context.WithCancelCause(m.cmdCtx)
 		defer cancel(nil)
-		stop := context.AfterFunc(ctx, func() { cancel(context.Cause(ctx)) })
 		defer stop()
 		p := hook.plugin
 		p.mu.Lock()
 		defer p.mu.Unlock()
 		ret, err := m.callLocked(callCtx, p, "command "+cmdName, commandTimeout, 1, func(L *lua.LState) (*lua.LFunction, []lua.LValue) {
-			argsTbl := L.NewTable()
+			argsTbl := L.CreateTable(len(args), 0)
 			for i, a := range args {
 				argsTbl.RawSetInt(i+1, lua.LString(a))
 			}
@@ -181,15 +183,17 @@ func (m *Manager) EmitCommand(ctx context.Context, pluginName, cmdName string, a
 		done <- result{out: luaValueToString(ret), err: err}
 	}()
 
+	timer := time.NewTimer(commandTimeout + commandWaitGrace)
+	defer timer.Stop()
 	select {
 	case r := <-done:
 		return r.out, r.err
 	case <-ctx.Done():
-		// The handler may still wait for the plugin lock. It sees the end
-		// of ctx when it gets the lock and returns without a call.
 		return "", context.Cause(ctx)
-	case <-time.After(commandTimeout + time.Second):
-		return "", errCommandTimeout(pluginName, cmdName)
+	case <-timer.C:
+		err := errCommandTimeout(pluginName, cmdName)
+		cancel(err)
+		return "", err
 	}
 }
 
@@ -207,10 +211,12 @@ func (m *Manager) CommandList() []string {
 	return out
 }
 
-// commandTimeout caps how long a plugin command handler may run before we
-// return an error to the IPC client. Five minutes is generous — enough for
-// yt-dlp downloads — while ensuring the socket client doesn't hang forever.
-const commandTimeout = 5 * time.Minute
+// commandTimeout caps how long a plugin command handler runs before returning
+// an error to the IPC client. Tests can shorten these vars.
+var (
+	commandTimeout   = 5 * time.Minute
+	commandWaitGrace = time.Second
+)
 
 func errCommandNotFound(plug, cmd string) error {
 	return &commandError{msg: "no such plugin command: " + plug + " " + cmd}

@@ -23,7 +23,7 @@ func imageTestState(t *testing.T, perms ...string) *lua.LState {
 		p.perms[perm] = true
 	}
 	cliamp := L.NewTable()
-	registerImageAPI(L, cliamp, p)
+	registerImageAPI(L, cliamp, p, nil)
 	L.SetGlobal("cliamp", cliamp)
 	return L
 }
@@ -94,5 +94,32 @@ func TestImageAPIBlocksRendersText(t *testing.T) {
 	}
 	if !strings.Contains(string(text), "▀") {
 		t.Fatalf("blocks output has no half-block cells: %q", text)
+	}
+}
+
+func TestImageAPIClearValidatesPositiveID(t *testing.T) {
+	L := imageTestState(t, PermImage)
+	for _, id := range []string{"0", "-5"} {
+		if err := L.DoString(`_G.res, _G.err = cliamp.image.clear(` + id + `)`); err != nil {
+			t.Fatal(err)
+		}
+		if L.GetGlobal("res") != lua.LNil || !strings.Contains(L.GetGlobal("err").String(), "positive") {
+			t.Errorf("clear(%s) = %v, %v; want nil and positive error", id, L.GetGlobal("res"), L.GetGlobal("err"))
+		}
+	}
+}
+
+func TestImageAPIShowRespectsManagerClose(t *testing.T) {
+	m := newTestManager()
+	p := loadTestPlugin(t, m, "imgclose", `
+		plugin.register({name = "imgclose", type = "hook", permissions = {"image"}})
+	`)
+	m.Close()
+
+	// After Close, m.ctx is cancelled so ShowContext fails immediately.
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if m.ctx.Err() == nil {
+		t.Fatal("manager context was not cancelled by Close")
 	}
 }

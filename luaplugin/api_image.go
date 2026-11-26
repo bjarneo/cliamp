@@ -1,6 +1,7 @@
 package luaplugin
 
 import (
+	"context"
 	"strings"
 
 	"github.com/bjarneo/cliamp/internal/kittyimg"
@@ -9,12 +10,8 @@ import (
 
 // registerImageAPI adds cliamp.image.{show,block,clear,blocks} to the cliamp
 // table. The image permission reads any regular file the user can read, up to
-// 32 MiB: a cover can live anywhere, so paths are not restricted to an image
-// directory. Devices and pipes are rejected.
-// The image travels to the terminal out of band; block returns the Unicode
-// placeholders that display it, so a plugin composes it inside its own frame.
-// Gated on permissions = {"image"}.
-func registerImageAPI(L *lua.LState, cliamp *lua.LTable, p *Plugin) {
+// 32 MiB. Devices and pipes are rejected. Gated on permissions = {"image"}.
+func registerImageAPI(L *lua.LState, cliamp *lua.LTable, p *Plugin, m *Manager) {
 	tbl := L.NewTable()
 	guard := func(name string) bool { return p.permitted(PermImage, "cliamp.image."+name) }
 
@@ -33,7 +30,11 @@ func registerImageAPI(L *lua.LState, cliamp *lua.LTable, p *Plugin) {
 		if cols <= 0 || rows <= 0 {
 			return pushErr(L, "cliamp.image.show: cols and rows are required")
 		}
-		placement, err := kittyimg.Show(source, cols, rows, optIntField(L, opts, "id"))
+		ctx := context.Background()
+		if m != nil && m.ctx != nil {
+			ctx = m.ctx
+		}
+		placement, err := kittyimg.ShowContext(ctx, source, cols, rows, optIntField(L, opts, "id"))
 		if err != nil {
 			return pushErr(L, err.Error())
 		}
@@ -60,7 +61,11 @@ func registerImageAPI(L *lua.LState, cliamp *lua.LTable, p *Plugin) {
 		if !guard("clear") {
 			return pushErr(L, "image permission required")
 		}
-		kittyimg.Clear(L.CheckInt(1))
+		id := L.CheckInt(1)
+		if id <= 0 {
+			return pushErr(L, "cliamp.image.clear: id must be positive")
+		}
+		kittyimg.Clear(id)
 		L.Push(lua.LTrue)
 		return 1
 	}))

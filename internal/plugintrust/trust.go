@@ -48,10 +48,15 @@ func HashFile(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// Hash returns the hash of plugin content, in the form that HashFile returns.
-func Hash(data []byte) string {
+// HashBytes returns the SHA-256 hex digest of data.
+func HashBytes(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+// Hash returns the SHA-256 hex digest of plugin content.
+func Hash(data []byte) string {
+	return HashBytes(data)
 }
 
 func Load(dir string) (Manifest, error) {
@@ -104,9 +109,24 @@ func ApproveHash(dir, name, path, hash string, permissions []string) error {
 	return approve(dir, name, path, hash, append([]string{}, permissions...))
 }
 
+// lockManifest acquires the exclusive lock file for the trust manifest in dir.
+func lockManifest(dir string) (func() error, error) {
+	return fileutil.LockFile(ManifestPath(dir) + ".lock")
+}
+
 // approve records hash for name. It records permissions when they are not
 // nil, and removes the recorded permissions otherwise.
-func approve(dir, name, path, hash string, permissions []string) error {
+func approve(dir, name, path, hash string, permissions []string) (retErr error) {
+	unlock, err := lockManifest(dir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if uerr := unlock(); retErr == nil && uerr != nil {
+			retErr = uerr
+		}
+	}()
+
 	got, err := HashFile(path)
 	if err != nil {
 		return err
@@ -132,7 +152,20 @@ func approve(dir, name, path, hash string, permissions []string) error {
 
 // Revoke removes the approval of name. It leaves the manifest as it is when
 // the manifest has no approval for name.
-func Revoke(dir, name string) error {
+func Revoke(dir, name string) (retErr error) {
+	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	unlock, err := lockManifest(dir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if uerr := unlock(); retErr == nil && uerr != nil {
+			retErr = uerr
+		}
+	}()
+
 	m, err := Load(dir)
 	if err != nil {
 		return err
@@ -143,6 +176,18 @@ func Revoke(dir, name string) error {
 	delete(m.Plugins, name)
 	delete(m.Permissions, name)
 	return Save(dir, m)
+}
+
+// VerifyBytes checks that data matches the approved hash for name in m.
+func VerifyBytes(m Manifest, name string, data []byte) error {
+	want, ok := m.Plugins[name]
+	if !ok {
+		return ErrUntrusted
+	}
+	if HashBytes(data) != want {
+		return ErrHashMismatch
+	}
+	return nil
 }
 
 func Verify(m Manifest, name, path string) error {
