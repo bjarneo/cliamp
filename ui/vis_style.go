@@ -71,6 +71,15 @@ func specTag(norm float64) int {
 	return 0
 }
 
+// specStyle returns the cached ANSI sequence for tag, or an empty style when
+// tag is outside the spectrum tiers.
+func specStyle(tag int) styleANSI {
+	if tag >= 0 && tag < len(specANSI) {
+		return specANSI[tag]
+	}
+	return styleANSI{}
+}
+
 // specWrap wraps body in the cached ANSI sequences for the spectrum color at
 // the given row-bottom (0-1). One string concatenation instead of the several
 // allocations a per-call lipgloss.Style.Render would perform.
@@ -82,28 +91,54 @@ func specWrap(rowBottom float64, body string) string {
 	return style.prefix + body + style.suffix
 }
 
-// flushStyleRun appends the accumulated run bytes to sb wrapped in the cached
-// ANSI sequences for the given tag, then resets run. Tag -1 writes unstyled.
-// Streaming via the pre-extracted prefix/suffix strings avoids allocating a
-// fresh lipgloss.Render result on every flush (the hot path for Matrix/Pulse).
-func flushStyleRun(sb *strings.Builder, run *strings.Builder, tag int) {
-	var style styleANSI
-	if tag >= 0 && tag < len(specANSI) {
-		style = specANSI[tag]
-	}
-	writeStyledRun(sb, run, style)
+// styleRunWriter streams styled runs directly into a strings.Builder.
+// It emits ANSI prefix and suffix transitions inline without a run buffer.
+type styleRunWriter struct {
+	sb     *strings.Builder
+	active styleANSI
+	open   bool
 }
 
-// writeStyledRun appends run to sb between the ANSI prefix and suffix of its
-// style, then resets run. An empty run writes nothing.
-func writeStyledRun(sb, run *strings.Builder, style styleANSI) {
-	if run.Len() == 0 {
+func (w *styleRunWriter) switchStyle(style styleANSI) {
+	if w.open {
+		w.sb.WriteString(w.active.suffix)
+		w.open = false
+	}
+	w.active = style
+}
+
+func (w *styleRunWriter) setTag(tag int) {
+	w.switchStyle(specStyle(tag))
+}
+
+func (w *styleRunWriter) ensureOpen() {
+	if !w.open {
+		w.sb.WriteString(w.active.prefix)
+		w.open = true
+	}
+}
+
+func (w *styleRunWriter) writeByte(b byte) {
+	w.ensureOpen()
+	w.sb.WriteByte(b)
+}
+
+func (w *styleRunWriter) writeRune(r rune) {
+	w.ensureOpen()
+	w.sb.WriteRune(r)
+}
+
+func (w *styleRunWriter) writeString(s string) {
+	if len(s) == 0 {
 		return
 	}
-	sb.WriteString(style.prefix)
-	// run.String() aliases the builder's backing array (no allocation) and we
-	// copy those bytes into sb before run.Reset() releases the slice.
-	sb.WriteString(run.String())
-	sb.WriteString(style.suffix)
-	run.Reset()
+	w.ensureOpen()
+	w.sb.WriteString(s)
+}
+
+func (w *styleRunWriter) flush() {
+	if w.open {
+		w.sb.WriteString(w.active.suffix)
+		w.open = false
+	}
 }

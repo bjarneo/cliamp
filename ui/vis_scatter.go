@@ -8,12 +8,20 @@ import "strings"
 func (v *Visualizer) renderScatter(bands []float64) string {
 	height := v.Rows
 	dotRows := height * 4
-	lines := make([]string, height)
 	bandCount := len(bands)
 	width := v.columns()
 
+	var sb strings.Builder
+	sb.Grow(height * (width*3 + 24))
+
 	for row := range height {
-		var content strings.Builder
+		if row > 0 {
+			sb.WriteByte('\n')
+		}
+		style := specANSI[specTag(float64(height-1-row)/float64(height))]
+		if style.prefix != "" {
+			sb.WriteString(style.prefix)
+		}
 
 		for b := range bandCount {
 			charsPerBand := visBandWidth(bandCount, b, width)
@@ -37,16 +45,18 @@ func (v *Visualizer) renderScatter(bands []float64) string {
 					}
 				}
 
-				content.WriteRune(braille)
+				sb.WriteRune(braille)
 			}
 			if bandGapAfter(bandCount, b, width) {
-				content.WriteByte(' ')
+				sb.WriteByte(' ')
 			}
 		}
-		lines[row] = specWrap(float64(height-1-row)/float64(height), content.String())
+		if style.prefix != "" {
+			sb.WriteString(style.suffix)
+		}
 	}
 
-	return strings.Join(lines, "\n")
+	return sb.String()
 }
 
 // scatterHash returns a pseudo-random value in [0, 1) for a given dot position

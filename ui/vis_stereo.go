@@ -41,36 +41,45 @@ func (d *stereoDriver) Render(v *Visualizer) string {
 		return ""
 	}
 	width := v.columns()
-	lines := make([]string, height)
+	var sb strings.Builder
+	sb.Grow(height * (width*3 + 48))
 
 	if height == 1 {
-		lines[0] = renderStereoMeter("L ", d.level[0], d.peak[0], width)
-		return strings.Join(lines, "\n")
+		writeStereoMeter(&sb, "L ", d.level[0], d.peak[0], width)
+		return sb.String()
 	}
 
 	thickness := height / 2
 	row := 0
 
 	for i := range thickness {
+		if row > 0 {
+			sb.WriteByte('\n')
+		}
 		label := "  "
 		if i == thickness/2 {
 			label = "L "
 		}
-		lines[row+i] = renderStereoMeter(label, d.level[0], d.peak[0], width)
+		writeStereoMeter(&sb, label, d.level[0], d.peak[0], width)
+		row++
 	}
-	row += thickness
 	if height%2 != 0 {
+		sb.WriteByte('\n')
 		row++
 	}
 	for i := range thickness {
+		if row > 0 {
+			sb.WriteByte('\n')
+		}
 		label := "  "
 		if i == thickness/2 {
 			label = "R "
 		}
-		lines[row+i] = renderStereoMeter(label, d.level[1], d.peak[1], width)
+		writeStereoMeter(&sb, label, d.level[1], d.peak[1], width)
+		row++
 	}
 
-	return strings.Join(lines, "\n")
+	return sb.String()
 }
 
 func (d *stereoDriver) Tick(_ *Visualizer, ctx VisTickContext) {
@@ -184,12 +193,13 @@ func stereoDBLevel(amplitude float64) float64 {
 	return max(0, min(1, (db-stereoFloorDB)/-stereoFloorDB))
 }
 
-func renderStereoMeter(label string, level, peak float64, width int) string {
+func writeStereoMeter(line *strings.Builder, label string, level, peak float64, width int) {
 	if width <= 0 {
-		return ""
+		return
 	}
 	if width <= len(label) {
-		return label[:width]
+		line.WriteString(label[:width])
+		return
 	}
 
 	cells := width - len(label)
@@ -199,10 +209,8 @@ func renderStereoMeter(label string, level, peak float64, width int) string {
 		peakCell = min(cells-1, max(0, int(math.Round(peak*float64(cells)))-1))
 	}
 
-	var line strings.Builder
-	line.Grow(width * 2)
 	line.WriteString(label)
-	var run strings.Builder
+	w := styleRunWriter{sb: line}
 	runTag := -1
 	for cell := range cells {
 		glyph := "·"
@@ -216,11 +224,10 @@ func renderStereoMeter(label string, level, peak float64, width int) string {
 			tag = specTag(float64(cell) / float64(max(1, cells-1)))
 		}
 		if tag != runTag {
-			flushStyleRun(&line, &run, runTag)
 			runTag = tag
+			w.setTag(runTag)
 		}
-		run.WriteString(glyph)
+		w.writeString(glyph)
 	}
-	flushStyleRun(&line, &run, runTag)
-	return line.String()
+	w.flush()
 }

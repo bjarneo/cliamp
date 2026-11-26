@@ -7,13 +7,19 @@ import "strings"
 // with head/body/tail coloring. Higher energy makes taller, denser rainfall.
 func (v *Visualizer) renderRain(bands []float64) string {
 	height := v.Rows
-	lines := make([]string, height)
 	bandCount := len(bands)
 	width := v.columns()
 
+	var sb strings.Builder
+	sb.Grow(height * (width*5 + 16))
+	w := styleRunWriter{sb: &sb}
+
 	for row := range height {
-		var sb, run strings.Builder
+		if row > 0 {
+			sb.WriteByte('\n')
+		}
 		curTag := -1
+		w.setTag(-1)
 		col := 0
 
 		for b := range bandCount {
@@ -23,91 +29,73 @@ func (v *Visualizer) renderRain(bands []float64) string {
 
 			for range bw {
 				if rowNorm >= level {
-					// Above the bar — empty.
 					if curTag != -1 {
-						flushStyleRun(&sb, &run, curTag)
 						curTag = -1
+						w.setTag(-1)
 					}
-					run.WriteByte(' ')
+					w.writeByte(' ')
 					col++
 					continue
 				}
 
-				// Inside the bar — check if this column is active.
 				seed := uint64(col)*7919 + 104729
 
-				// Column activation: gate changes slowly, energy controls density.
 				if scatterHash(b, 0, col, v.frame/12) > level*1.6+0.1 {
 					if curTag != -1 {
-						flushStyleRun(&sb, &run, curTag)
 						curTag = -1
+						w.setTag(-1)
 					}
-					run.WriteByte(' ')
+					w.writeByte(' ')
 					col++
 					continue
 				}
 
-				// Per-column fall speed: 1-3 frames per row step.
 				speed := 1 + int(seed%3)
-
-				// Drop length: 2-4 characters.
 				dropLen := 2 + int((seed/7)%3)
-
-				// Cycle through visible height with gap before repeating.
 				cycleLen := height + dropLen + 3
 				offset := int((seed / 13) % uint64(cycleLen))
 				pos := (int(v.frame)/speed + offset) % cycleLen
 
 				dist := pos - row
 				if dist >= 0 && dist < dropLen {
-					// Pick character: head gets │, body gets thinner chars.
 					var ch rune
-					switch {
-					case dist == 0:
-						ch = '┃'
-					case dist == 1:
-						ch = '│'
-					default:
-						ch = ':'
-					}
-
-					// Color by drop position: bright head, mid body, dim tail.
 					var newTag int
 					switch {
 					case dist == 0:
+						ch = '┃'
 						newTag = 2
 					case dist == 1:
+						ch = '│'
 						newTag = 1
 					default:
+						ch = ':'
 						newTag = 0
 					}
 					if newTag != curTag {
-						flushStyleRun(&sb, &run, curTag)
 						curTag = newTag
+						w.setTag(curTag)
 					}
-					run.WriteRune(ch)
+					w.writeRune(ch)
 				} else {
-					// Empty space between drops.
 					if curTag != -1 {
-						flushStyleRun(&sb, &run, curTag)
 						curTag = -1
+						w.setTag(-1)
 					}
-					run.WriteByte(' ')
+					w.writeByte(' ')
 				}
 				col++
 			}
 			if bandGapAfter(bandCount, b, width) {
 				if curTag != -1 {
-					flushStyleRun(&sb, &run, curTag)
 					curTag = -1
+					w.setTag(-1)
 				}
-				run.WriteByte(' ')
+				w.writeByte(' ')
 				col++
 			}
 		}
-		flushStyleRun(&sb, &run, curTag)
-		lines[row] = sb.String()
+		w.flush()
 	}
 
-	return strings.Join(lines, "\n")
+	return sb.String()
 }

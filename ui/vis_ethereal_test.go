@@ -178,9 +178,11 @@ func TestEtherealFollowsThemeColors(t *testing.T) {
 			p := PaletteFor(th)
 			colors := [...]color.Color{p.Dim, p.SpectrumLow, p.SpectrumMid, p.SpectrumHigh, p.Text, p.Accent, p.Text}
 			for i, c := range colors {
-				var sb, run strings.Builder
-				run.WriteString("⠂")
-				flushEtherealRun(&sb, &run, i+1)
+				var sb strings.Builder
+				w := styleRunWriter{sb: &sb}
+				w.switchStyle(etherealTierStyle(i + 1))
+				w.writeString("⠂")
+				w.flush()
 				want := lipgloss.NewStyle().Foreground(c).Render("⠂")
 				if got := sb.String(); got != want {
 					t.Errorf("style [%d] = %q, want %q", i, got, want)

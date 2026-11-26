@@ -40,9 +40,16 @@ func (v *Visualizer) renderWave() string {
 		ypos[x] = max(0, min(dotRows-1, y))
 	}
 
-	lines := make([]string, height)
+	var sb strings.Builder
+	sb.Grow(height * (charCols*3 + 24))
 	for row := range height {
-		var content strings.Builder
+		if row > 0 {
+			sb.WriteByte('\n')
+		}
+		style := specANSI[specTag(float64(height-1-row)/float64(height))]
+		if style.prefix != "" {
+			sb.WriteString(style.prefix)
+		}
 		dotRowStart := row * 4
 
 		for ch := range charCols {
@@ -69,10 +76,12 @@ func (v *Visualizer) renderWave() string {
 				}
 			}
 
-			content.WriteRune(braille)
+			sb.WriteRune(braille)
 		}
-		lines[row] = specWrap(float64(height-1-row)/float64(height), content.String())
+		if style.prefix != "" {
+			sb.WriteString(style.suffix)
+		}
 	}
 
-	return strings.Join(lines, "\n")
+	return sb.String()
 }

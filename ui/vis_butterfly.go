@@ -17,14 +17,17 @@ func (v *Visualizer) renderButterfly(bands []float64) string {
 
 	for dy := range dotRows {
 		// Map vertical position to a band index.
-		bandF := float64(dy) / float64(max(1, dotRows-1)) * float64(bandCount-1)
-		bi := int(bandF)
-		frac := bandF - float64(bi)
 		var energy float64
-		if bi >= bandCount-1 {
-			energy = bands[bandCount-1]
-		} else {
-			energy = bands[bi]*(1-frac) + bands[bi+1]*frac
+		bi := 0
+		if bandCount > 0 {
+			bandF := float64(dy) / float64(max(1, dotRows-1)) * float64(bandCount-1)
+			bi = int(bandF)
+			frac := bandF - float64(bi)
+			if bi >= bandCount-1 {
+				energy = bands[bandCount-1]
+			} else {
+				energy = bands[bi]*(1-frac) + bands[bi+1]*frac
+			}
 		}
 
 		// Wing width: how far from center the pattern extends.

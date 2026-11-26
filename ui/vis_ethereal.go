@@ -27,12 +27,11 @@ func refreshEtherealANSI() {
 	}
 }
 
-func flushEtherealRun(sb, run *strings.Builder, tier int) {
-	var style styleANSI
+func etherealTierStyle(tier int) styleANSI {
 	if tier > 0 && tier <= len(etherealANSI) {
-		style = etherealANSI[tier-1]
+		return etherealANSI[tier-1]
 	}
-	writeStyledRun(sb, run, style)
+	return styleANSI{}
 }
 
 type etherealStar struct {
@@ -45,6 +44,8 @@ type etherealDriver struct {
 	cols, rows int
 	grid       brailleGrid
 	stars      []etherealStar
+	xCoords    []float64
+	centres    []float64
 	elapsed    float64
 	lastTick   time.Time
 }
@@ -73,6 +74,20 @@ func (d *etherealDriver) layout(cols, rows int) {
 		return
 	}
 	d.cols, d.rows = cols, rows
+	dotCols := cols * 2
+	if cap(d.xCoords) < dotCols {
+		d.xCoords = make([]float64, dotCols)
+	} else {
+		d.xCoords = d.xCoords[:dotCols]
+	}
+	for x := range dotCols {
+		d.xCoords[x] = (float64(x) + 0.5) / float64(dotCols)
+	}
+	if cap(d.centres) < dotCols {
+		d.centres = make([]float64, dotCols)
+	} else {
+		d.centres = d.centres[:dotCols]
+	}
 	d.stars = d.stars[:0]
 	seed := uint64(0x455448455245414c)
 	for i := range cols * rows {
@@ -119,13 +134,46 @@ func (d *etherealDriver) Render(v *Visualizer) string {
 	high := min(1, max(0, bandAvg(bands, 2*n/3, n)))
 	t := d.elapsed
 	dotRows, dotCols := rows*4, cols*2
-	d.grid.flush, d.grid.keepRunOnEmpty = flushEtherealRun, true
+	d.grid.styleFor, d.grid.keepRunOnEmpty = etherealTierStyle, true
 	d.grid.ensure(dotRows, dotCols)
+
+	// Precompute the cloud centerline once per column for this frame.
+	t13, t09c := t*0.13, t*0.09
+	xCoords := d.xCoords
+	centres := d.centres
+	for x := range dotCols {
+		xf := xCoords[x]
+		centres[x] = 0.53 + 0.16*math.Sin(xf*6.2+t13) + 0.06*math.Sin(xf*13-t09c)
+	}
+
+	t09, t06 := t*0.09, t*0.06
+	t12, t08 := t*0.12, t*0.08
+	t07, t05, t11 := t*0.07, t*0.05, t*0.11
+	cloudSpan := 0.18 + 0.13*bass
+	rimGain := 0.42 + 0.30*bass + 0.30*mid
+	cells := d.grid.cells
+
 	for y := range dotRows {
+		yf := float64(y) / float64(dotRows)
+		vy := yf * 3.2
+		vyWarp := vy*0.8 - t06
+		vy1 := vy + t08
+		vy2 := vy * 2.3
+		vy3 := vy*5.1 + t11
+		rowOff := y * dotCols
 		for x := range dotCols {
-			light := etherealCloud((float64(x)+0.5)/float64(dotCols), float64(y)/float64(dotRows), t, bass, mid)
-			// A fixed threshold per dot makes wispy edges dissolve locally,
-			// without re-randomizing the entire cloud on every frame.
+			u := xCoords[x] * 6.8
+			warp := omarchyNoiseAt(u*0.7+t09, vyWarp)
+			noise := 0.60*omarchyNoiseAt(u+warp*1.8-t12, vy1) +
+				0.28*omarchyNoiseAt(u*2.3+t07, vy2-warp) +
+				0.12*omarchyNoiseAt(u*5.1-t05, vy3)
+			distance := math.Abs(yf - centres[x] + (warp-0.5)*0.3)
+			cloud := max(0, 1-distance/cloudSpan)
+			halo := max(0, 1-distance/0.5)
+			body := max(0, (noise-0.30)*1.4)
+			rim := max(0, 1-math.Abs(noise-0.53)*13)
+			light := min(1, max(0, halo*(0.06+body*0.25)+cloud*(body*0.38+rim*rimGain)))
+			// A fixed threshold per dot makes wispy edges dissolve locally.
 			if light < 0.10 || scatterHash(0, y, x, 0) > (light-0.08)*1.5 {
 				continue
 			}
@@ -140,7 +188,7 @@ func (d *etherealDriver) Render(v *Visualizer) string {
 			case light >= 0.20:
 				tier = 2
 			}
-			d.grid.set(x, y, tier)
+			cells[rowOff+x] = tier
 		}
 	}
 	for _, star := range d.stars {

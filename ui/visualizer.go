@@ -48,6 +48,9 @@ type Visualizer struct {
 	luaHost         LuaVisHost
 	luaDriverCache  map[int]visModeDriver
 	pulseCoordCache *pulseCoords
+	omarchyCache    *omarchyRenderCache
+	bandColsBuf     []int
+	interpColsBuf   []float64
 	dotMask         []bool      // per-frame Braille dots, see dotMaskFor
 	dotGrid         brailleGrid // per-frame tier grid of the render-only Braille modes
 }
@@ -100,7 +103,38 @@ func (v *Visualizer) Render() string {
 	if driver == nil {
 		return ""
 	}
-	return fitVisualizerFrame(driver.Render(v), cols, v.Rows)
+	frame := driver.Render(v)
+	if v.driverFitsExactFrame(driver, cols, v.Rows) {
+		return frame
+	}
+	return fitVisualizerFrame(frame, cols, v.Rows)
+}
+
+// driverFitsExactFrame reports whether a built-in driver guarantees exact
+// cols by rows output so Render can skip the full ANSI re-parse pass.
+func (v *Visualizer) driverFitsExactFrame(driver visModeDriver, cols, rows int) bool {
+	switch v.Mode {
+	case VisClassicPeak, VisWave, VisRetro, VisPulse, VisLogo, VisTerrain,
+		VisScope, VisHeartbeat, VisButterfly, VisMirror, VisOmarchy,
+		VisYinYang, VisEthereal:
+		return true
+	case VisBars, VisBarsDot, VisRain, VisBarsOutline, VisBricks,
+		VisColumns, VisScatter, VisMatrix, VisBinary:
+		return len(v.SmoothedBands()) > 0
+	case VisFlame, VisSakura, VisFirework, VisBubbles, VisSand, VisClassicLED:
+		return cols >= 2
+	case VisFirefly:
+		return cols >= 4
+	case VisRedSector:
+		return cols >= 8
+	case VisGeyser:
+		g, ok := driver.(*geyserDriver)
+		return ok && g.grid.dotRows >= rows*4 && g.grid.dotCols >= cols*2
+	case VisStereo:
+		return rows == 1 || rows%2 == 0
+	default:
+		return false
+	}
 }
 
 // WaveSamples returns the raw samples of the last analysis, which the wave,

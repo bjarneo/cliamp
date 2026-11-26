@@ -74,11 +74,14 @@ func (v *Visualizer) renderPulse(bands []float64) string {
 	bandCount := len(bands)
 	maxR := coords.maxR
 
-	var totalEnergy float64
-	for _, e := range bands {
-		totalEnergy += e
+	var avgEnergy float64
+	if bandCount > 0 {
+		var totalEnergy float64
+		for _, e := range bands {
+			totalEnergy += e
+		}
+		avgEnergy = totalEnergy / float64(bandCount)
 	}
-	avgEnergy := totalEnergy / float64(bandCount)
 
 	// Shockwave: expanding ring that fades as it grows.
 	shockPhase := math.Mod(float64(v.frame)*0.10, 1.0)
@@ -88,16 +91,21 @@ func (v *Visualizer) renderPulse(bands []float64) string {
 	// Gentle breathing keeps the shape alive during silence.
 	breath := math.Sin(float64(v.frame)*0.05) * 0.02
 
-	// Per-frame rotation offset — added uniformly to every cached angle.
+	// Add the per-frame rotation offset to every cached angle.
 	rotOffset := float64(v.frame) * (0.015 + avgEnergy*0.04)
 	twoPi := 2 * math.Pi
 	bandScale := float64(bandCount) / twoPi
 
-	lines := make([]string, height)
+	var sb strings.Builder
+	sb.Grow(height * (width*5 + 16))
+	w := styleRunWriter{sb: &sb}
 
 	for row := range height {
-		var sb, run strings.Builder
+		if row > 0 {
+			sb.WriteByte('\n')
+		}
 		tag := -1
+		w.setTag(-1)
 
 		for col := range width {
 			var braille rune = '\u2800'
@@ -108,23 +116,25 @@ func (v *Visualizer) renderPulse(bands []float64) string {
 					idx := pulseDotIndex(row, col, dr, dc, width)
 					dist := coords.dist[idx]
 
-					rotAngle := coords.angle[idx] + rotOffset
-					rotAngle -= math.Floor(rotAngle/twoPi) * twoPi
+					var energy float64
+					bandIdx := 0
+					if bandCount > 0 {
+						rotAngle := coords.angle[idx] + rotOffset
+						rotAngle -= math.Floor(rotAngle/twoPi) * twoPi
 
-					// Cosine-interpolated band mapping.
-					bandPos := rotAngle * bandScale
-					bandIdx := int(bandPos) % bandCount
-					nextBand := (bandIdx + 1) % bandCount
-					frac := bandPos - math.Floor(bandPos)
-					t := (1 - math.Cos(frac*math.Pi)) / 2
-					energy := bands[bandIdx]*(1-t) + bands[nextBand]*t
+						bandPos := rotAngle * bandScale
+						bandIdx = int(bandPos) % bandCount
+						nextBand := (bandIdx + 1) % bandCount
+						frac := bandPos - math.Floor(bandPos)
+						t := (1 - math.Cos(frac*math.Pi)) / 2
+						energy = bands[bandIdx]*(1-t) + bands[nextBand]*t
+					}
 
 					// Blend per-band with overall so the whole shape beats.
 					blended := energy*0.6 + avgEnergy*0.4
 					punch := blended * blended
 					r := maxR * (0.08 + breath + 0.92*punch)
 
-					// --- Solid fill ---
 					if r > 0.5 && dist <= r {
 						norm := dist / r
 						if norm > maxNorm {
@@ -132,7 +142,6 @@ func (v *Visualizer) renderPulse(bands []float64) string {
 						}
 						braille |= brailleBit[dr][dc]
 					} else if r > 0.5 && dist < r+1.5 {
-						// Anti-aliased edge.
 						edgeFade := 1.0 - (dist-r)/1.5
 						if scatterHash(bandIdx, row*4+dr, col*2+dc, v.frame) < edgeFade*0.7 {
 							braille |= brailleBit[dr][dc]
@@ -142,7 +151,6 @@ func (v *Visualizer) renderPulse(bands []float64) string {
 						}
 					}
 
-					// --- Shockwave ring ---
 					if shockStrength > 0.05 {
 						shockDist := math.Abs(dist - shockR)
 						shockThick := 0.6 + shockStrength*1.5
@@ -159,18 +167,17 @@ func (v *Visualizer) renderPulse(bands []float64) string {
 				}
 			}
 
-			// Radial color gradient: green core → yellow → red edge.
+			// Radial color gradient: green core to yellow to red edge.
 			newTag := specTag(maxNorm)
 			if newTag != tag {
-				flushStyleRun(&sb, &run, tag)
 				tag = newTag
+				w.setTag(tag)
 			}
-			run.WriteRune(braille)
+			w.writeRune(braille)
 		}
 
-		flushStyleRun(&sb, &run, tag)
-		lines[row] = sb.String()
+		w.flush()
 	}
 
-	return strings.Join(lines, "\n")
+	return sb.String()
 }

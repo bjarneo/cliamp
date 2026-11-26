@@ -25,23 +25,35 @@ func shadeBlock(level, rowBottom, rowTop float64) string {
 // using the same dense 1-wide/1-gap layout as ClassicPeak.
 func (v *Visualizer) renderAscii(bands []float64) string {
 	height := v.Rows
-	activeCols := classicPeakColsForWidth(v.columns())
-	cols := resampleBandsLinear(bands, activeCols)
-	lines := make([]string, height)
+	width := v.columns()
+	activeCols := classicPeakColsForWidth(width)
+	v.interpColsBuf = resampleBandsLinearInto(v.interpColsBuf, bands, activeCols)
+	cols := v.interpColsBuf
+
+	var sb strings.Builder
+	sb.Grow(height * (width*3 + 24))
 
 	for row := range height {
-		var content strings.Builder
+		if row > 0 {
+			sb.WriteByte('\n')
+		}
 		rowBottom := float64(height-1-row) / float64(height)
 		rowTop := float64(height-row) / float64(height)
+		style := specANSI[specTag(rowBottom)]
+		if style.prefix != "" {
+			sb.WriteString(style.prefix)
+		}
 
 		for i, level := range cols {
-			content.WriteString(shadeBlock(level, rowBottom, rowTop))
+			sb.WriteString(shadeBlock(level, rowBottom, rowTop))
 			if i < len(cols)-1 {
-				content.WriteByte(' ')
+				sb.WriteByte(' ')
 			}
 		}
-		lines[row] = specWrap(rowBottom, content.String())
+		if style.prefix != "" {
+			sb.WriteString(style.suffix)
+		}
 	}
 
-	return strings.Join(lines, "\n")
+	return sb.String()
 }

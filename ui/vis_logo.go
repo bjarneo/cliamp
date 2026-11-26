@@ -51,7 +51,14 @@ func (v *Visualizer) renderLogo(bands []float64) string {
 	letterBand := [6]int{0, 2, 4, 5, 7, 9}
 
 	for li := range logoNumLetters {
-		energy := bands[letterBand[li]]
+		var energy float64
+		if len(bands) > 0 {
+			idx := letterBand[li]
+			if idx >= len(bands) {
+				idx = idx * (len(bands) - 1) / (DefaultSpectrumBands - 1)
+			}
+			energy = bands[idx]
+		}
 
 		// Gentle traveling wave for life during silence + subtle bounce.
 		wave := math.Sin(float64(v.frame)*0.06+float64(li)*0.9) * 1.5

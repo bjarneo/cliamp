@@ -3,9 +3,77 @@ package ui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"charm.land/lipgloss/v2"
 )
+
+func TestBuiltinModesExactFrameMatchesFitter(t *testing.T) {
+	sizes := []struct{ cols, rows int }{
+		{1, 1},
+		{2, 1},
+		{4, 3},
+		{8, 2},
+		{13, 3},
+		{40, 1},
+		{48, 9},
+		{76, 7},
+		{140, 16},
+	}
+	samples := benchSamplesSine(classicPeakFFTSize)
+	stereoSamples := make([][2]float64, 128)
+	for i := range stereoSamples {
+		stereoSamples[i] = [2]float64{samples[i], samples[i+16] * 0.7}
+	}
+
+	for mode := VisMode(0); mode < VisCount; mode++ {
+		if mode == VisNone {
+			continue
+		}
+		t.Run(visModes[mode].name, func(t *testing.T) {
+			for _, sz := range sizes {
+				v := NewVisualizer(44100)
+				v.Mode = mode
+				v.Cols = sz.cols
+				v.Rows = sz.rows
+				now := time.Unix(1_700_000_000, 0)
+				ctx := VisTickContext{
+					Now:     now,
+					Playing: true,
+					Analyze: func(spec VisAnalysisSpec) []float64 {
+						spec = NormalizeAnalysisSpec(spec)
+						return v.Analyze(samples[:min(len(samples), spec.FFTSize)], spec)
+					},
+					StereoSamplesInto: func(dst [][2]float64) int {
+						return copy(dst, stereoSamples)
+					},
+				}
+				for range 3 {
+					ctx.Now = ctx.Now.Add(TickFast)
+					v.Tick(ctx)
+				}
+
+				driver := v.syncDriverMode()
+				raw := driver.Render(v)
+				fitted := fitVisualizerFrame(raw, sz.cols, sz.rows)
+				if v.driverFitsExactFrame(driver, sz.cols, sz.rows) && raw != fitted {
+					t.Fatalf("%dx%d: driverFitsExactFrame is true, but raw differs from fitVisualizerFrame", sz.cols, sz.rows)
+				}
+
+				got := v.Render()
+				lines := strings.Split(got, "\n")
+				if len(lines) != sz.rows {
+					t.Fatalf("%dx%d: line count = %d, want %d", sz.cols, sz.rows, len(lines), sz.rows)
+				}
+				for i, line := range lines {
+					if width := lipgloss.Width(line); width != sz.cols {
+						t.Fatalf("%dx%d row %d: width = %d, want %d", sz.cols, sz.rows, i, width, sz.cols)
+					}
+				}
+			}
+		})
+	}
+}
 
 func TestVisualizerFitsTinyRectangles(t *testing.T) {
 	for mode := VisMode(0); mode < VisCount; mode++ {

@@ -137,11 +137,13 @@ func TestApplyThemeColors(t *testing.T) {
 				{tag: 2, level: 0.9, want: fg(p.SpectrumHigh)},
 				{tag: 3, level: -1, want: "x"},
 			} {
-				var sb, run strings.Builder
-				run.WriteString("x")
-				flushStyleRun(&sb, &run, tier.tag)
+				var sb strings.Builder
+				w := styleRunWriter{sb: &sb}
+				w.setTag(tier.tag)
+				w.writeString("x")
+				w.flush()
 				if sb.String() != tier.want {
-					t.Errorf("flushStyleRun(tag %d) = %q, want %q", tier.tag, sb.String(), tier.want)
+					t.Errorf("styleRunWriter(tag %d) = %q, want %q", tier.tag, sb.String(), tier.want)
 				}
 				if tier.level >= 0 {
 					if got := specWrap(tier.level, "x"); got != tier.want {
@@ -157,11 +159,13 @@ func TestApplyThemeColors(t *testing.T) {
 				redSectorTagMid:  p.SpectrumMid,
 				redSectorTagHigh: p.SpectrumHigh,
 			} {
-				var sb, run strings.Builder
-				run.WriteString("x")
-				flushRedSectorRun(&sb, &run, tag)
+				var sb strings.Builder
+				w := styleRunWriter{sb: &sb}
+				w.switchStyle(redSectorTierStyle(tag))
+				w.writeString("x")
+				w.flush()
 				if want := fg(c); sb.String() != want {
-					t.Errorf("flushRedSectorRun(tag %d) = %q, want %q", tag, sb.String(), want)
+					t.Errorf("redSectorTierStyle(tag %d) = %q, want %q", tag, sb.String(), want)
 				}
 			}
 		})

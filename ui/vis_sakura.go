@@ -36,11 +36,14 @@ func (v *Visualizer) renderSakura(bands []float64) string {
 
 	grid := v.dotMaskFor(dotRows * dotCols)
 
-	var totalEnergy float64
-	for _, e := range bands {
-		totalEnergy += e
+	var avgEnergy float64
+	if len(bands) > 0 {
+		var totalEnergy float64
+		for _, e := range bands {
+			totalEnergy += e
+		}
+		avgEnergy = totalEnergy / float64(len(bands))
 	}
-	avgEnergy := totalEnergy / float64(len(bands))
 
 	// 12 petals at silence, up to 28 when loud.
 	numPetals := 12 + int(avgEnergy*16)

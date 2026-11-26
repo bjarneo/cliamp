@@ -7,31 +7,41 @@ import "strings"
 // gaps between them, keeping total height equal to the bars visualizer.
 func (v *Visualizer) renderBricks(bands []float64) string {
 	height := v.Rows
-	lines := make([]string, height)
 	bandCount := len(bands)
 	width := v.columns()
 
+	var sb strings.Builder
+	sb.Grow(height * (width*3 + 24))
+
 	for row := range height {
-		var content strings.Builder
+		if row > 0 {
+			sb.WriteByte('\n')
+		}
 		rowThreshold := float64(height-1-row) / float64(height)
+		style := specANSI[specTag(rowThreshold)]
+		if style.prefix != "" {
+			sb.WriteString(style.prefix)
+		}
 
 		for i, level := range bands {
 			bw := visBandWidth(bandCount, i, width)
 			if level > rowThreshold {
 				for range bw {
-					content.WriteString("▄")
+					sb.WriteString("▄")
 				}
 			} else {
 				for range bw {
-					content.WriteByte(' ')
+					sb.WriteByte(' ')
 				}
 			}
 			if bandGapAfter(bandCount, i, width) {
-				content.WriteByte(' ')
+				sb.WriteByte(' ')
 			}
 		}
-		lines[row] = specWrap(rowThreshold, content.String())
+		if style.prefix != "" {
+			sb.WriteString(style.suffix)
+		}
 	}
 
-	return strings.Join(lines, "\n")
+	return sb.String()
 }

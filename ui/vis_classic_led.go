@@ -27,11 +27,14 @@ const (
 )
 
 type classicLEDDriver struct {
-	body     []float64
-	peak     []float64
-	hold     []float64
-	bandsAt  time.Time
-	lastTick time.Time
+	body       []float64
+	peak       []float64
+	hold       []float64
+	levelsBuf  []float64
+	litBuf     []int
+	peakRowBuf []int
+	bandsAt    time.Time
+	lastTick   time.Time
 }
 
 func newClassicLEDDriver() visModeDriver {
@@ -67,7 +70,8 @@ func (d *classicLEDDriver) OnLeave(*Visualizer) {}
 func (*classicLEDDriver) ownsCadence() {}
 
 func (d *classicLEDDriver) levels(v *Visualizer) []float64 {
-	return resampleBandsLinear(v.bands, classicLEDBarCount(v.columns()))
+	d.levelsBuf = resampleBandsLinearInto(d.levelsBuf, v.bands, classicLEDBarCount(v.columns()))
+	return d.levelsBuf
 }
 
 func (d *classicLEDDriver) frameInterval() time.Duration {
@@ -165,46 +169,74 @@ func (d *classicLEDDriver) Render(v *Visualizer) string {
 	rowPad := max(0, width-classicLEDRenderWidth(bars))
 	heightF := float64(height)
 
-	lines := make([]string, height)
-	gap := strings.Repeat(" ", classicLEDBarGap)
-	for row := range height {
-		rowBottom := float64(height-1-row) / heightF
-		// Row position from the bottom: 0 == lowest LED row, height-1 == top.
-		rfb := height - 1 - row
+	// Precompute lit row counts and peak segment rows once per bar.
+	if cap(d.litBuf) < bars {
+		d.litBuf = make([]int, bars)
+	} else {
+		d.litBuf = d.litBuf[:bars]
+	}
+	if cap(d.peakRowBuf) < bars {
+		d.peakRowBuf = make([]int, bars)
+	} else {
+		d.peakRowBuf = d.peakRowBuf[:bars]
+	}
+	peakThreshold := 0.5 / heightF
+	for b := range bars {
+		lit := int(math.Floor(body[b]*heightF + 1e-6))
+		peakSeg := int(math.Floor(peak[b]*heightF + 1e-6))
+		if peakSeg >= height {
+			peakSeg = height - 1
+		}
+		peakRow := -1
+		if peak[b] > body[b]+peakThreshold && peakSeg >= lit {
+			peakRow = peakSeg
+		}
+		d.litBuf[b] = lit
+		d.peakRowBuf[b] = peakRow
+	}
 
-		var content strings.Builder
-		if rowPad > 0 {
-			content.WriteString(strings.Repeat(" ", rowPad))
+	var sb strings.Builder
+	sb.Grow(height * (width*3 + 24))
+	for row := range height {
+		if row > 0 {
+			sb.WriteByte('\n')
+		}
+		rowBottom := float64(height-1-row) / heightF
+		// Row position from the bottom: 0 is lowest LED row, height-1 is top.
+		rfb := height - 1 - row
+		style := specANSI[specTag(rowBottom)]
+		if style.prefix != "" {
+			sb.WriteString(style.prefix)
+		}
+		for range rowPad {
+			sb.WriteByte(' ')
 		}
 		for b := range bars {
-			lit := int(math.Floor(body[b]*heightF + 1e-6))
-			// Quantize peak to a row index. A peak only renders when it sits
-			// strictly above the bar body; otherwise it merges with the LED.
-			peakSeg := int(math.Floor(peak[b]*heightF + 1e-6))
-			if peakSeg >= height {
-				peakSeg = height - 1
-			}
-			showPeak := peak[b] > body[b]+0.5/heightF && peakSeg >= lit
-
-			var glyph string
 			switch {
-			case rfb < lit:
-				glyph = "▄"
-			case showPeak && rfb == peakSeg:
-				glyph = "▀"
+			case rfb < d.litBuf[b]:
+				for range classicLEDBarWidth {
+					sb.WriteString("▄")
+				}
+			case rfb == d.peakRowBuf[b]:
+				for range classicLEDBarWidth {
+					sb.WriteString("▀")
+				}
 			default:
-				glyph = " "
-			}
-			for range classicLEDBarWidth {
-				content.WriteString(glyph)
+				for range classicLEDBarWidth {
+					sb.WriteByte(' ')
+				}
 			}
 			if b < bars-1 {
-				content.WriteString(gap)
+				for range classicLEDBarGap {
+					sb.WriteByte(' ')
+				}
 			}
 		}
-		lines[row] = specWrap(rowBottom, content.String())
+		if style.prefix != "" {
+			sb.WriteString(style.suffix)
+		}
 	}
-	return strings.Join(lines, "\n")
+	return sb.String()
 }
 
 func (d *classicLEDDriver) renderState(v *Visualizer, bars int) (body, peak []float64) {
@@ -213,7 +245,13 @@ func (d *classicLEDDriver) renderState(v *Visualizer, bars int) (body, peak []fl
 	}
 	levels := d.levels(v)
 	if len(levels) != bars {
-		levels = make([]float64, bars)
+		if cap(d.levelsBuf) < bars {
+			d.levelsBuf = make([]float64, bars)
+		} else {
+			d.levelsBuf = d.levelsBuf[:bars]
+			clear(d.levelsBuf)
+		}
+		levels = d.levelsBuf
 	}
 	return levels, levels
 }

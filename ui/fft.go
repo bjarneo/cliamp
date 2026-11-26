@@ -40,6 +40,49 @@ func fftInPlace(buf []complex128, w []complex128) {
 	}
 }
 
+// realFFTPowers computes the power spectrum for a real input packed into cbuf.
+// The caller packs x[2k] into the real part and x[2k+1] into the imaginary part
+// of cbuf[k]. Both cbuf and powers have length M = N/2. The twiddle tables
+// wHalf and wFull hold M/2 and M roots of unity for sizes M and N.
+func realFFTPowers(powers []float64, cbuf []complex128, wHalf, wFull []complex128) {
+	half := len(cbuf)
+	if half == 0 {
+		return
+	}
+	powers[0] = 0
+	if half == 1 {
+		return
+	}
+
+	fftInPlace(cbuf, wHalf)
+
+	quarter := half / 2
+	for k := 1; k < quarter; k++ {
+		a := cbuf[k]
+		b := cbuf[half-k]
+		ar, ai := real(a), imag(a)
+		br, bi := real(b), imag(b)
+
+		er, ei := 0.5*(ar+br), 0.5*(ai-bi)
+		or, oi := 0.5*(ai+bi), 0.5*(br-ar)
+
+		w := wFull[k]
+		wr, wi := real(w), imag(w)
+		tr := wr*or - wi*oi
+		ti := wr*oi + wi*or
+
+		xr, xi := er+tr, ei+ti
+		powers[k] = xr*xr + xi*xi
+
+		yr, yi := er-tr, ti-ei
+		powers[half-k] = yr*yr + yi*yi
+	}
+
+	m := cbuf[quarter]
+	mr, mi := real(m), imag(m)
+	powers[quarter] = mr*mr + mi*mi
+}
+
 // buildTwiddles returns the first n/2 complex nth-roots of unity used by
 // fftInPlace for an n-point transform.
 func buildTwiddles(n int) []complex128 {

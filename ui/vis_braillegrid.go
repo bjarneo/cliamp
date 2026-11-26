@@ -18,9 +18,8 @@ type brailleGrid struct {
 	cells   []int8
 	dotRows int
 	dotCols int
-	// flush writes a run of glyphs in the colour of a tier. Nil uses the
-	// three spectrum tiers, see flushSpectrumTier.
-	flush func(sb, run *strings.Builder, tier int)
+	// styleFor returns the ANSI style for a grid tier. Nil uses spectrumTierStyle.
+	styleFor func(tier int) styleANSI
 	// keepRunOnEmpty lets a blank cell join the colour that runs. A blank
 	// glyph paints nothing, so a break there only adds ANSI noise. Otherwise
 	// a blank cell takes the lowest tier.
@@ -30,10 +29,16 @@ type brailleGrid struct {
 // resize sizes the grid to rows by cols dots. It keeps the cells when the size
 // does not change, for a caller whose grid holds state across frames.
 func (g *brailleGrid) resize(rows, cols int) {
-	if rows == g.dotRows && cols == g.dotCols && len(g.cells) == rows*cols {
+	need := rows * cols
+	if rows == g.dotRows && cols == g.dotCols && len(g.cells) == need {
 		return
 	}
-	g.cells = make([]int8, rows*cols)
+	if cap(g.cells) >= need {
+		g.cells = g.cells[:need]
+		clear(g.cells)
+	} else {
+		g.cells = make([]int8, need)
+	}
 	g.dotRows = rows
 	g.dotCols = cols
 }
@@ -45,9 +50,7 @@ func (g *brailleGrid) ensure(rows, cols int) {
 }
 
 func (g *brailleGrid) clear() {
-	for i := range g.cells {
-		g.cells[i] = 0
-	}
+	clear(g.cells)
 }
 
 func (g *brailleGrid) set(x, y int, tier int8) {
@@ -65,69 +68,98 @@ func (g *brailleGrid) render(rows, cols int) string {
 	if g.dotRows < rows*4 || g.dotCols < cols*2 {
 		return strings.Repeat("\n", max(0, rows-1))
 	}
-	flush := g.flush
-	if flush == nil {
-		flush = flushSpectrumTier
+	styleFor := g.styleFor
+	if styleFor == nil {
+		styleFor = spectrumTierStyle
 	}
-	lines := make([]string, rows)
+	var sb strings.Builder
+	sb.Grow(rows * (cols*6 + 16))
+	w := styleRunWriter{sb: &sb}
+	dotCols := g.dotCols
+	cells := g.cells
 	for row := range rows {
-		var sb, run strings.Builder
+		if row > 0 {
+			sb.WriteByte('\n')
+		}
 		tier := 0
+		w.switchStyle(styleFor(0))
+		baseRow := row * 4 * dotCols
 		for col := range cols {
 			var braille rune = '⠀'
 			var cellTier int8
+			colOff := baseRow + col*2
 			for dr := range 4 {
-				for dc := range 2 {
-					t := g.cells[(row*4+dr)*g.dotCols+col*2+dc]
-					if t == 0 {
-						continue
+				rOff := colOff + dr*dotCols
+				if t := cells[rOff]; t != 0 {
+					braille |= brailleBit[dr][0]
+					if t > cellTier {
+						cellTier = t
 					}
-					braille |= brailleBit[dr][dc]
-					cellTier = max(cellTier, t)
+				}
+				if t := cells[rOff+1]; t != 0 {
+					braille |= brailleBit[dr][1]
+					if t > cellTier {
+						cellTier = t
+					}
 				}
 			}
 			if cellTier == 0 && !g.keepRunOnEmpty {
 				cellTier = 1
 			}
 			if cellTier != 0 && int(cellTier) != tier {
-				flush(&sb, &run, tier)
 				tier = int(cellTier)
+				w.switchStyle(styleFor(tier))
 			}
-			run.WriteRune(braille)
+			w.writeRune(braille)
 		}
-		flush(&sb, &run, tier)
-		lines[row] = sb.String()
+		w.flush()
 	}
-	return strings.Join(lines, "\n")
+	return sb.String()
 }
 
-// flushSpectrumTier colours a run by grid tier: 1, 2 and 3 are the low, mid
-// and high spectrum colours, and 0 is unstyled.
-func flushSpectrumTier(sb, run *strings.Builder, tier int) {
-	flushStyleRun(sb, run, tier-1)
+// spectrumTierStyle maps grid tiers 1, 2, and 3 to the low, mid, and high
+// spectrum styles. Tier 0 returns an unstyled entry.
+func spectrumTierStyle(tier int) styleANSI {
+	return specStyle(tier - 1)
 }
 
 // packBraille packs a dot mask of rows*4 by cols*2 dots, dotCols wide, into
 // rows lines of Braille glyphs. rowLevel picks the spectrum colour of each
 // whole line, as specWrap does.
 func packBraille(dots []bool, dotCols, rows, cols int, rowLevel func(row, rows int) float64) string {
-	lines := make([]string, rows)
+	if rows <= 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.Grow(rows * (cols*3 + 24))
 	for row := range rows {
-		var content strings.Builder
+		if row > 0 {
+			sb.WriteByte('\n')
+		}
+		style := specANSI[specTag(rowLevel(row, rows))]
+		if style.prefix != "" {
+			sb.WriteString(style.prefix)
+		}
+		baseRow := row * 4 * dotCols
 		for col := range cols {
 			var braille rune = '\u2800'
+			colOff := baseRow + col*2
 			for dr := range 4 {
-				for dc := range 2 {
-					if dots[(row*4+dr)*dotCols+col*2+dc] {
-						braille |= brailleBit[dr][dc]
-					}
+				rOff := colOff + dr*dotCols
+				if dots[rOff] {
+					braille |= brailleBit[dr][0]
+				}
+				if dots[rOff+1] {
+					braille |= brailleBit[dr][1]
 				}
 			}
-			content.WriteRune(braille)
+			sb.WriteRune(braille)
 		}
-		lines[row] = specWrap(rowLevel(row, rows), content.String())
+		if style.prefix != "" {
+			sb.WriteString(style.suffix)
+		}
 	}
-	return strings.Join(lines, "\n")
+	return sb.String()
 }
 
 // specRowLevel is the usual spectrum gradient: the low colour on the bottom
