@@ -43,7 +43,12 @@ type Provider struct {
 	history   *history.Store
 	favorites *favorites.Store
 
-	mu sync.Mutex // see lock
+	mu   sync.Mutex // see lock
+	tags tagCache
+}
+
+func (p *Provider) readTagsCached(files []string) []playlist.Track {
+	return p.tags.read(files, readTags)
 }
 
 // New creates a Provider using ~/.config/cliamp/playlists/ as the base
@@ -266,7 +271,7 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 	if err != nil {
 		return nil, err
 	}
-	return doc.expand(true), nil
+	return doc.expandWithTagReader(true, p.readTagsCached), nil
 }
 
 // AddTrack appends a track to the named playlist, creating the directory and
@@ -1015,7 +1020,7 @@ func (p *Provider) SearchTracks(ctx context.Context, query string, limit int) ([
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			for _, t := range readTags(unseen) {
+			for _, t := range p.readTagsCached(unseen) {
 				t.DirSourced = true
 				if score, ok := trackMatchScore(t, q); ok {
 					seen[t.Path] = struct{}{}

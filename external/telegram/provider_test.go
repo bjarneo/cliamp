@@ -3,9 +3,14 @@ package telegram
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/bjarneo/cliamp/config"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 	"github.com/gotd/td/tg"
@@ -361,5 +366,149 @@ func TestCloseCancelsContextAndWait(t *testing.T) {
 	}
 	if err := <-waitErr; err == nil {
 		t.Fatal("wait() should return an error after Close")
+	}
+}
+
+func TestNewFromConfigDefersStartUntilFirstAccess(t *testing.T) {
+	sessionDir := filepath.Join(t.TempDir(), "nested", "session")
+	cfg := config.TelegramConfig{
+		AppID:       123456,
+		AppHash:     "0123456789abcdef0123456789abcdef",
+		SessionFile: filepath.Join(sessionDir, "telegram.session"),
+	}
+
+	// NewFromConfig must not create the session directory or connect during startup.
+	unused := NewFromConfig(cfg)
+	if unused == nil {
+		t.Fatal("NewFromConfig() returned nil for valid config")
+	}
+	if _, err := os.Stat(sessionDir); !os.IsNotExist(err) {
+		t.Fatalf("NewFromConfig() created session dir eagerly: %v", err)
+	}
+	unused.Close()
+	unused.Close()
+
+	tests := []struct {
+		name   string
+		invoke func(p *Provider)
+	}{
+		{
+			name:   "wait",
+			invoke: func(p *Provider) { _ = p.wait() },
+		},
+		{
+			name:   "Playlists",
+			invoke: func(p *Provider) { _, _ = p.Playlists() },
+		},
+		{
+			name:   "Dialogs",
+			invoke: func(p *Provider) { _, _ = p.Dialogs() },
+		},
+		{
+			name:   "TracksPage",
+			invoke: func(p *Provider) { _, _, _ = p.TracksPage("c:1", 0) },
+		},
+		{
+			name:   "Authenticate",
+			invoke: func(p *Provider) { _ = p.Authenticate("12345") },
+		},
+		{
+			name: "SetChats",
+			invoke: func(p *Provider) {
+				_ = p.SetChats([]string{"c:1"})
+			},
+		},
+		{
+			name:   "NewStreamer",
+			invoke: func(p *Provider) { _, _, _, _ = p.NewStreamer("telegram:c:1:10") },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
+			p := NewFromConfig(cfg)
+			t.Cleanup(p.Close)
+
+			var starts atomic.Int32
+			started := make(chan struct{})
+			p.runFn = func() {
+				if starts.Add(1) == 1 {
+					close(started)
+				}
+				p.setFailed(errors.New("stubbed"))
+			}
+
+			if starts.Load() != 0 {
+				t.Fatal("background runner started before first method call")
+			}
+
+			tt.invoke(p)
+			select {
+			case <-started:
+			case <-time.After(2 * time.Second):
+				t.Fatalf("%s did not trigger lazy start", tt.name)
+			}
+
+			// Repeated access must not start the runner a second time.
+			_ = p.wait()
+			if got := starts.Load(); got != 1 {
+				t.Fatalf("start count = %d, want 1", got)
+			}
+		})
+	}
+}
+
+func TestCloseBeforeLazyStartPreventsRun(t *testing.T) {
+	cfg := config.TelegramConfig{
+		AppID:       123456,
+		AppHash:     "0123456789abcdef0123456789abcdef",
+		SessionFile: filepath.Join(t.TempDir(), "telegram.session"),
+	}
+	p := NewFromConfig(cfg)
+
+	var starts atomic.Int32
+	p.runFn = func() {
+		starts.Add(1)
+	}
+
+	p.Close()
+	p.Close()
+
+	if err := p.wait(); err == nil {
+		t.Fatal("wait() after Close() succeeded, want error")
+	}
+	if got := starts.Load(); got != 0 {
+		t.Fatalf("runner started %d times after Close(), want 0", got)
+	}
+}
+
+func TestEnsureStartedConcurrent(t *testing.T) {
+	cfg := config.TelegramConfig{
+		AppID:       123456,
+		AppHash:     "0123456789abcdef0123456789abcdef",
+		SessionFile: filepath.Join(t.TempDir(), "telegram.session"),
+	}
+	p := NewFromConfig(cfg)
+	t.Cleanup(p.Close)
+
+	var starts atomic.Int32
+	p.runFn = func() {
+		starts.Add(1)
+		p.setFailed(errors.New("stubbed"))
+	}
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = p.wait()
+		}()
+	}
+	wg.Wait()
+
+	if got := starts.Load(); got != 1 {
+		t.Fatalf("concurrent start count = %d, want 1", got)
 	}
 }

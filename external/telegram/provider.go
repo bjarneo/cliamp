@@ -78,6 +78,8 @@ type Provider struct {
 	cfg        config.TelegramConfig
 	ctx        context.Context
 	cancel     context.CancelFunc
+	startOnce  sync.Once
+	runFn      func()
 	closeOnce  sync.Once
 	client     *tgclient.Client
 	api        *tg.Client
@@ -92,11 +94,9 @@ type Provider struct {
 	chatsCache map[string]playlist.PlaylistInfo
 }
 
-// NewFromConfig returns nil when [telegram] is not configured. It never
-// blocks: the connection comes up in the background and the first Playlists,
-// Tracks or stream call waits for it, so a slow or unreachable network does
-// not hold the interface back. Without a saved session the pane shows the
-// sign-in prompt and collects the code there (provider.CodeAuthenticator).
+// NewFromConfig returns nil when [telegram] is not configured. It starts no
+// network connection during startup. The first method call that needs Telegram
+// starts the background client so unused providers open no MTProto connection.
 func NewFromConfig(cfg config.TelegramConfig) *Provider {
 	if !cfg.IsSet() {
 		return nil
@@ -114,8 +114,21 @@ func NewFromConfig(cfg config.TelegramConfig) *Provider {
 		cacheDir: filepath.Join(cache, "cliamp", "telegram"),
 		artCache: make(map[msgKey]string),
 	}
-	go p.run()
+	p.runFn = p.run
 	return p
+}
+
+// ensureStarted starts the background Telegram client once on first use.
+func (p *Provider) ensureStarted() {
+	p.startOnce.Do(func() {
+		if p.runFn == nil {
+			return
+		}
+		if p.ctx != nil && p.ctx.Err() != nil {
+			return
+		}
+		go p.runFn()
+	})
 }
 
 // Close cancels the background Telegram client context.
@@ -153,6 +166,7 @@ func (p *Provider) Chats() []string {
 // SetChats writes the filter into [telegram] and applies it in memory, so the
 // running pane follows without a restart. An empty list lists every dialog.
 func (p *Provider) SetChats(chats []string) error {
+	p.ensureStarted()
 	var kv []config.KeyValue
 	if len(chats) > 0 {
 		quoted := make([]string, 0, len(chats))
@@ -178,6 +192,7 @@ func (p *Provider) Prompt() string { return "Enter the code Telegram sent to you
 // with the code the user typed on the live connection. The pane calls it once
 // per attempt, so a rejected code can be corrected and repeated.
 func (p *Provider) Authenticate(code string) error {
+	p.ensureStarted()
 	if err := p.wait(); err != nil && !errors.Is(err, playlist.ErrNeedsAuth) {
 		return err
 	}
@@ -201,6 +216,9 @@ func (p *Provider) Authenticate(code string) error {
 }
 
 func (p *Provider) run() {
+	if p.baseContext().Err() != nil {
+		return
+	}
 	if err := os.MkdirAll(filepath.Dir(p.sessionPath()), 0o700); err != nil {
 		p.setFailed(err)
 		return
@@ -294,6 +312,7 @@ func (p *Provider) snapshotState() (provState, error) {
 // wait returns once the connection is usable. playlist.ErrNeedsAuth means the
 // pane must collect the login code; other errors keep the call retryable.
 func (p *Provider) wait() error {
+	p.ensureStarted()
 	deadline := time.Now().Add(connectWait)
 	done := p.doneChan()
 	for {
@@ -326,6 +345,7 @@ func (p *Provider) Name() string { return "Telegram" }
 // Playlists implements playlist.Provider. With [telegram] chats it returns
 // those chats; otherwise every dialog of the account, grouped by kind.
 func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
+	p.ensureStarted()
 	chats := p.Chats()
 	if len(chats) == 0 {
 		return p.Dialogs()
@@ -392,6 +412,7 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 // Dialogs lists every dialog of the account, ignoring the chats filter. The
 // setup wizard uses it to offer the chat picker.
 func (p *Provider) Dialogs() ([]playlist.PlaylistInfo, error) {
+	p.ensureStarted()
 	if err := p.wait(); err != nil {
 		return nil, err
 	}
@@ -421,6 +442,7 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 // pages of trackPageSize messages and returns the id of the last message as
 // the next offset (0 when the history is exhausted).
 func (p *Provider) TracksPage(playlistID string, offset int) ([]playlist.Track, int, error) {
+	p.ensureStarted()
 	if err := p.wait(); err != nil {
 		return nil, 0, err
 	}
@@ -950,6 +972,7 @@ func (p *Provider) URISchemes() []string { return []string{"telegram"} }
 // NewStreamer implements provider.CustomStreamer: it starts playback as soon
 // as the configured buffer is on disk and keeps downloading in the background.
 func (p *Provider) NewStreamer(uri string) (beep.StreamSeekCloser, beep.Format, time.Duration, error) {
+	p.ensureStarted()
 	if err := p.wait(); err != nil {
 		return nil, beep.Format{}, 0, err
 	}

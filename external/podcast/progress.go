@@ -77,6 +77,7 @@ type progressFile struct {
 // alias is only trusted while it points at exactly one episode.
 type progressStore struct {
 	mu        sync.Mutex
+	loadOnce  sync.Once
 	path      string
 	episodes  map[string]episodeState
 	aliases   map[string]string
@@ -97,20 +98,31 @@ func newProgressStore() *progressStore {
 		return s
 	}
 	s.path = filepath.Join(dir, "podcast_progress.json")
-	data, err := os.ReadFile(s.path)
-	if os.IsNotExist(err) {
-		return s
-	}
-	if err == nil {
-		err = s.load(data)
-	}
-	if err != nil {
-		s.episodes = map[string]episodeState{}
-		s.aliases = map[string]string{}
-		s.loadErr = fmt.Errorf("load podcast progress from %s: %w", s.path, err)
-		applog.Warn("podcast progress: %v; the file is left untouched and positions will not be saved", s.loadErr)
-	}
 	return s
+}
+
+// ensureLoaded reads podcast_progress.json once on first use.
+func (s *progressStore) ensureLoaded() {
+	s.loadOnce.Do(func() {
+		if s.path == "" {
+			return
+		}
+		data, err := os.ReadFile(s.path)
+		if os.IsNotExist(err) {
+			return
+		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if err == nil {
+			err = s.load(data)
+		}
+		if err != nil {
+			s.episodes = map[string]episodeState{}
+			s.aliases = map[string]string{}
+			s.loadErr = fmt.Errorf("load podcast progress from %s: %w", s.path, err)
+			applog.Warn("podcast progress: %v; the file is left untouched and positions will not be saved", s.loadErr)
+		}
+	})
 }
 
 // load parses either layout. A version 1 file is a flat map keyed by bare
@@ -259,6 +271,7 @@ func (s *progressStore) record(track playlist.Track, position, duration time.Dur
 		duration = time.Duration(track.DurationSecs) * time.Second
 	}
 
+	s.ensureLoaded()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key, ok := s.resolveLocked(track)
@@ -316,6 +329,7 @@ func (s *progressStore) aliasLocked(title, key string) {
 
 // state returns the stored state for an episode.
 func (s *progressStore) state(track playlist.Track) (provider.PlaybackState, bool) {
+	s.ensureLoaded()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key, ok := s.resolveLocked(track)
@@ -340,6 +354,10 @@ func (s *progressStore) knows(track playlist.Track) bool {
 	if episodeKey(track) != "" {
 		return true
 	}
+	if titleKey(track) == "" {
+		return false
+	}
+	s.ensureLoaded()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, ok := s.resolveLocked(track)
@@ -360,6 +378,7 @@ func (s *progressStore) resumeAt(track playlist.Track) time.Duration {
 
 // has reports whether any state is stored.
 func (s *progressStore) has() bool {
+	s.ensureLoaded()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.episodes) > 0
@@ -452,6 +471,7 @@ func (p *Provider) ReportNowPlaying(track playlist.Track, _ time.Duration, _ boo
 // The stored position stays as it was; TrackPosition already decides where
 // playback begins. The caller holds no lock.
 func (s *progressStore) clearPlayed(track playlist.Track) {
+	s.ensureLoaded()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key, ok := s.resolveLocked(track)

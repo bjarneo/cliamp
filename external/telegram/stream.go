@@ -168,6 +168,7 @@ func openPartialPair(dir string, msgID int) (writerFile, readerFile *os.File, pa
 // openStream returns a decoder that starts as soon as cfg.BufferMB of the
 // document are on disk. The rest keeps downloading in the background.
 func (p *Provider) openStream(chat string, msgID int) (beep.StreamSeekCloser, beep.Format, time.Duration, error) {
+	p.ensureStarted()
 	ctx, cancel := context.WithTimeout(p.baseContext(), 30*time.Minute)
 	defer cancel()
 

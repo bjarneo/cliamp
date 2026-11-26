@@ -83,6 +83,10 @@ func parsePlaylistDoc(data []byte) *playlistDoc {
 // their tags (titles fall back to filename parsing), for cheap operations
 // such as counting.
 func (d *playlistDoc) expand(withTags bool) []playlist.Track {
+	return d.expandWithTagReader(withTags, readTags)
+}
+
+func (d *playlistDoc) expandWithTagReader(withTags bool, tagReader func([]string) []playlist.Track) []playlist.Track {
 	explicit := make(map[string]struct{}, len(d.tracks))
 	for _, t := range d.tracks {
 		explicit[t.Path] = struct{}{}
@@ -101,20 +105,27 @@ func (d *playlistDoc) expand(withTags bool) []playlist.Track {
 		if err != nil {
 			continue
 		}
+		var unseen []string
+		for _, f := range files {
+			if _, dup := explicit[f]; dup {
+				continue
+			}
+			explicit[f] = struct{}{}
+			unseen = append(unseen, f)
+		}
+		if len(unseen) == 0 {
+			continue
+		}
 		var dirTracks []playlist.Track
 		if withTags {
-			dirTracks = readTags(files)
+			dirTracks = tagReader(unseen)
 		} else {
-			dirTracks = make([]playlist.Track, len(files))
-			for i, f := range files {
+			dirTracks = make([]playlist.Track, len(unseen))
+			for i, f := range unseen {
 				dirTracks[i] = playlist.TrackFromFilename(f)
 			}
 		}
 		for _, t := range dirTracks {
-			if _, dup := explicit[t.Path]; dup {
-				continue
-			}
-			explicit[t.Path] = struct{}{}
 			t.DirSourced = true
 			out = append(out, t)
 		}

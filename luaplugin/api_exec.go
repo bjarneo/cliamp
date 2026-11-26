@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -39,6 +40,430 @@ func blockedExecFlag(binary string, argv []string) string {
 		}
 	}
 	return ""
+}
+
+type ffmpegWriteFlagRule struct {
+	allowStdio      bool
+	passLogPrefix   bool
+	allowEmptyToCWD bool
+}
+
+// ffmpegWriteFlags maps ffmpeg options that accept a file path or output
+// target that must stay within write rules.
+var ffmpegWriteFlags = map[string]ffmpegWriteFlagRule{
+	"progress":               {allowStdio: true},
+	"vstats_file":            {},
+	"sdp_file":               {},
+	"passlogfile":            {passLogPrefix: true},
+	"filter_complex_script":  {},
+	"filter_script":          {},
+	"dump_attachment":        {allowEmptyToCWD: true},
+	"hls_segment_filename":   {},
+	"hls_fmp4_init_filename": {},
+	"segment_list":           {},
+	"master_pl_name":         {},
+	"init_seg_name":          {},
+	"media_seg_name":         {},
+	"manifest_name":          {},
+}
+
+// ffmpegCWDWriteFlags lists zero-argument ffmpeg flags that write log files
+// into the current working directory.
+var ffmpegCWDWriteFlags = map[string]struct{}{
+	"report": {},
+	"vstats": {},
+}
+
+// ffmpegValueFlags lists standard ffmpeg options that consume one value
+// argument. Any flag not listed here does not consume the following argument,
+// so unknown boolean flags cannot hide a positional output path.
+var ffmpegValueFlags = map[string]struct{}{
+	"abort_on":                   {},
+	"ab":                         {},
+	"absf":                       {},
+	"ac":                         {},
+	"acodec":                     {},
+	"af":                         {},
+	"aframes":                    {},
+	"allowed_extensions":         {},
+	"analyzeduration":            {},
+	"application":                {},
+	"aq":                         {},
+	"ar":                         {},
+	"aspect":                     {},
+	"async":                      {},
+	"atag":                       {},
+	"avioflags":                  {},
+	"avoid_negative_ts":          {},
+	"b":                          {},
+	"bf":                         {},
+	"bsf":                        {},
+	"buffer_size":                {},
+	"bufsize":                    {},
+	"ch_layout":                  {},
+	"channel_layout":             {},
+	"codec":                      {},
+	"color_primaries":            {},
+	"color_range":                {},
+	"color_trc":                  {},
+	"colorspace":                 {},
+	"compression_level":          {},
+	"content_type":               {},
+	"cookies":                    {},
+	"copytb":                     {},
+	"cpu-used":                   {},
+	"cpucount":                   {},
+	"cpuflags":                   {},
+	"crf":                        {},
+	"cutoff":                     {},
+	"c":                          {},
+	"dcodec":                     {},
+	"deadline":                   {},
+	"dframes":                    {},
+	"disposition":                {},
+	"err_detect":                 {},
+	"fflags":                     {},
+	"fifo_size":                  {},
+	"filter":                     {},
+	"filter_complex":             {},
+	"filter_complex_threads":     {},
+	"filter_hw_device":           {},
+	"filter_threads":             {},
+	"flags":                      {},
+	"flags2":                     {},
+	"flush_packets":              {},
+	"fps_mode":                   {},
+	"frag_duration":              {},
+	"frame_duration":             {},
+	"frames":                     {},
+	"fs":                         {},
+	"g":                          {},
+	"headers":                    {},
+	"hls_flags":                  {},
+	"hls_list_size":              {},
+	"hls_segment_type":           {},
+	"hls_time":                   {},
+	"http_proxy":                 {},
+	"hwaccel":                    {},
+	"hwaccel_device":             {},
+	"hwaccel_output_format":      {},
+	"icy":                        {},
+	"id3v2_version":              {},
+	"init_hw_device":             {},
+	"itsoffset":                  {},
+	"itsscale":                   {},
+	"keyint_min":                 {},
+	"lavfi":                      {},
+	"level":                      {},
+	"loglevel":                   {},
+	"map":                        {},
+	"map_channel":                {},
+	"map_chapters":               {},
+	"map_metadata":               {},
+	"max_alloc":                  {},
+	"max_error_rate":             {},
+	"max_interleave_delta":       {},
+	"max_muxing_queue_size":      {},
+	"maxrate":                    {},
+	"metadata":                   {},
+	"method":                     {},
+	"min_frag_duration":          {},
+	"minrate":                    {},
+	"movflags":                   {},
+	"multiple_requests":          {},
+	"muxdelay":                   {},
+	"muxpreload":                 {},
+	"overrun_nonfatal":           {},
+	"pass":                       {},
+	"pix_fmt":                    {},
+	"pkt_size":                   {},
+	"post_data":                  {},
+	"preset":                     {},
+	"probesize":                  {},
+	"profile":                    {},
+	"program":                    {},
+	"protocol_whitelist":         {},
+	"q":                          {},
+	"qp":                         {},
+	"qscale":                     {},
+	"quality":                    {},
+	"r":                          {},
+	"readrate":                   {},
+	"readrate_initial_burst":     {},
+	"reconnect":                  {},
+	"reconnect_at_eof":           {},
+	"reconnect_delay_max":        {},
+	"reconnect_on_http_error":    {},
+	"reconnect_on_network_error": {},
+	"reconnect_streamed":         {},
+	"referer":                    {},
+	"refs":                       {},
+	"reinit_filter":              {},
+	"reset_timestamps":           {},
+	"rtsp_flags":                 {},
+	"rtsp_transport":             {},
+	"rw_timeout":                 {},
+	"s":                          {},
+	"sample_fmt":                 {},
+	"sbsf":                       {},
+	"scodec":                     {},
+	"seekable":                   {},
+	"seg_duration":               {},
+	"segment_format":             {},
+	"segment_list_size":          {},
+	"segment_time":               {},
+	"sframes":                    {},
+	"shortest_buf_duration":      {},
+	"speed":                      {},
+	"ss":                         {},
+	"sseof":                      {},
+	"stag":                       {},
+	"start_number":               {},
+	"stats_period":               {},
+	"stimeout":                   {},
+	"stream_loop":                {},
+	"streamid":                   {},
+	"strict":                     {},
+	"svtav1-params":              {},
+	"sws_flags":                  {},
+	"t":                          {},
+	"tag":                        {},
+	"target":                     {},
+	"threads":                    {},
+	"timecode":                   {},
+	"timelimit":                  {},
+	"timeout":                    {},
+	"timestamp":                  {},
+	"tls_verify":                 {},
+	"to":                         {},
+	"tune":                       {},
+	"user_agent":                 {},
+	"v":                          {},
+	"vb":                         {},
+	"vbr":                        {},
+	"vbsf":                       {},
+	"vcodec":                     {},
+	"vf":                         {},
+	"vframes":                    {},
+	"vol":                        {},
+	"vq":                         {},
+	"vsync":                      {},
+	"vtag":                       {},
+	"window_size":                {},
+	"write_id3v1":                {},
+	"x264-params":                {},
+	"x264opts":                   {},
+	"x265-params":                {},
+}
+
+// validateFFmpegArgs rejects ffmpeg arguments that write outside allowed paths.
+// It returns an error message, or an empty string when the arguments pass.
+func validateFFmpegArgs(binary string, argv []string, cwd string) string {
+	base := strings.TrimSuffix(strings.ToLower(filepath.Base(binary)), ".exe")
+	if base != "ffmpeg" {
+		return ""
+	}
+	return validateFFmpegArgsWith(argv, cwd, isWriteAllowed)
+}
+
+func validateFFmpegArgsWith(argv []string, cwd string, writeAllowed func(string) bool) string {
+	positionalOnly := false
+	for i := 0; i < len(argv); i++ {
+		arg := argv[i]
+		if !positionalOnly && arg == "--" {
+			positionalOnly = true
+			continue
+		}
+		if !positionalOnly && strings.HasPrefix(arg, "-") && arg != "-" {
+			flagPart, eqVal, hasEq := strings.Cut(arg, "=")
+			rawName := strings.TrimPrefix(flagPart, "--")
+			if rawName == flagPart {
+				rawName = strings.TrimPrefix(flagPart, "-")
+			}
+			consumeValue := func() (string, bool) {
+				if hasEq {
+					return eqVal, true
+				}
+				if i+1 >= len(argv) {
+					return "", false
+				}
+				i++
+				return argv[i], true
+			}
+			// ffmpeg loads an option value from a file when the flag starts with "/".
+			if strings.HasPrefix(rawName, "/") {
+				val, ok := consumeValue()
+				if !ok || !isFFmpegTargetAllowed(val, cwd, false, writeAllowed) {
+					return "output path not allowed for ffmpeg flag " + flagPart + ": " + val
+				}
+				continue
+			}
+			baseFlag, _, _ := strings.Cut(rawName, ":")
+			baseFlag = strings.ToLower(baseFlag)
+
+			if baseFlag == "i" {
+				consumeValue()
+				continue
+			}
+			if rule, ok := ffmpegWriteFlags[baseFlag]; ok {
+				val, hasVal := consumeValue()
+				if !hasVal {
+					return "missing path for ffmpeg flag: " + flagPart
+				}
+				if val == "" && rule.allowEmptyToCWD {
+					if !isFFmpegCWDAllowed(cwd, writeAllowed) {
+						return "output path not allowed for ffmpeg flag " + flagPart
+					}
+					continue
+				}
+				if !isFFmpegTargetAllowed(val, cwd, rule.allowStdio, writeAllowed) {
+					return "output path not allowed for ffmpeg flag " + flagPart + ": " + val
+				}
+				if rule.passLogPrefix && !isFFmpegTargetAllowed(val+"-0.log", cwd, false, writeAllowed) {
+					return "output path not allowed for ffmpeg flag " + flagPart + ": " + val
+				}
+				continue
+			}
+			if _, ok := ffmpegCWDWriteFlags[baseFlag]; ok {
+				if !isFFmpegCWDAllowed(cwd, writeAllowed) {
+					return "flag not allowed for ffmpeg without writable cwd: " + flagPart
+				}
+				continue
+			}
+			if baseFlag == "f" || baseFlag == "format" {
+				val, ok := consumeValue()
+				if ok && strings.EqualFold(strings.TrimSpace(val), "tee") {
+					return "output format not allowed for ffmpeg: tee"
+				}
+				continue
+			}
+			if _, ok := ffmpegValueFlags[baseFlag]; ok {
+				consumeValue()
+			}
+			continue
+		}
+
+		if !isFFmpegTargetAllowed(arg, cwd, true, writeAllowed) {
+			return "output path not allowed for ffmpeg: " + arg
+		}
+	}
+	return ""
+}
+
+func isFFmpegCWDAllowed(cwd string, writeAllowed func(string) bool) bool {
+	if cwd != "" {
+		return writeAllowed(cwd)
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return false
+	}
+	return writeAllowed(wd)
+}
+
+func isFFmpegTargetAllowed(target, cwd string, allowStdio bool, writeAllowed func(string) bool) bool {
+	if target == "" {
+		return false
+	}
+	if allowStdio && target == "-" {
+		return true
+	}
+	if target == "/dev/null" || strings.EqualFold(target, "nul") {
+		return true
+	}
+	if scheme, rest, ok := splitFFmpegScheme(target); ok {
+		switch scheme {
+		case "pipe":
+			return allowStdio && (rest == "" || rest == "1" || rest == "2")
+		case "file":
+			path, valid := stripFileSchemePath(rest)
+			if !valid {
+				return false
+			}
+			return isFFmpegLocalPathAllowed(path, cwd, writeAllowed)
+		default:
+			return false
+		}
+	}
+	return isFFmpegLocalPathAllowed(target, cwd, writeAllowed)
+}
+
+// splitFFmpegScheme extracts a protocol prefix before the first colon. It
+// treats a single drive letter before a colon as a Windows path.
+func splitFFmpegScheme(s string) (string, string, bool) {
+	colon := strings.IndexByte(s, ':')
+	if colon <= 0 {
+		return "", "", false
+	}
+	prefix := s[:colon]
+	if strings.ContainsAny(prefix, `/\`) {
+		return "", "", false
+	}
+	if len(prefix) == 1 && isASCIIAlpha(prefix[0]) {
+		return "", "", false
+	}
+	// ffmpeg accepts protocol options separated by commas before the colon.
+	scheme, _, _ := strings.Cut(prefix, ",")
+	if len(scheme) < 2 {
+		return "", "", false
+	}
+	for i := 0; i < len(scheme); i++ {
+		c := scheme[i]
+		valid := isASCIIAlpha(c) || (c >= '0' && c <= '9') || c == '+' || c == '-' || c == '.'
+		if !valid {
+			return "", "", false
+		}
+	}
+	return strings.ToLower(scheme), s[colon+1:], true
+}
+
+func isASCIIAlpha(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+func stripFileSchemePath(rest string) (string, bool) {
+	if rest == "" {
+		return "", false
+	}
+	path := rest
+	if strings.HasPrefix(path, "//") {
+		switch {
+		case strings.HasPrefix(path, "///"):
+			path = path[2:]
+		case strings.HasPrefix(strings.ToLower(path), "//localhost/"):
+			path = path[len("//localhost"):]
+		default:
+			return "", false
+		}
+	}
+	if runtime.GOOS == "windows" && len(path) >= 3 && path[0] == '/' && isASCIIAlpha(path[1]) && path[2] == ':' {
+		path = path[1:]
+	}
+	if _, _, nested := splitFFmpegScheme(path); nested {
+		return "", false
+	}
+	return path, true
+}
+
+func isFFmpegLocalPathAllowed(path, cwd string, writeAllowed func(string) bool) bool {
+	if path == "" {
+		return false
+	}
+	if path == "/dev/null" || strings.EqualFold(path, "nul") {
+		return true
+	}
+	if strings.HasPrefix(path, "~") {
+		if path == "~" {
+			path = homeEnv()
+		} else if strings.HasPrefix(path, "~/") || strings.HasPrefix(path, `~\`) {
+			path = filepath.Join(homeEnv(), path[2:])
+		} else {
+			return false
+		}
+	} else if !filepath.IsAbs(path) && cwd != "" {
+		path = filepath.Join(cwd, path)
+	}
+	return writeAllowed(path)
 }
 
 // Default binaries plugins may invoke via cliamp.exec.run(). Users can widen
@@ -207,11 +632,6 @@ func (m *Manager) registerExecAPI(L *lua.LState, cliamp *lua.LTable, p *Plugin) 
 			return pushErr(L, "flag not allowed for "+binary+": "+flag)
 		}
 
-		path, err := exec.LookPath(binary)
-		if err != nil {
-			return pushErr(L, "binary not found on PATH: "+binary)
-		}
-
 		var onStdout, onStderr, onExit *lua.LFunction
 		cwd := ""
 		timeout := execMaxTimeout
@@ -239,6 +659,15 @@ func (m *Manager) registerExecAPI(L *lua.LState, cliamp *lua.LTable, p *Plugin) 
 
 		if cwd != "" && !isWriteAllowed(cwd) {
 			return pushErr(L, "cwd not in write allowlist")
+		}
+
+		if reason := validateFFmpegArgs(binary, argv, cwd); reason != "" {
+			return pushErr(L, reason)
+		}
+
+		path, err := exec.LookPath(binary)
+		if err != nil {
+			return pushErr(L, "binary not found on PATH: "+binary)
 		}
 
 		if !em.canStart(p) {
