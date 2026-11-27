@@ -12,6 +12,7 @@ import (
 	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/internal/authurl"
 	"github.com/bjarneo/cliamp/internal/browser"
+	"github.com/bjarneo/cliamp/playlist"
 )
 
 // authURLObserver receives the OAuth URL when interactive auth begins.
@@ -34,10 +35,10 @@ type oauthResult struct {
 func newClientSilent(ctx context.Context, baseURL string) (*client, error) {
 	creds, err := credsFile.Load()
 	if err != nil {
-		return nil, fmt.Errorf("qobuz: no stored credentials: %w", err)
+		return nil, fmt.Errorf("qobuz: no stored credentials: %w (%v)", playlist.ErrNeedsAuth, err)
 	}
 	if creds.AppID == "" || creds.UserAuthToken == "" {
-		return nil, fmt.Errorf("qobuz: incomplete stored credentials")
+		return nil, fmt.Errorf("qobuz: incomplete stored credentials: %w", playlist.ErrNeedsAuth)
 	}
 
 	c := newClient(creds.AppID, creds.Secrets)

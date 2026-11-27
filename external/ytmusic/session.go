@@ -14,6 +14,7 @@ import (
 	"github.com/bjarneo/cliamp/internal/browser"
 	"github.com/bjarneo/cliamp/internal/credstore"
 	"github.com/bjarneo/cliamp/internal/httpclient"
+	"github.com/bjarneo/cliamp/playlist"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -104,7 +105,7 @@ func NewSession(ctx context.Context, clientID, clientSecret string) (*Session, e
 func NewSessionSilent(ctx context.Context, clientID, clientSecret string) (*Session, error) {
 	creds, err := credsFile.Load()
 	if err != nil || creds.RefreshToken == "" {
-		return nil, fmt.Errorf("no stored credentials")
+		return nil, fmt.Errorf("ytmusic: no stored credentials: %w", playlist.ErrNeedsAuth)
 	}
 	return newSessionFromStored(ctx, clientID, clientSecret, creds)
 }

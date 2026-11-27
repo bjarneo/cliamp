@@ -33,7 +33,7 @@ type Client struct {
 // libraries is an optional list of music library names to restrict MusicSections to.
 // When not provided, all music libraries will be loaded
 func NewClient(baseURL, token string, libraries ...string) *Client {
-	return &Client{baseURL: baseURL, token: token, libraries: libraries}
+	return &Client{baseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/"), token: token, libraries: libraries}
 }
 
 // Section represents a Plex library section (e.g. a music library).
@@ -219,7 +219,7 @@ func (c *Client) Albums(sectionKey string) ([]Album, error) {
 			"X-Plex-Container-Size":  {fmt.Sprintf("%d", pageSize)},
 		}
 		var page albumPage
-		if err := c.get(context.Background(), "/library/sections/"+sectionKey+"/all", params, &page); err != nil {
+		if err := c.get(context.Background(), "/library/sections/"+url.PathEscape(sectionKey)+"/all", params, &page); err != nil {
 			return nil, err
 		}
 		// A page that starts with the album that started the page before
@@ -319,7 +319,7 @@ func (c *Client) PlaylistTracks(playlistRatingKey string) ([]Track, error) {
 			"X-Plex-Container-Size":  {fmt.Sprintf("%d", playlistPageSize)},
 		}
 		var page trackPage
-		if err := c.get(context.Background(), "/playlists/"+playlistRatingKey+"/items", params, &page); err != nil {
+		if err := c.get(context.Background(), "/playlists/"+url.PathEscape(playlistRatingKey)+"/items", params, &page); err != nil {
 			return nil, fmt.Errorf("plex: playlist %s items: %w", playlistRatingKey, err)
 		}
 		// A playlist can hold one track twice, so the entry ID marks the
@@ -357,7 +357,7 @@ func (c *Client) Tracks(albumRatingKey string) ([]Track, error) {
 			Metadata []trackJSON `json:"Metadata"`
 		} `json:"MediaContainer"`
 	}
-	if err := c.get(context.Background(), "/library/metadata/"+albumRatingKey+"/children", nil, &result); err != nil {
+	if err := c.get(context.Background(), "/library/metadata/"+url.PathEscape(albumRatingKey)+"/children", nil, &result); err != nil {
 		return nil, err
 	}
 

@@ -24,11 +24,13 @@ import (
 	tgclient "github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/auth"
 	"github.com/gotd/td/tg"
+	"github.com/gotd/td/tgerr"
 )
 
 // Compile-time interface checks.
 var (
 	_ playlist.Provider          = (*Provider)(nil)
+	_ playlist.Refresher         = (*Provider)(nil)
 	_ provider.CustomStreamer    = (*Provider)(nil)
 	_ provider.TrackPager        = (*Provider)(nil)
 	_ provider.CodeAuthenticator = (*Provider)(nil)
@@ -78,13 +80,15 @@ type Provider struct {
 	cfg        config.TelegramConfig
 	ctx        context.Context
 	cancel     context.CancelFunc
-	startOnce  sync.Once
 	runFn      func()
 	closeOnce  sync.Once
 	client     *tgclient.Client
 	api        *tg.Client
 	authReq    chan authRequest
-	mu         sync.Mutex // guards state and connectErr
+	mu         sync.Mutex // guards started, running, runDone, state, and connectErr
+	started    bool
+	running    bool
+	runDone    chan struct{}
 	state      provState
 	connectErr error
 	cacheDir   string
@@ -118,17 +122,60 @@ func NewFromConfig(cfg config.TelegramConfig) *Provider {
 	return p
 }
 
-// ensureStarted starts the background Telegram client once on first use.
+// ensureStarted starts the background Telegram client once on first use, or
+// again after Refresh resets a failed connection.
 func (p *Provider) ensureStarted() {
-	p.startOnce.Do(func() {
-		if p.runFn == nil {
-			return
-		}
-		if p.ctx != nil && p.ctx.Err() != nil {
-			return
-		}
-		go p.runFn()
-	})
+	if p.runFn == nil {
+		return
+	}
+	if p.ctx != nil && p.ctx.Err() != nil {
+		return
+	}
+	p.mu.Lock()
+	if p.started || p.running {
+		p.mu.Unlock()
+		return
+	}
+	p.started = true
+	p.running = true
+	done := make(chan struct{})
+	p.runDone = done
+	p.mu.Unlock()
+	go func() {
+		defer func() {
+			p.mu.Lock()
+			p.running = false
+			p.mu.Unlock()
+			close(done)
+		}()
+		p.runFn()
+	}()
+}
+
+// Refresh implements playlist.Refresher: it clears cached chat lookups and
+// allows a failed connection to reconnect on the next access.
+func (p *Provider) Refresh() {
+	p.chatsMu.Lock()
+	p.chatsCache = nil
+	p.chatsMu.Unlock()
+
+	p.mu.Lock()
+	if p.state != provFailed {
+		p.mu.Unlock()
+		return
+	}
+	done := p.runDone
+	p.mu.Unlock()
+	if done != nil {
+		<-done
+	}
+	p.mu.Lock()
+	if p.state == provFailed && !p.running {
+		p.state = provConnecting
+		p.connectErr = nil
+		p.started = false
+	}
+	p.mu.Unlock()
 }
 
 // Close cancels the background Telegram client context.
@@ -233,10 +280,11 @@ func (p *Provider) run() {
 			return err
 		}
 		if !status.Authorized {
-			// Connected without a session: keep the connection open and let
-			// the provider pane drive the sign-in with the typed code.
-			p.setNeedsAuth()
-			return p.awaitSignIn(ctx)
+			// Connected without a session: send the login code once, then let
+			// the provider pane submit the typed code against that code hash.
+			return p.awaitSignIn(ctx, p.client.Auth(), func() {
+				p.api = p.client.API()
+			})
 		}
 		p.api = p.client.API()
 		p.setReady()
@@ -249,9 +297,41 @@ func (p *Provider) run() {
 	}
 }
 
-// awaitSignIn serves Authenticate requests on the live connection until one
-// code signs in, the client stops, or the channel closes.
-func (p *Provider) awaitSignIn(ctx context.Context) error {
+type tgAuthClient interface {
+	SendCode(ctx context.Context, phone string, options auth.SendCodeOptions) (tg.AuthSentCodeClass, error)
+	SignIn(ctx context.Context, phone, code, codeHash string) (*tg.AuthAuthorization, error)
+	Password(ctx context.Context, password string) (*tg.AuthAuthorization, error)
+}
+
+// awaitSignIn requests a verification code once, signals provNeedsAuth, and
+// serves Authenticate attempts on the live connection until one succeeds, the
+// client stops, or the channel closes.
+func (p *Provider) awaitSignIn(ctx context.Context, client tgAuthClient, onReady func()) error {
+	if p.cfg.Phone == "" {
+		return errors.New("telegram: [telegram] phone is required to sign in")
+	}
+	phone := normalizePhone(p.cfg.Phone)
+	sentCode, err := client.SendCode(ctx, phone, auth.SendCodeOptions{})
+	if err != nil {
+		return fmt.Errorf("telegram: send code: %w", err)
+	}
+	var codeHash string
+	switch s := sentCode.(type) {
+	case *tg.AuthSentCode:
+		codeHash = s.PhoneCodeHash
+	case *tg.AuthSentCodeSuccess:
+		if onReady != nil {
+			onReady()
+		}
+		p.setReady()
+		<-ctx.Done()
+		return ctx.Err()
+	default:
+		return fmt.Errorf("telegram: unexpected send code response %T", sentCode)
+	}
+
+	p.setNeedsAuth()
+
 	for {
 		var req authRequest
 		var ok bool
@@ -263,30 +343,47 @@ func (p *Provider) awaitSignIn(ctx context.Context) error {
 		if !ok {
 			return nil
 		}
-		err := p.signInWith(ctx, req.code)
+		err := p.signInWithCode(ctx, client, phone, req.code, &codeHash)
+		if err == nil {
+			// Publish api and ready state before unblocking Authenticate so
+			// immediate follow-up calls observe provReady and a valid p.api.
+			if onReady != nil {
+				onReady()
+			}
+			p.setReady()
+		}
 		select {
 		case req.result <- err:
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 		if err == nil {
-			p.api = p.client.API()
-			p.setReady()
 			<-ctx.Done()
 			return ctx.Err()
 		}
 	}
 }
 
-func (p *Provider) signInWith(ctx context.Context, code string) error {
-	if p.cfg.Phone == "" {
-		return errors.New("telegram: [telegram] phone is required to sign in")
+func (p *Provider) signInWithCode(ctx context.Context, client tgAuthClient, phone, code string, codeHash *string) error {
+	_, err := client.SignIn(ctx, phone, code, *codeHash)
+	if errors.Is(err, auth.ErrPasswordAuthNeeded) {
+		if p.cfg.Password == "" {
+			return errors.New("telegram: 2FA password required; set password in [telegram]")
+		}
+		if _, passErr := client.Password(ctx, p.cfg.Password); passErr != nil {
+			return fmt.Errorf("telegram: sign in failed: %w", passErr)
+		}
+		return nil
 	}
-	flow := auth.NewFlow(
-		auth.Constant(normalizePhone(p.cfg.Phone), p.cfg.Password, staticCode(code)),
-		auth.SendCodeOptions{},
-	)
-	if err := flow.Run(ctx, p.client.Auth()); err != nil {
+	if err != nil {
+		if tgerr.Is(err, "PHONE_CODE_EXPIRED") {
+			if sent, sendErr := client.SendCode(ctx, phone, auth.SendCodeOptions{}); sendErr == nil {
+				if s, ok := sent.(*tg.AuthSentCode); ok {
+					*codeHash = s.PhoneCodeHash
+					return errors.New("telegram: code expired; a new code was sent to your app")
+				}
+			}
+		}
 		return fmt.Errorf("telegram: sign in failed: %w", err)
 	}
 	return nil
@@ -967,7 +1064,7 @@ func (p *Provider) resolveChat(ctx context.Context, chat string) (playlist.Playl
 }
 
 // URISchemes implements provider.CustomStreamer.
-func (p *Provider) URISchemes() []string { return []string{"telegram"} }
+func (p *Provider) URISchemes() []string { return []string{uriPrefix} }
 
 // NewStreamer implements provider.CustomStreamer: it starts playback as soon
 // as the configured buffer is on disk and keeps downloading in the background.
@@ -1009,7 +1106,11 @@ func docDuration(doc *tg.Document) int {
 }
 
 func safeChat(chat string) string {
-	return strings.NewReplacer("/", "_", "\\", "_", ":", "_", "@", "").Replace(chat)
+	s := strings.NewReplacer("/", "_", "\\", "_", ":", "_", "@", "").Replace(chat)
+	if s == "" || s == "." || s == ".." {
+		return "_"
+	}
+	return s
 }
 
 func extensionFor(doc *tg.Document) string {

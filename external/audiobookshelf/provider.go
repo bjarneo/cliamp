@@ -60,6 +60,7 @@ type Provider struct {
 	mu            sync.Mutex
 	playlistCache []playlist.PlaylistInfo
 	trackCache    map[string][]playlist.Track
+	trackCacheGen uint64
 	bookCache     []LibraryItem
 	showCache     []LibraryItem
 }
@@ -152,8 +153,12 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 }
 
 func (p *Provider) tracksContext(ctx context.Context, playlistID string) ([]playlist.Track, error) {
+	tokenGen := p.client.tokenGeneration()
 	p.mu.Lock()
-	if cached, ok := p.trackCache[playlistID]; ok {
+	if p.trackCacheGen != tokenGen {
+		p.trackCache = nil
+		p.trackCacheGen = tokenGen
+	} else if cached, ok := p.trackCache[playlistID]; ok {
 		p.mu.Unlock()
 		return slices.Clone(cached), nil
 	}
@@ -176,8 +181,12 @@ func (p *Provider) tracksContext(ctx context.Context, playlistID string) ([]play
 		out = p.bookTracks(item)
 	}
 
+	afterGen := p.client.tokenGeneration()
 	p.mu.Lock()
-	if p.trackCache == nil {
+	if p.trackCacheGen != afterGen {
+		p.trackCache = make(map[string][]playlist.Track)
+		p.trackCacheGen = afterGen
+	} else if p.trackCache == nil {
 		p.trackCache = make(map[string][]playlist.Track)
 	} else if _, exists := p.trackCache[playlistID]; !exists && len(p.trackCache) >= maxTrackCacheEntries {
 		clear(p.trackCache)

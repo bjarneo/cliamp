@@ -448,7 +448,14 @@ func (c *client) fullDownloadInfo(ctx context.Context, infoURL string) (fullDown
 	if err := fullDownloadInfoGuard(infoURL); err != nil {
 		return full, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, infoURL+"&format=json", nil)
+	u, err := url.Parse(infoURL)
+	if err != nil {
+		return full, err
+	}
+	q := u.Query()
+	q.Set("format", "json")
+	u.RawQuery = q.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return full, err
 	}
@@ -592,7 +599,11 @@ type flexString string
 
 func (f *flexString) UnmarshalJSON(data []byte) error {
 	data = bytes.TrimSpace(data)
-	if len(data) > 0 && data[0] == '"' {
+	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
+		*f = ""
+		return nil
+	}
+	if data[0] == '"' {
 		var s string
 		if err := json.Unmarshal(data, &s); err != nil {
 			return err

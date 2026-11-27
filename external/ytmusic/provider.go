@@ -2,16 +2,21 @@ package ytmusic
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 
+	"golang.org/x/oauth2"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/youtube/v3"
 )
 
@@ -45,7 +50,8 @@ type baseProvider struct {
 	disk         *ytCache                    // lazy-loaded disk cache
 	cacheScope   string                      // immutable identity of the active OAuth account
 	authCancel   context.CancelFunc          // cancels any in-progress OAuth flow
-	authGen      uint64                      // counts sign-ins, so a call clears only its own authCancel
+	authGen      uint64                      // counts sign-ins and closes, so stale flows do not install sessions
+	generation   uint64                      // bumped on refresh so in-flight fetches do not overwrite fresh caches
 }
 
 func newBase(session *Session, clientID, clientSecret string, hasCookies bool) *baseProvider {
@@ -102,7 +108,7 @@ func (b *baseProvider) initSession(interactive bool) error {
 	// It registers its own flow in the same lock hold, so a newer call or
 	// close always finds the flow that runs. A silent call leaves a running
 	// browser flow alone.
-	var gen uint64
+	gen := b.authGen
 	if interactive {
 		if b.authCancel != nil {
 			b.authCancel()
@@ -117,24 +123,24 @@ func (b *baseProvider) initSession(interactive bool) error {
 	var err error
 	if interactive {
 		sess, err = signIn(ctx, clientID, clientSecret)
-
-		b.mu.Lock()
-		if b.authGen == gen {
-			b.authCancel = nil
-		}
-		b.mu.Unlock()
 	} else {
 		sess, err = NewSessionSilent(ctx, clientID, clientSecret)
 	}
+
+	b.mu.Lock()
+	current := b.authGen == gen
+	if interactive && current {
+		b.authCancel = nil
+	}
 	if err != nil {
-		if !interactive {
+		b.mu.Unlock()
+		if !interactive && isAuthErr(err) {
 			return playlist.ErrNeedsAuth
 		}
 		return err
 	}
-
-	b.mu.Lock()
-	if b.session == nil {
+	var discard *Session
+	if current && b.session == nil {
 		if b.cacheScope != sess.cacheScope {
 			b.allPlaylists = nil
 			b.classified = nil
@@ -143,9 +149,60 @@ func (b *baseProvider) initSession(interactive bool) error {
 		b.session = sess
 		b.cacheScope = sess.cacheScope
 		b.disk = nil
+	} else {
+		discard = sess
 	}
 	b.mu.Unlock()
+	if discard != nil {
+		discard.Close()
+	}
 	return nil
+}
+
+// isAuthErr reports whether err indicates missing, expired, or revoked OAuth
+// credentials requiring interactive re-authentication.
+func isAuthErr(err error) bool {
+	if errors.Is(err, playlist.ErrNeedsAuth) {
+		return true
+	}
+	var retrieveErr *oauth2.RetrieveError
+	if errors.As(err, &retrieveErr) {
+		if strings.EqualFold(retrieveErr.ErrorCode, "invalid_grant") {
+			return true
+		}
+		if retrieveErr.Response != nil && retrieveErr.Response.StatusCode == http.StatusUnauthorized {
+			return true
+		}
+	}
+	var apiErr *googleapi.Error
+	if errors.As(err, &apiErr) && apiErr.Code == http.StatusUnauthorized {
+		return true
+	}
+	return false
+}
+
+// mapErr translates YouTube Data API errors for sess into provider-level
+// errors. On an auth revocation (invalid_grant or HTTP 401), it clears the
+// cached session if it is still sess and returns playlist.ErrNeedsAuth.
+func (b *baseProvider) mapErr(sess *Session, err error) error {
+	if err == nil {
+		return nil
+	}
+	if isAuthErr(err) {
+		var toClose *Session
+		b.mu.Lock()
+		if b.session == sess {
+			toClose = b.session
+			b.session = nil
+			applog.UserWarn("ytmusic: session expired, sign in again")
+		}
+		b.mu.Unlock()
+		if toClose != nil {
+			toClose.Close()
+		}
+		return playlist.ErrNeedsAuth
+	}
+	return err
 }
 
 func (b *baseProvider) ensureSession() error { return b.initSession(false) }
@@ -156,6 +213,7 @@ func (b *baseProvider) authenticate() error  { return b.initSession(true) }
 // changes, and re-classifying costs API quota.
 func (b *baseProvider) refresh() {
 	b.mu.Lock()
+	b.generation++
 	b.allPlaylists = nil
 	b.classified = nil
 	clear(b.trackCache)
@@ -173,6 +231,7 @@ func (b *baseProvider) refresh() {
 func (b *baseProvider) close() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.authGen++
 	if b.authCancel != nil {
 		b.authCancel()
 		b.authCancel = nil
@@ -223,6 +282,7 @@ func (b *baseProvider) fetchAndClassify() error {
 	b.mu.Lock()
 	sess := b.session
 	cacheScope := b.cacheScope
+	gen := b.generation
 	b.mu.Unlock()
 	if sess == nil {
 		return fmt.Errorf("ytmusic: session unavailable")
@@ -246,6 +306,9 @@ func (b *baseProvider) fetchAndClassify() error {
 
 		resp, err := call.Do()
 		if err != nil {
+			if mapped := b.mapErr(sess, err); mapped != err {
+				return mapped
+			}
 			return fmt.Errorf("ytmusic: list playlists: %w", err)
 		}
 
@@ -274,8 +337,8 @@ func (b *baseProvider) fetchAndClassify() error {
 	classified := classifyWithTimeout(svc, all, 60*time.Second, nil, cacheScope)
 
 	b.mu.Lock()
-	if b.allPlaylists != nil {
-		// Another goroutine completed fetchAndClassify while we were fetching.
+	if b.generation != gen || b.allPlaylists != nil {
+		// Refresh ran or another goroutine completed fetchAndClassify while we were fetching.
 		b.mu.Unlock()
 		return nil
 	}
@@ -343,6 +406,7 @@ func (b *baseProvider) tracks(playlistID string) ([]playlist.Track, error) {
 
 	b.mu.Lock()
 	sess := b.session
+	gen := b.generation
 	b.mu.Unlock()
 	if sess == nil {
 		return nil, fmt.Errorf("ytmusic: session unavailable")
@@ -365,6 +429,9 @@ func (b *baseProvider) tracks(playlistID string) ([]playlist.Track, error) {
 
 		resp, err := call.Do()
 		if err != nil {
+			if mapped := b.mapErr(sess, err); mapped != err {
+				return nil, mapped
+			}
 			return nil, fmt.Errorf("ytmusic: list playlist items: %w", err)
 		}
 
@@ -407,8 +474,12 @@ func (b *baseProvider) tracks(playlistID string) ([]playlist.Track, error) {
 		})
 	}
 
-	// Persist to in-memory and disk cache.
+	// Persist to in-memory and disk cache unless Refresh ran while fetching.
 	b.mu.Lock()
+	if b.generation != gen {
+		b.mu.Unlock()
+		return tracks, nil
+	}
 	if _, exists := b.trackCache[playlistID]; !exists && len(b.trackCache) >= maxTrackCacheEntries {
 		clear(b.trackCache)
 	}

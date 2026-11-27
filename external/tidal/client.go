@@ -239,6 +239,8 @@ func (c *client) doRequest(ctx context.Context, path string, params url.Values) 
 			case <-ctx.Done():
 				return nil, fmt.Errorf("tidal: %s: %w", path, ctx.Err())
 			}
+		case resp.StatusCode == http.StatusUnauthorized:
+			return nil, fmt.Errorf("tidal: %s: %w: HTTP %d: %s", path, errAuthRevoked, resp.StatusCode, errorSnippet(body))
 		case resp.StatusCode >= 400:
 			return nil, fmt.Errorf("tidal: %s: HTTP %d: %s", path, resp.StatusCode, errorSnippet(body))
 		}

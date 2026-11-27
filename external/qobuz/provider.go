@@ -104,8 +104,11 @@ func (p *QobuzProvider) ensureClient() (*client, error) {
 	defer cancel()
 	c, err := newClientSilent(ctx, apiBaseURL)
 	if err != nil {
-		applog.Debug("qobuz: silent auth failed, prompting sign-in: %v", err)
-		return nil, playlist.ErrNeedsAuth
+		if errors.Is(err, playlist.ErrNeedsAuth) || errors.Is(err, errUnauthorized) {
+			applog.Debug("qobuz: silent auth failed, prompting sign-in: %v", err)
+			return nil, playlist.ErrNeedsAuth
+		}
+		return nil, err
 	}
 
 	p.mu.Lock()
@@ -143,22 +146,20 @@ func (p *QobuzProvider) Authenticate() error {
 	p.mu.Lock()
 	if p.authGen == gen {
 		p.authCancel = nil
+		if err == nil {
+			p.client = c
+		}
 	}
 	p.mu.Unlock()
 
-	if err != nil {
-		return err
-	}
-	p.mu.Lock()
-	p.client = c
-	p.mu.Unlock()
-	return nil
+	return err
 }
 
 // Close cancels any in-progress sign-in. Implements provider.Closer.
 func (p *QobuzProvider) Close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.authGen++
 	if p.authCancel != nil {
 		p.authCancel()
 		p.authCancel = nil

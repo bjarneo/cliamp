@@ -14,6 +14,7 @@ import (
 	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/internal/authurl"
 	"github.com/bjarneo/cliamp/internal/browser"
+	"github.com/bjarneo/cliamp/playlist"
 )
 
 const (
@@ -115,10 +116,10 @@ func requestToken(ctx context.Context, httpc *http.Client, endpoint string, form
 func newClientSilent(ctx context.Context) (*client, error) {
 	creds, err := credsFile.Load()
 	if err != nil {
-		return nil, fmt.Errorf("tidal: no stored credentials: %w", err)
+		return nil, fmt.Errorf("tidal: no stored credentials: %w (%v)", playlist.ErrNeedsAuth, err)
 	}
 	if creds.ClientID == "" || creds.RefreshToken == "" {
-		return nil, fmt.Errorf("tidal: incomplete stored credentials")
+		return nil, fmt.Errorf("tidal: incomplete stored credentials: %w", playlist.ErrNeedsAuth)
 	}
 
 	c := newClient(creds.ClientID, creds.ClientSecret)

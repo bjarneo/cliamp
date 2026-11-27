@@ -49,7 +49,8 @@ type waveState struct {
 	sessionID string
 	batchID   string
 	tracks    []playlist.Track
-	keys      []string // "trackId:albumId" keys for continuation requests
+	keys      []string          // "trackId:albumId" keys for continuation requests
+	keyByID   map[string]string // canonical track ID (RealID or ID) -> "trackId:albumId"
 }
 
 // Provider implements playlist.Provider and provider.Searcher for Yandex Music.
@@ -261,9 +262,10 @@ func (p *Provider) loadWave(ctx context.Context) ([]playlist.Track, error) {
 	if err != nil {
 		return nil, err
 	}
-	w := &waveState{sessionID: sessionID, batchID: batchID}
+	w := &waveState{sessionID: sessionID, batchID: batchID, keyByID: make(map[string]string)}
 	w.tracks = p.toPlaylistTracks(initial)
 	w.keys = trackKeys(initial)
+	w.indexTrackKeys(initial)
 
 	const extraBatches = 2
 	for range extraBatches {
@@ -275,6 +277,7 @@ func (p *Provider) loadWave(ctx context.Context) ([]playlist.Track, error) {
 		w.batchID = bid
 		w.tracks = append(w.tracks, p.toPlaylistTracks(batch)...)
 		w.keys = append(w.keys, trackKeys(batch)...)
+		w.indexTrackKeys(batch)
 	}
 
 	p.mu.Lock()
@@ -344,13 +347,36 @@ func trackKeys(ts []track) []string {
 	return keys
 }
 
-func waveKeyFor(keys []string, id string) string {
-	for _, k := range keys {
-		if plainID(k) == id {
-			return k
+func (w *waveState) indexTrackKeys(ts []track) {
+	if w.keyByID == nil {
+		w.keyByID = make(map[string]string, len(ts))
+	}
+	for _, t := range ts {
+		id := string(t.ID)
+		if id == "" {
+			continue
+		}
+		key := id
+		if len(t.Albums) > 0 && t.Albums[0].ID != 0 {
+			key = id + ":" + strconv.FormatUint(t.Albums[0].ID, 10)
+		}
+		w.keyByID[id] = key
+		if real := string(t.RealID); real != "" {
+			w.keyByID[real] = key
 		}
 	}
-	return id
+}
+
+func (w *waveState) lookupKey(id string) (string, bool) {
+	if k, ok := w.keyByID[id]; ok {
+		return k, true
+	}
+	for _, k := range w.keys {
+		if plainID(k) == id {
+			return k, true
+		}
+	}
+	return "", false
 }
 
 // ResolveSource resolves a yandex:track: URI to a fresh signed stream URL at
@@ -424,12 +450,11 @@ func (p *Provider) report(track playlist.Track, playedSeconds int, waveEvent str
 	p.mu.Lock()
 	uid := p.userID
 	var wave *waveState
+	var waveKey string
 	if p.wave != nil {
-		for _, k := range p.wave.keys {
-			if plainID(k) == id {
-				wave = p.wave
-				break
-			}
+		if k, ok := p.wave.lookupKey(id); ok {
+			wave = p.wave
+			waveKey = k
 		}
 	}
 	p.mu.Unlock()
@@ -445,7 +470,7 @@ func (p *Provider) report(track playlist.Track, playedSeconds int, waveEvent str
 	}
 	return p.api.rotorWaveFeedback(
 		ctx, wave.sessionID, wave.batchID, waveEvent,
-		waveKeyFor(wave.keys, id),
+		waveKey,
 		float64(track.DurationSecs), float64(playedSeconds),
 	)
 }

@@ -204,7 +204,7 @@ func RemoteContext(ctx context.Context, urls []string) ([]playlist.Track, error)
 				tracks = append(tracks, t...)
 			} else if hasListParam(u) {
 				t, err := resolveYTDL(ctx, target, YTDLRadioInitialItems)
-				if err != nil {
+				if err != nil && ctx.Err() == nil && hasVideoParam(u) {
 					target = stripPlaylistParam(u)
 					t, err = resolveYTDL(ctx, target, 0)
 				}
@@ -313,6 +313,15 @@ func hasListParam(rawURL string) bool {
 		return false
 	}
 	return u.Query().Get("list") != ""
+}
+
+// hasVideoParam reports whether the URL contains a non-empty v= query parameter.
+func hasVideoParam(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	return u.Query().Get("v") != ""
 }
 
 // sniffFeedURLs probes unclassified URL arguments concurrently when multiple
@@ -735,12 +744,20 @@ func resolveYouTube(ctx context.Context, pageURL string) ([]playlist.Track, erro
 		listID = u.Query().Get("list")
 	}
 	if isList && strings.HasPrefix(listID, "RD") {
-		if tracks, err := resolveYTDL(ctx, pageURL, YTDLRadioInitialItems); err == nil && len(tracks) > 0 {
+		tracks, err := resolveYTDL(ctx, pageURL, YTDLRadioInitialItems)
+		if err == nil && len(tracks) > 0 {
 			return tracks, nil
 		}
-	}
-
-	if isList {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("youtube resolve: %w", ctx.Err())
+		}
+		if !hasVideoParam(pageURL) {
+			if err != nil {
+				return nil, fmt.Errorf("youtube resolve: %w", err)
+			}
+			return nil, fmt.Errorf("youtube resolve: no tracks found")
+		}
+	} else if isList {
 		pl, err := client.GetPlaylistContext(ctx, pageURL)
 		if err == nil && len(pl.Videos) > 0 {
 			tracks := make([]playlist.Track, 0, len(pl.Videos))
@@ -755,10 +772,16 @@ func resolveYouTube(ctx context.Context, pageURL string) ([]playlist.Track, erro
 			}
 			return tracks, nil
 		}
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("youtube resolve: %w", ctx.Err())
+		}
 		// Native library failed (e.g. YouTube Radio/Mix playlists are dynamic
 		// and unsupported). Fall back to yt-dlp which handles them.
 		if tracks, err := resolveYTDL(ctx, pageURL, 0); err == nil && len(tracks) > 0 {
 			return tracks, nil
+		}
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("youtube resolve: %w", ctx.Err())
 		}
 	}
 

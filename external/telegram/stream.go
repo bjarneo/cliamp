@@ -34,6 +34,7 @@ type streamSource struct {
 	done        bool
 	err         error
 	interrupted bool
+	closed      bool
 }
 
 // errStreamInterrupted is the error of a Read after interrupt.
@@ -96,8 +97,21 @@ func (s *streamSource) Seek(offset int64, whence int) (int64, error) {
 	return next, nil
 }
 
-// Close implements io.Closer.
-func (s *streamSource) Close() error { return s.file.Close() }
+// Close implements io.Closer. It interrupts blocked readers before closing the
+// underlying file under s.mu so Close never races with ReadAt.
+func (s *streamSource) Close() error {
+	s.mu.Lock()
+	s.interrupted = true
+	s.cond.Broadcast()
+	if s.closed {
+		s.mu.Unlock()
+		return nil
+	}
+	s.closed = true
+	err := s.file.Close()
+	s.mu.Unlock()
+	return err
+}
 
 // interrupt makes a Read that waits for the download, and every later Read,
 // fail at once. The download goes on, so the file still reaches the cache.

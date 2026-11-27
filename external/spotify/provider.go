@@ -2,6 +2,7 @@ package spotify
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -79,7 +80,10 @@ func (p *SpotifyProvider) ensureSession() error {
 	defer cancel()
 	sess, err := newSessionSilent(ctx, clientID)
 	if err != nil {
-		return playlist.ErrNeedsAuth
+		if errors.Is(err, playlist.ErrNeedsAuth) {
+			return playlist.ErrNeedsAuth
+		}
+		return err
 	}
 	p.mu.Lock()
 	if p.session != nil {

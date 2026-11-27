@@ -105,7 +105,7 @@ func extractXiaoyuzhouSchemaJSON(doc string) string {
 	if len(m) < 2 {
 		return ""
 	}
-	return html.UnescapeString(strings.TrimSpace(m[1]))
+	return strings.TrimSpace(m[1])
 }
 
 func extractMetaContent(doc, attr, value string) string {

@@ -492,11 +492,12 @@ func IsStreamURL(path string) bool {
 		return false
 	}
 	p := u.Path
-	if !strings.HasPrefix(p, musicPath) {
+	musicIdx := strings.Index(p, musicPath)
+	if musicIdx < 0 {
 		return false
 	}
 	// Accept /download and transcoding variants such as /download.mp3.
-	rest := p[len(musicPath):]
+	rest := p[musicIdx+len(musicPath):]
 	idx := strings.LastIndex(rest, downloadSuffix)
 	if idx <= 0 {
 		return false

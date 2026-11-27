@@ -38,6 +38,7 @@ type Client struct {
 	// from concurrent tea.Cmd goroutines. It is never held across network I/O.
 	mu           sync.Mutex
 	token        string
+	tokenGen     uint64
 	libraryCache []Library
 }
 
@@ -165,10 +166,17 @@ func (c *Client) getContext(ctx context.Context, p string, params url.Values, ou
 // in again. A token from config cannot be renewed.
 func (c *Client) canRelogin() bool { return c.user != "" && c.password != "" }
 
+func (c *Client) tokenGeneration() uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.tokenGen
+}
+
 func (c *Client) clearTokenIf(failed string) {
 	c.mu.Lock()
 	if c.token == failed {
 		c.token = ""
+		c.tokenGen++
 	}
 	c.mu.Unlock()
 }
@@ -423,6 +431,7 @@ func (c *Client) ensureAuth(ctx context.Context) error {
 
 	c.mu.Lock()
 	c.token = token
+	c.tokenGen++
 	c.mu.Unlock()
 	return nil
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/bjarneo/cliamp/playlist"
 
 	librespot "github.com/devgianlu/go-librespot"
+	"github.com/devgianlu/go-librespot/ap"
 	librespotPlayer "github.com/devgianlu/go-librespot/player"
 	devicespb "github.com/devgianlu/go-librespot/proto/spotify/connectstate/devices"
 	"github.com/devgianlu/go-librespot/session"
@@ -67,6 +68,7 @@ func SetAuthURLObserver(fn func(string)) { authURLObserver.Set(fn) }
 // Session manages a go-librespot session and player for Spotify integration.
 type Session struct {
 	mu          sync.RWMutex
+	closed      bool
 	sess        *session.Session
 	player      *librespotPlayer.Player
 	devID       string
@@ -230,7 +232,7 @@ func NewSession(ctx context.Context, clientID string) (*Session, error) {
 func NewSessionSilent(ctx context.Context, clientID string) (*Session, error) {
 	creds, err := credsFile.Load()
 	if err != nil || creds.Username == "" || len(creds.Data) == 0 {
-		return nil, fmt.Errorf("no stored credentials")
+		return nil, fmt.Errorf("spotify: no stored credentials: %w", playlist.ErrNeedsAuth)
 	}
 	return newSessionFromStored(ctx, clientID, creds, true)
 }
@@ -254,6 +256,10 @@ func newSessionFromStored(ctx context.Context, clientID string, creds *storedCre
 		},
 	})
 	if err != nil {
+		var loginErr *ap.AccesspointLoginError
+		if errors.As(err, &loginErr) {
+			return nil, fmt.Errorf("spotify: stored auth rejected: %w (%v)", playlist.ErrNeedsAuth, err)
+		}
 		return nil, fmt.Errorf("spotify: stored auth: %w", err)
 	}
 
@@ -718,6 +724,7 @@ func (s *Session) NewStream(ctx context.Context, spotID librespot.SpotifyId, bit
 func (s *Session) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.closed = true
 	if s.player != nil {
 		s.player.Close()
 		s.player = nil
@@ -751,8 +758,12 @@ func (s *Session) ReconnectInteractive(ctx context.Context) error {
 // old player pointer.
 func (s *Session) reconnect(ctx context.Context, build func(context.Context, string) (*Session, error)) error {
 	s.mu.RLock()
+	closed := s.closed
 	clientID := s.clientID
 	s.mu.RUnlock()
+	if closed {
+		return errors.New("spotify: session closed")
+	}
 
 	newSess, err := build(ctx, clientID)
 	if err != nil {
@@ -763,6 +774,11 @@ func (s *Session) reconnect(ctx context.Context, build func(context.Context, str
 	// in-flight NewStream calls finish before oldPlayer.Close() runs. The
 	// expensive build() above happened lock-free.
 	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		newSess.Close()
+		return errors.New("spotify: session closed")
+	}
 	oldPlayer := s.player
 	oldSess := s.sess
 	s.sess = newSess.sess

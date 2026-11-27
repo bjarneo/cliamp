@@ -46,6 +46,9 @@ func (p *SpotifyProvider) RelatedTracks(ctx context.Context, seed playlist.Track
 	p.mu.Lock()
 	sess := p.session
 	p.mu.Unlock()
+	if sess == nil {
+		return nil, playlist.ErrNeedsAuth
+	}
 	return sess.relatedTracks(ctx, seed.Path, n)
 }
 

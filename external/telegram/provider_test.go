@@ -13,6 +13,7 @@ import (
 	"github.com/bjarneo/cliamp/config"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
+	"github.com/gotd/td/telegram/auth"
 	"github.com/gotd/td/tg"
 )
 
@@ -510,5 +511,137 @@ func TestEnsureStartedConcurrent(t *testing.T) {
 
 	if got := starts.Load(); got != 1 {
 		t.Fatalf("concurrent start count = %d, want 1", got)
+	}
+}
+
+type fakeTGAuthClient struct {
+	mu           sync.Mutex
+	sendCalls    int
+	signInHashes []string
+	signInCodes  []string
+	needPassword bool
+	gotPassword  string
+}
+
+func (f *fakeTGAuthClient) SendCode(_ context.Context, _ string, _ auth.SendCodeOptions) (tg.AuthSentCodeClass, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sendCalls++
+	return &tg.AuthSentCode{PhoneCodeHash: "hash-1"}, nil
+}
+
+func (f *fakeTGAuthClient) SignIn(_ context.Context, _, code, codeHash string) (*tg.AuthAuthorization, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.signInCodes = append(f.signInCodes, code)
+	f.signInHashes = append(f.signInHashes, codeHash)
+	if code != "54321" {
+		return nil, errors.New("PHONE_CODE_INVALID")
+	}
+	if f.needPassword {
+		return nil, auth.ErrPasswordAuthNeeded
+	}
+	return &tg.AuthAuthorization{}, nil
+}
+
+func (f *fakeTGAuthClient) Password(_ context.Context, password string) (*tg.AuthAuthorization, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.gotPassword = password
+	return &tg.AuthAuthorization{}, nil
+}
+
+func TestAwaitSignInSendsCodeOnceAndMarksReadyBeforeReturning(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p := &Provider{
+		cfg:     config.TelegramConfig{Phone: "+15551234567", Password: "secret"},
+		ctx:     ctx,
+		cancel:  cancel,
+		authReq: make(chan authRequest),
+	}
+	fake := &fakeTGAuthClient{needPassword: true}
+	var readySet atomic.Bool
+
+	go func() {
+		_ = p.awaitSignIn(ctx, fake, func() { readySet.Store(true) })
+	}()
+
+	// Wait until SendCode has run and provider transitioned to provNeedsAuth.
+	if err := p.wait(); !errors.Is(err, playlist.ErrNeedsAuth) {
+		t.Fatalf("initial wait() = %v, want ErrNeedsAuth", err)
+	}
+	// Wrong code must fail without calling SendCode again.
+	if err := p.Authenticate("00000"); err == nil {
+		t.Fatal("Authenticate(wrong code) = nil, want error")
+	}
+	// Correct code must succeed with the same hash and mark ready BEFORE returning.
+	if err := p.Authenticate("54321"); err != nil {
+		t.Fatalf("Authenticate(54321) = %v, want nil", err)
+	}
+	if !readySet.Load() {
+		t.Fatal("onReady did not run before Authenticate returned")
+	}
+	if err := p.wait(); err != nil {
+		t.Fatalf("wait() right after Authenticate = %v, want nil (ready)", err)
+	}
+
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.sendCalls != 1 {
+		t.Fatalf("SendCode calls = %d, want 1", fake.sendCalls)
+	}
+	if fake.gotPassword != "secret" {
+		t.Fatalf("2FA password = %q, want secret", fake.gotPassword)
+	}
+	if len(fake.signInHashes) != 2 || fake.signInHashes[0] != "hash-1" || fake.signInHashes[1] != "hash-1" {
+		t.Fatalf("SignIn hashes = %v, want [hash-1 hash-1]", fake.signInHashes)
+	}
+}
+
+func TestURISchemesIncludesTrailingColonAndSafeChatBlocksDotDot(t *testing.T) {
+	p := &Provider{}
+	schemes := p.URISchemes()
+	if len(schemes) != 1 || schemes[0] != "telegram:" {
+		t.Fatalf("URISchemes() = %v, want [telegram:]", schemes)
+	}
+	for _, bad := range []string{"", ".", ".."} {
+		if got := safeChat(bad); got == "" || got == "." || got == ".." {
+			t.Fatalf("safeChat(%q) = %q, want safe directory name", bad, got)
+		}
+	}
+}
+
+func TestRefreshRestartsAfterTransientFailure(t *testing.T) {
+	cfg := config.TelegramConfig{
+		AppID:       123456,
+		AppHash:     "0123456789abcdef0123456789abcdef",
+		SessionFile: filepath.Join(t.TempDir(), "telegram.session"),
+	}
+	p := NewFromConfig(cfg)
+	t.Cleanup(p.Close)
+
+	var starts atomic.Int32
+	done := make(chan struct{}, 2)
+	p.runFn = func() {
+		if starts.Add(1) == 1 {
+			p.setFailed(errors.New("transient dns error"))
+		} else {
+			p.setReady()
+		}
+		done <- struct{}{}
+	}
+
+	if err := p.wait(); err == nil {
+		t.Fatal("first wait() = nil, want transient error")
+	}
+	<-done
+	p.Refresh()
+	if err := p.wait(); err != nil {
+		t.Fatalf("wait() after Refresh() = %v, want nil", err)
+	}
+	<-done
+	if got := starts.Load(); got != 2 {
+		t.Fatalf("starts = %d, want 2", got)
 	}
 }

@@ -102,12 +102,15 @@ func FetchUserPlaylists(browser string) ([]playlist.PlaylistInfo, error) {
 	defer cancel()
 
 	args := []string{"--flat-playlist", "-j", "--socket-timeout", "15"}
-	b := strings.TrimSpace(browser)
-	if b == "" {
-		b = ytdlcookies.ForURL("https://www.youtube.com/feed/playlists")
-	}
-	if b != "" {
+	if b := strings.TrimSpace(browser); b != "" {
 		args = append(args, "--cookies-from-browser", b)
+	} else {
+		cookieArgs, cleanup, err := ytdlcookies.Args("https://www.youtube.com/feed/playlists")
+		defer cleanup()
+		if err != nil {
+			return nil, fmt.Errorf("yt-dlp: %w", err)
+		}
+		args = append(args, cookieArgs...)
 	}
 	args = append(args, "--", "https://www.youtube.com/feed/playlists")
 

@@ -86,11 +86,12 @@ var charts = []chartPlaylist{
 
 // Provider implements playlist.Provider and provider.Searcher.
 type Provider struct {
-	apiBase     string
-	httpClient  *http.Client
-	cookiesFrom string
-	cookiesFile string
-	userID      string
+	apiBase          string
+	httpClient       *http.Client
+	cookiesFrom      string
+	cookiesFile      string
+	configuredUserID string
+	userID           string
 
 	mu           sync.Mutex
 	cookieHeader string
@@ -114,12 +115,14 @@ func NewFromConfig(cfg Config) *Provider {
 
 // New creates a NetEase provider.
 func New(cfg Config) *Provider {
+	uid := strings.TrimSpace(cfg.UserID)
 	return &Provider{
-		apiBase:     defaultAPIBase,
-		httpClient:  httpclient.NewAPI(apiTimeout),
-		cookiesFrom: strings.TrimSpace(cfg.CookiesFrom),
-		cookiesFile: strings.TrimSpace(cfg.CookiesFile),
-		userID:      strings.TrimSpace(cfg.UserID),
+		apiBase:          defaultAPIBase,
+		httpClient:       httpclient.NewAPI(apiTimeout),
+		cookiesFrom:      strings.TrimSpace(cfg.CookiesFrom),
+		cookiesFile:      strings.TrimSpace(cfg.CookiesFile),
+		configuredUserID: uid,
+		userID:           uid,
 	}
 }
 
@@ -138,6 +141,7 @@ func (p *Provider) Refresh() {
 	p.cookieHeader = ""
 	p.playlists = nil
 	p.account = nil
+	p.userID = p.configuredUserID
 }
 
 // CheckLogin verifies that the given browser has a signed-in NetEase account.

@@ -575,11 +575,11 @@ func (p *Provider) AddDirSources(name string, dirs []string) ([]string, error) {
 
 	known := make(map[string]struct{}, len(doc.dirs))
 	for _, src := range doc.dirs {
-		known[ExpandPath(src.Path)] = struct{}{}
+		known[filepath.Clean(ExpandPath(src.Path))] = struct{}{}
 	}
 	var added []string
 	for _, dir := range dirs {
-		target := ExpandPath(dir)
+		target := filepath.Clean(ExpandPath(dir))
 		if _, ok := known[target]; ok {
 			continue
 		}
