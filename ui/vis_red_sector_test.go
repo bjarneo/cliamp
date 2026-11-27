@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/bjarneo/cliamp/theme"
 )
 
 // Backface culling is where a silent mistake would live: a face wound the
@@ -357,5 +359,20 @@ func TestRedSectorNarrowPanelKeepsRowCount(t *testing.T) {
 	lines := strings.Split(d.Render(v), "\n")
 	if len(lines) != v.Rows {
 		t.Errorf("%d lines at a four-column panel, want %d", len(lines), v.Rows)
+	}
+}
+
+// On the default theme the low band is plain green, which has no darker twin,
+// so its stars are drawn faint and stay quieter than the bars.
+func TestRedSectorStarsOfPlainANSIAreFaint(t *testing.T) {
+	t.Cleanup(func() { ApplyThemeColors(theme.Default()) })
+	ApplyThemeColors(theme.Default())
+	low := redSectorStarANSI(lipgloss.ANSIColor(2))
+	want := colorANSI(lipgloss.NewStyle().Foreground(lipgloss.ANSIColor(2)).Faint(true))
+	if low != want {
+		t.Errorf("star of ANSI 2 = %q, want %q", low.prefix, want.prefix)
+	}
+	if redSectorANSI[1] != low || redSectorANSI[1] == redSectorANSI[redSectorTagLow-1] {
+		t.Error("low-band stars should be faint green, unlike the low-band bars")
 	}
 }

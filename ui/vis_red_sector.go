@@ -391,18 +391,25 @@ func refreshRedSectorANSI() {
 	// twins of the spectrum plus the dim foreground, the bars the spectrum
 	// itself. That is the contrast the Amiga original draws between its
 	// starfield and its vector object.
-	tags := [redSectorTagCount]color.Color{
-		ColorDim,
-		redSectorDim(SpectrumLow),
-		redSectorDim(SpectrumMid),
-		redSectorDim(SpectrumHigh),
-		SpectrumLow,
-		SpectrumMid,
-		SpectrumHigh,
+	redSectorANSI = [redSectorTagCount]styleANSI{
+		foregroundANSI(ColorDim),
+		redSectorStarANSI(SpectrumLow),
+		redSectorStarANSI(SpectrumMid),
+		redSectorStarANSI(SpectrumHigh),
+		foregroundANSI(SpectrumLow),
+		foregroundANSI(SpectrumMid),
+		foregroundANSI(SpectrumHigh),
 	}
-	for i, c := range tags {
-		redSectorANSI[i] = foregroundANSI(c)
+}
+
+// redSectorStarANSI is the style of a star in the quiet twin of c. A plain
+// ANSI colour (0 to 7) has no darker twin in the palette, so it is drawn
+// faint instead.
+func redSectorStarANSI(c color.Color) styleANSI {
+	if ansi, ok := c.(lipgloss.ANSIColor); ok && ansi < 8 {
+		return colorANSI(lipgloss.NewStyle().Foreground(c).Faint(true))
 	}
+	return foregroundANSI(redSectorDim(c))
 }
 
 // redSectorDim returns the quieter twin of a colour. The sixteen ANSI colours

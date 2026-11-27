@@ -60,18 +60,18 @@ type Palette struct {
 func PaletteFor(t theme.Theme) Palette {
 	if t.IsDefault() {
 		return Palette{
-			Title:        lipgloss.ANSIColor(10),
-			Text:         lipgloss.ANSIColor(15),
-			Dim:          lipgloss.ANSIColor(7),
+			Title:        lipgloss.ANSIColor(2),
+			Text:         lipgloss.NoColor{},
+			Dim:          lipgloss.ANSIColor(8),
 			Accent:       lipgloss.ANSIColor(11),
-			Playing:      lipgloss.ANSIColor(10),
+			Playing:      lipgloss.ANSIColor(2),
 			SeekBar:      lipgloss.ANSIColor(11),
 			Volume:       lipgloss.ANSIColor(2),
 			Error:        lipgloss.ANSIColor(9),
 			Warning:      lipgloss.ANSIColor(11),
 			KeyBG:        lipgloss.ANSIColor(8),
 			KeyFG:        lipgloss.ANSIColor(15),
-			SpectrumLow:  lipgloss.ANSIColor(10),
+			SpectrumLow:  lipgloss.ANSIColor(2),
 			SpectrumMid:  lipgloss.ANSIColor(11),
 			SpectrumHigh: lipgloss.ANSIColor(9),
 		}
