@@ -17,9 +17,9 @@ import (
 //     before). A default HOME that merely mirrors the profile dir (Git
 //     Bash/MSYS, or the HOME synthesized for plugin children) must not split
 //     the config dir between the daemon and its children.
-//     When the APPDATA location has no config yet but the legacy
-//     HOME/.config/cliamp location does, the legacy one is used so existing
-//     config survives the upgrade.
+//     When the APPDATA location has no persisted config or resources yet
+//     but the legacy HOME/.config/cliamp location does, the legacy one is
+//     used so existing setup survives the upgrade.
 //   - HOME/.config/cliamp
 //   - fallback: os.UserHomeDir()/.config/cliamp
 func Dir() (string, error) {
@@ -48,12 +48,67 @@ func Dir() (string, error) {
 	return filepath.Join(home, ".config", "cliamp"), nil
 }
 
+// persistedConfigFiles lists files whose presence in a cliamp config directory
+// indicates persisted user configuration or state (as opposed to ephemeral logs
+// or sockets).
+var persistedConfigFiles = []string{
+	"config.toml",
+	"radios.toml",
+	"radio_favorites.toml",
+	"radio_countries.toml",
+	"favorites.toml",
+	"history.toml",
+	"podcast_subscriptions.json",
+	"podcast_progress.json",
+	"ytmusic_cache.json",
+	"ytmusic_classification.json",
+	"qobuz_credentials.json",
+	"spotify_credentials.json",
+	"tidal_credentials.json",
+	"ytmusic_credentials.json",
+	"resume.json",
+}
+
+// persistedConfigDirs lists subdirectories whose non-empty presence indicates
+// user-installed resources in a cliamp config directory.
+var persistedConfigDirs = []string{
+	"playlists",
+	"plugins",
+	"themes",
+}
+
+// hasPersistedConfig reports whether dir contains any persisted cliamp
+// configuration file or non-empty resource directory.
+func hasPersistedConfig(dir string) bool {
+	if dir == "" {
+		return false
+	}
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	for _, name := range persistedConfigFiles {
+		info, err := os.Stat(filepath.Join(dir, name))
+		if err == nil && !info.IsDir() {
+			return true
+		}
+	}
+	for _, name := range persistedConfigDirs {
+		entries, err := os.ReadDir(filepath.Join(dir, name))
+		if err == nil && len(entries) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // resolveWindowsDir picks the Windows config dir for the given environment.
 // A HOME that merely mirrors the profile directory (or no HOME at all)
 // resolves to APPDATA/cliamp; an explicitly customized HOME falls through
 // (ok=false) so the caller honors it as before. When the APPDATA location
-// has no config.toml but the legacy HOME/.config/cliamp location does, the
-// legacy dir is returned so upgrades keep existing config accessible.
+// has no persisted config or resources yet but the legacy HOME/.config/cliamp
+// location does, the legacy dir is returned so upgrades keep existing config,
+// stations, playlists, themes, and plugins accessible.
 func resolveWindowsDir(appData, home string, homeSet bool, userHome string) (string, bool) {
 	customHome := homeSet && home != "" && !sameHomeDir(home, userHome)
 	if customHome {
@@ -66,12 +121,8 @@ func resolveWindowsDir(appData, home string, homeSet bool, userHome string) (str
 		legacy = filepath.Join(userHome, ".config", "cliamp")
 	}
 	appDir := filepath.Join(appData, "cliamp")
-	if _, err := os.Stat(filepath.Join(appDir, "config.toml")); os.IsNotExist(err) {
-		if legacy != "" && legacy != appDir {
-			if _, lerr := os.Stat(filepath.Join(legacy, "config.toml")); lerr == nil {
-				return legacy, true
-			}
-		}
+	if !hasPersistedConfig(appDir) && legacy != "" && legacy != appDir && hasPersistedConfig(legacy) {
+		return legacy, true
 	}
 	return appDir, true
 }
