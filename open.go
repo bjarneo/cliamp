@@ -62,10 +62,25 @@ func openDeepLink(ctx context.Context, uri string) error {
 	if err != nil {
 		return err
 	}
+	if err := validateDeepLink(action); err != nil {
+		return err
+	}
 	if ipcRunning() {
 		return dispatchDeepLink(action, ipcSendWithin)
 	}
 	return coldStartDeepLink(action)
+}
+
+func validateDeepLink(action deeplink.Action) error {
+	if action.Verb != deeplink.Play {
+		switch action.Target {
+		case deeplink.TargetAlbum:
+			return errors.New("queueing a provider album is not supported; use cliamp://play")
+		case deeplink.TargetPlaylist:
+			return errors.New("queueing a provider playlist is not supported; use cliamp://play")
+		}
+	}
+	return nil
 }
 
 // ipcRunning reports whether an instance is listening. It probes rather than

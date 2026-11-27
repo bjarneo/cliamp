@@ -248,7 +248,7 @@ func upgradeCommand() *cli.Command {
 			&cli.BoolFlag{Name: "prerelease", Usage: "upgrade to the newest release, prereleases included"},
 		},
 		Action: func(ctx context.Context, c *cli.Command) error {
-			return upgrade.Run(version, c.Bool("prerelease"))
+			return upgrade.Run(buildVersion(), c.Bool("prerelease"))
 		},
 	}
 }
@@ -1124,8 +1124,11 @@ func eqCommand() *cli.Command {
 			&cli.IntFlag{Name: "band", Usage: "EQ band index (0-9)", Value: -1, HideDefault: true},
 		},
 		Action: func(ctx context.Context, c *cli.Command) error {
-			band := int(c.Int("band"))
-			if band >= 0 {
+			if c.IsSet("band") {
+				band := int(c.Int("band"))
+				if band < 0 {
+					return fmt.Errorf("invalid band index %d (must be 0-9)", band)
+				}
 				// Set a specific band.
 				if c.Args().Len() == 0 {
 					return fmt.Errorf("usage: cliamp eq --band N <dB>")

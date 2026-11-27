@@ -552,6 +552,21 @@ func TestTelegramSetupBody(t *testing.T) {
 	if cfg.AppID != 123456 || cfg.AppHash != hash || cfg.Phone != "+5491100000000" || cfg.BufferMB != 4 {
 		t.Fatalf("telegramConfigFrom = %+v", cfg)
 	}
+
+	// Env variable references in string fields expand for validation and runtime config.
+	t.Setenv("TEST_TG_HASH", hash)
+	t.Setenv("TEST_TG_PHONE", "+5491100000000")
+	t.Setenv("TEST_TG_PASS", "top-secret")
+	envVals := map[string]string{
+		"api_id": "123456", "api_hash": "$TEST_TG_HASH", "phone": "${TEST_TG_PHONE}", "password": "$TEST_TG_PASS", "buffer_mb": "2",
+	}
+	if err := spec.extraValidate(envVals); err != nil {
+		t.Fatalf("extraValidate(env refs) = %v, want nil", err)
+	}
+	envCfg := telegramConfigFrom(envVals)
+	if envCfg.AppHash != hash || envCfg.Phone != "+5491100000000" || envCfg.Password != "top-secret" {
+		t.Fatalf("telegramConfigFrom(env refs) = %+v, want expanded values", envCfg)
+	}
 }
 
 func TestChatKey(t *testing.T) {

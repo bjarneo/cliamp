@@ -134,7 +134,7 @@ func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 		m.failV2Job(msg.Jobs, msg.JobID, protocolErr)
 		return nil
 	}
-	if request.Revision != 0 && m.playlist != nil && request.Revision != m.playlist.Revision() && v2MutatesLivePlaylist(request.Cmd) {
+	if request.Revision != nil && m.playlist != nil && *request.Revision != m.playlist.Revision() && v2MutatesLivePlaylist(request.Cmd) {
 		m.failV2Job(msg.Jobs, msg.JobID, v2ConflictError())
 		return nil
 	}
@@ -342,7 +342,21 @@ func (m *Model) handleV2Theme(jobs *ipc.JobStore, jobID string, request ipc.Requ
 		return nil
 	}
 	if !m.SetTheme(request.Name) {
-		m.themes = theme.LoadAll()
+		reloaded := theme.LoadAll()
+		found := theme.IsDefaultName(request.Name)
+		if !found {
+			for _, entry := range reloaded {
+				if strings.EqualFold(entry.Name, request.Name) {
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			m.failV2Job(jobs, jobID, v2NotFoundError())
+			return nil
+		}
+		m.themes = reloaded
 		if !m.SetTheme(request.Name) {
 			m.failV2Job(jobs, jobID, v2NotFoundError())
 			return nil

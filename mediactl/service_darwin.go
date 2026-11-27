@@ -292,6 +292,7 @@ type Service struct {
 
 	updatesMu sync.Mutex
 	updates   chan updateReq
+	artReady  chan struct{}
 
 	artMu         sync.Mutex
 	artClient     *http.Client
@@ -431,6 +432,7 @@ func New(send func(tea.Msg)) (*Service, error) {
 		wake:     make(chan struct{}, 1),
 		sendDone: make(chan struct{}),
 		updates:  make(chan updateReq, 1),
+		artReady: make(chan struct{}, 1),
 	}
 	svc.handle = cgo.NewHandle(svc)
 
@@ -568,6 +570,13 @@ func (s *Service) runMainLoop(done <-chan struct{}) {
 		case req := <-s.updates:
 			s.applyUpdate(req)
 		default:
+			select {
+			case <-s.artReady:
+				if req, ok := s.pendingArtReplay(); ok {
+					s.applyUpdate(req)
+				}
+			default:
+			}
 		}
 
 		C.tickRunLoop()
@@ -727,6 +736,15 @@ func (s *Service) resolveArtwork(req updateReq) (string, []byte) {
 	return "", nil
 }
 
+func (s *Service) pendingArtReplay() (updateReq, bool) {
+	s.artMu.Lock()
+	defer s.artMu.Unlock()
+	if s.artURL == "" || !s.artLoaded || s.artAppliedURL == s.artURL {
+		return updateReq{}, false
+	}
+	return s.lastReq, true
+}
+
 func (s *Service) fetchArtAsync(ctx context.Context, client *http.Client, targetURL string) {
 	data := fetchRemoteArt(ctx, client, targetURL)
 
@@ -737,7 +755,6 @@ func (s *Service) fetchArtAsync(ctx context.Context, client *http.Client, target
 	}
 	s.artBytes = data
 	s.artLoaded = true
-	latest := s.lastReq
 	s.artMu.Unlock()
 
 	if s.sendDone != nil {
@@ -747,8 +764,11 @@ func (s *Service) fetchArtAsync(ctx context.Context, client *http.Client, target
 		default:
 		}
 	}
-	if s.updates != nil {
-		s.enqueueUpdate(latest)
+	if s.artReady != nil {
+		select {
+		case s.artReady <- struct{}{}:
+		default:
+		}
 	}
 }
 

@@ -125,3 +125,16 @@ func TestDispatchDeepLinkReturnsSendError(t *testing.T) {
 		t.Fatalf("error = %v, want %v", err, want)
 	}
 }
+
+func TestOpenDeepLinkRejectsUnsupportedQueueTargetsBeforeColdStart(t *testing.T) {
+	t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
+	for _, uri := range []string{
+		"cliamp://queue?provider=navidrome&album=a1",
+		"cliamp://queue?provider=navidrome&playlist=p1",
+	} {
+		err := openDeepLink(t.Context(), uri)
+		if err == nil || !strings.Contains(err.Error(), "not supported") {
+			t.Fatalf("openDeepLink(%q) = %v, want not supported error without cold start", uri, err)
+		}
+	}
+}

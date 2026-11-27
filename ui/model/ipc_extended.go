@@ -117,7 +117,7 @@ type ipcFeedLoadResult struct {
 	feed     playlist.Track
 	jobs     *ipc.JobStore
 	jobID    string
-	revision uint64
+	revision *uint64
 	tracks   []playlist.Track
 	err      error
 }
@@ -174,17 +174,20 @@ func (m *Model) handleIPCURLResult(result ipcURLLoadResult) tea.Cmd {
 	// asked to play a URL hears it even when something is already playing.
 	// Without it the tracks are appended and only start when the player is
 	// idle, which is the right default for a plain append.
-	wasStopped := !m.player.IsPlaying()
+	wasIdle := m.idleForNewTrack()
 	start := m.appendTracks(result.tracks...)
 	var cmd tea.Cmd
 	if result.request.Play {
 		m.stopPlayback()
-		m.player.ClearPreload()
+		m.clearPreload()
 		m.playlist.SetIndex(start)
 		m.plCursor = start
 		m.adjustScroll()
 		cmd = m.playCurrentTrack()
-	} else if wasStopped {
+	} else if wasIdle {
+		m.playlist.SetIndex(start)
+		m.plCursor = start
+		m.adjustScroll()
 		cmd = m.playCurrentTrack()
 	}
 	resp := ipc.Response{
@@ -214,7 +217,7 @@ func (m *Model) handleIPCSave(request ipcSaveRequest) tea.Cmd {
 	}
 }
 
-func ipcFeedLoadCmd(ctx context.Context, op string, feed playlist.Track, jobs *ipc.JobStore, jobID string, revision uint64) tea.Cmd {
+func ipcFeedLoadCmd(ctx context.Context, op string, feed playlist.Track, jobs *ipc.JobStore, jobID string, revision *uint64) tea.Cmd {
 	return func() tea.Msg {
 		resolveCtx, cancel := context.WithTimeout(requestContext(ctx), 30*time.Second)
 		defer cancel()
@@ -244,7 +247,7 @@ func (m *Model) handleIPCFeedLoad(result ipcFeedLoadResult) tea.Cmd {
 		m.failV2Job(result.jobs, result.jobID, err)
 		return nil
 	}
-	if result.revision != 0 && result.revision != m.playlist.Revision() {
+	if result.revision != nil && *result.revision != m.playlist.Revision() {
 		m.failV2Job(result.jobs, result.jobID, v2ConflictError())
 		return nil
 	}
@@ -472,7 +475,11 @@ func (m *Model) handleIPCLibrary(request ipcLibraryRequest) tea.Cmd {
 			if limit <= 0 || limit > 100 {
 				limit = 25
 			}
-			tracks, err := ipcSearchProvider(requestContext(request.Context), entry.Provider, request.Query, min(100, request.Offset+limit))
+			fetchLimit := 100
+			if request.Offset < 100 && request.Offset+limit < 100 {
+				fetchLimit = request.Offset + limit
+			}
+			tracks, err := ipcSearchProvider(requestContext(request.Context), entry.Provider, request.Query, fetchLimit)
 			if err != nil {
 				request.Reply <- ipc.Response{OK: false, Error: err.Error()}
 			} else {
@@ -672,6 +679,9 @@ func (m *Model) handleIPCProviderLoad(result ipcProviderLoadResult) tea.Cmd {
 	// its later pages would otherwise still pass the generation guard and
 	// append onto the list loaded here.
 	m.retireTracksPaging()
+	if len(result.tracks) == 0 {
+		m.stopPlayback()
+	}
 	m.replacePlaylistAt(result.tracks, result.start)
 	m.setLoadedLocalPlaylist(result.provider, result.loaded)
 	if m.loadedPlaylist == "" {

@@ -23,7 +23,7 @@ type Request struct {
 	Index    int         `json:"index,omitempty"`
 	To       int         `json:"to,omitempty"`
 	Limit    int         `json:"limit,omitempty"`
-	Revision uint64      `json:"if_revision,omitempty"`
+	Revision *uint64     `json:"if_revision,omitempty"`
 	NewName  string      `json:"new_name,omitempty"`
 	Track    *TrackInfo  `json:"track,omitempty"`
 	Tracks   []TrackInfo `json:"tracks,omitempty"`

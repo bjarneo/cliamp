@@ -431,8 +431,9 @@ func (s *Server) handleConn(conn net.Conn) {
 			return
 		}
 
+		resp := s.dispatchV2(req)
 		conn.SetWriteDeadline(time.Now().Add(ipcWriteTimeout))
-		_ = writeV2Response(conn, s.dispatchV2(req))
+		_ = writeV2Response(conn, resp)
 	}
 }
 

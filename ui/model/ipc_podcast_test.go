@@ -190,7 +190,8 @@ func TestIPCPodcastV2FeedCommit(t *testing.T) {
 				info := ipc.TrackInfo{Path: srv.URL, Feed: true, ProviderMeta: map[string]string{"kind": "album", "albumID": srv.URL}}
 				request := ipc.Request{Track: &info}
 				if tt.checkRevision {
-					request.Revision = m.playlist.Revision()
+					rev := m.playlist.Revision()
+					request.Revision = &rev
 				}
 				params, err := json.Marshal(request)
 				if err != nil {
@@ -413,7 +414,7 @@ func TestIPCPodcastResolutionContextErrors(t *testing.T) {
 			if _, err := jobs.Start(job.ID); err != nil {
 				t.Fatal(err)
 			}
-			result := ipcFeedLoadCmd(ctx, "track.play", playlist.Track{Path: srv.URL, Feed: true}, jobs, job.ID, 0)().(ipcFeedLoadResult)
+			result := ipcFeedLoadCmd(ctx, "track.play", playlist.Track{Path: srv.URL, Feed: true}, jobs, job.ID, nil)().(ipcFeedLoadResult)
 			if !errors.Is(result.err, wantErr) {
 				t.Fatalf("resolution error = %v, want %v", result.err, wantErr)
 			}

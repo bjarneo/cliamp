@@ -78,14 +78,16 @@ func Run(currentVersion string, prerelease bool) error {
 		return fmt.Errorf("checking latest version: %w", err)
 	}
 
+	isDev := currentVersion == "" || currentVersion == "dev"
+
 	// With prerelease, the user can run a build newer than every listed
 	// release. An older release must not replace it.
-	if currentVersion != "" && (currentVersion == latest || prerelease && notNewer(latest, currentVersion)) {
+	if !isDev && (currentVersion == latest || prerelease && notNewer(latest, currentVersion)) {
 		fmt.Printf("Already up to date (%s)\n", currentVersion)
 		return nil
 	}
 
-	if currentVersion == "" {
+	if isDev {
 		releaseType := "release"
 		if prerelease {
 			releaseType = "prerelease"

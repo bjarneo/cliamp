@@ -387,13 +387,13 @@ func configureModel(m *model.Model, cfg config.Config, headless bool) {
 func startIPC(send func(tea.Msg), broker *ipc.Broker, plugins *luaplugin.Manager, headless bool) (stop func(), err error) {
 	// Program.Send may wait for the update loop, so the requests go through
 	// an ordered queue and the socket can acknowledge a job at once.
-	queue, stopQueue := newOrderedSender(send)
+	queue, stopQueue := newOrderedTrySender(send)
 	jobs := ipc.NewJobStore()
 	srv, err := ipc.NewServerWithOptions(
 		ipc.DefaultSocketPath(),
 		ipc.WithBroker(broker),
 		ipc.WithJobStore(jobs),
-		ipc.WithV2Dispatcher(newV2Dispatcher(queue, jobs, plugins)),
+		ipc.WithV2Dispatcher(newV2DispatcherWithSend(queue, jobs, plugins)),
 		ipc.WithOperationRegistry(v2Operations(headless, plugins != nil)),
 	)
 	if err != nil {
@@ -525,11 +525,20 @@ var v2ReplyTimeout = 3 * time.Second
 // acknowledged before the Model reads it and jobs run in the order they came
 // in. The plugin jobs run against plugins.
 func newV2Dispatcher(send func(tea.Msg), jobs *ipc.JobStore, plugins *luaplugin.Manager) ipc.V2Dispatcher {
+	return newV2DispatcherWithSend(func(msg tea.Msg) bool {
+		send(msg)
+		return true
+	}, jobs, plugins)
+}
+
+func newV2DispatcherWithSend(trySend func(tea.Msg) bool, jobs *ipc.JobStore, plugins *luaplugin.Manager) ipc.V2Dispatcher {
 	return ipc.V2DispatcherFunc(func(ctx context.Context, request ipc.V2Request) (ipc.V2Result, *ipc.V2Error) {
 		switch request.Method {
 		case "state.get", "spectrum.get":
 			reply := make(chan model.V2RequestResult, 1)
-			send(model.V2RequestMsg{Request: request, Reply: reply})
+			if !trySend(model.V2RequestMsg{Request: request, Reply: reply}) {
+				return ipc.V2Result{}, &ipc.V2Error{Code: ipc.V2ErrorCodeUnavailable, Message: ipc.V2MessageUnavailable}
+			}
 			select {
 			case result := <-reply:
 				return result.Result, result.Error
@@ -548,7 +557,10 @@ func newV2Dispatcher(send func(tea.Msg), jobs *ipc.JobStore, plugins *luaplugin.
 			go runV2PluginJob(jobs, job.ID, request, plugins)
 			return ipc.V2Result{Job: &job}, nil
 		}
-		send(model.V2RequestMsg{Request: request, Jobs: jobs, JobID: job.ID})
+		if !trySend(model.V2RequestMsg{Request: request, Jobs: jobs, JobID: job.ID}) {
+			_ = jobs.Cancel(job.ID)
+			return ipc.V2Result{}, &ipc.V2Error{Code: ipc.V2ErrorCodeUnavailable, Message: ipc.V2MessageUnavailable}
+		}
 		return ipc.V2Result{Job: &job}, nil
 	})
 }

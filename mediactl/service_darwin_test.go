@@ -223,6 +223,7 @@ func TestDarwinResolveArtworkSchemesAndAsyncCache(t *testing.T) {
 	t.Run("https fetches once asynchronously and reuses cache on ticks", func(t *testing.T) {
 		svc := &Service{
 			updates:   make(chan updateReq, 1),
+			artReady:  make(chan struct{}, 1),
 			sendDone:  make(chan struct{}),
 			artClient: srv.Client(),
 		}
@@ -233,7 +234,7 @@ func TestDarwinResolveArtworkSchemesAndAsyncCache(t *testing.T) {
 			t.Fatalf("initial resolveArtwork() = (%q, %d bytes), want empty while fetching", gotURL, len(gotBytes))
 		}
 		select {
-		case <-svc.updates:
+		case <-svc.artReady:
 		case <-time.After(2 * time.Second):
 			t.Fatal("timed out waiting for async artwork completion")
 		}
@@ -258,6 +259,7 @@ func TestDarwinResolveArtworkSchemesAndAsyncCache(t *testing.T) {
 	t.Run("oversized remote artwork is rejected", func(t *testing.T) {
 		svc := &Service{
 			updates:   make(chan updateReq, 1),
+			artReady:  make(chan struct{}, 1),
 			sendDone:  make(chan struct{}),
 			artClient: srv.Client(),
 		}
@@ -266,7 +268,7 @@ func TestDarwinResolveArtworkSchemesAndAsyncCache(t *testing.T) {
 		req := updateReq{status: playback.StatusPlaying, artURL: srv.URL + "/huge"}
 		svc.resolveArtwork(req)
 		select {
-		case <-svc.updates:
+		case <-svc.artReady:
 		case <-time.After(2 * time.Second):
 			t.Fatal("timed out waiting for oversized artwork rejection")
 		}

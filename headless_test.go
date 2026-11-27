@@ -618,3 +618,31 @@ func TestV2JobsReachTheModelInOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestV2DispatcherCancelsJobWhenQueueDropsMessage(t *testing.T) {
+	jobs := ipc.NewJobStore()
+	defer jobs.CancelAll()
+	dispatcher := newV2DispatcherWithSend(func(tea.Msg) bool { return false }, jobs, nil)
+
+	if _, v2Err := dispatcher.DispatchV2(context.Background(), ipc.V2Request{Method: "state.get"}); v2Err == nil || v2Err.Code != ipc.V2ErrorCodeUnavailable {
+		t.Fatalf("state.get err = %+v, want unavailable", v2Err)
+	}
+	res, v2Err := dispatcher.DispatchV2(context.Background(), ipc.V2Request{Operation: "play"})
+	if v2Err == nil || v2Err.Code != ipc.V2ErrorCodeUnavailable || res.Job != nil {
+		t.Fatalf("job dispatch = (%+v, %+v), want unavailable error", res, v2Err)
+	}
+	// Verify no JobQueued slot leaked by creating jobs up to capacity.
+	for i := range 5 {
+		if _, err := jobs.Create("play"); err != nil {
+			t.Fatalf("Create %d failed: %v", i, err)
+		}
+	}
+}
+
+func TestEQCommandRejectsNegativeBand(t *testing.T) {
+	app := buildApp()
+	err := app.Run(context.Background(), []string{"cliamp", "eq", "--band", "-1", "Rock"})
+	if err == nil || !strings.Contains(err.Error(), "invalid band index") {
+		t.Fatalf("cliamp eq --band -1 Rock error = %v, want invalid band index", err)
+	}
+}

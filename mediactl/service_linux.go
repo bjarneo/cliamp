@@ -196,14 +196,14 @@ func New(send func(tea.Msg)) (*Service, error) {
 		return nil, fmt.Errorf("mpris: session bus: %w", err)
 	}
 
-	if _, err := requestName(conn); err != nil {
+	svc, err := newService(conn, send)
+	if err != nil {
 		conn.Close()
 		return nil, err
 	}
 
-	svc, err := newService(conn, send)
-	if err != nil {
-		conn.Close()
+	if _, err := requestName(conn); err != nil {
+		svc.Close()
 		return nil, err
 	}
 	return svc, nil

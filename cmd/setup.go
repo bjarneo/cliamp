@@ -737,14 +737,14 @@ func providers() []providerSpec {
 				if id, err := strconv.Atoi(strings.TrimSpace(v["api_id"])); err != nil || id <= 0 {
 					return errors.New("API ID must be the positive number from my.telegram.org/apps")
 				}
-				hash := strings.TrimSpace(v["api_hash"])
+				hash := resolveSetupEnv(v["api_hash"])
 				if len(hash) != 32 {
 					return errors.New("api hash must be 32 hexadecimal characters")
 				}
 				if _, err := hex.DecodeString(hash); err != nil {
 					return errors.New("API hash must be 32 hexadecimal characters")
 				}
-				if phone := digitsOnly(v["phone"]); len(phone) < 7 || len(phone) > 15 {
+				if phone := digitsOnly(resolveSetupEnv(v["phone"])); len(phone) < 7 || len(phone) > 15 {
 					return errors.New("phone must be in international format, e.g. +5491100000000")
 				}
 				for _, chat := range setupChats(v["chats"]) {
@@ -820,6 +820,7 @@ func providers() []providerSpec {
 				if p == nil {
 					return chatPick{}, errors.New("telegram is not configured yet")
 				}
+				defer p.Close()
 				dialogs, err := p.Dialogs()
 				if err != nil {
 					return chatPick{}, fmt.Errorf("%w\nsave the section and press s to sign in, or start cliamp once", err)
@@ -888,6 +889,14 @@ func digitsOnly(phone string) string {
 	return b.String()
 }
 
+func resolveSetupEnv(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if name, ok := config.EnvRef(trimmed); ok {
+		return strings.TrimSpace(os.Getenv(name))
+	}
+	return trimmed
+}
+
 // telegramConfigFrom builds the [telegram] section the wizard writes, so
 // setup can sign in right after saving it.
 func telegramConfigFrom(v map[string]string) config.TelegramConfig {
@@ -895,9 +904,9 @@ func telegramConfigFrom(v map[string]string) config.TelegramConfig {
 	mb, _ := strconv.Atoi(strings.TrimSpace(v["buffer_mb"]))
 	return config.TelegramConfig{
 		AppID:    id,
-		AppHash:  strings.TrimSpace(v["api_hash"]),
-		Phone:    strings.TrimSpace(v["phone"]),
-		Password: strings.TrimSpace(v["password"]),
+		AppHash:  resolveSetupEnv(v["api_hash"]),
+		Phone:    resolveSetupEnv(v["phone"]),
+		Password: resolveSetupEnv(v["password"]),
 		Chats:    setupChats(v["chats"]),
 		BufferMB: mb,
 	}

@@ -98,6 +98,11 @@ func luaControlProvider(send func(tea.Msg)) luaplugin.ControlProvider {
 const maxOrderedSenderQueue = 2048
 
 func newOrderedSender(send func(tea.Msg)) (queue func(tea.Msg), stop func()) {
+	tryQueue, stop := newOrderedTrySender(send)
+	return func(msg tea.Msg) { tryQueue(msg) }, stop
+}
+
+func newOrderedTrySender(send func(tea.Msg)) (queue func(tea.Msg) bool, stop func()) {
 	var (
 		mu      sync.Mutex
 		pending []tea.Msg
@@ -126,11 +131,11 @@ func newOrderedSender(send func(tea.Msg)) (queue func(tea.Msg), stop func()) {
 			}
 		}
 	}()
-	queue = func(msg tea.Msg) {
+	queue = func(msg tea.Msg) bool {
 		mu.Lock()
 		if stopped || len(pending) >= maxOrderedSenderQueue {
 			mu.Unlock()
-			return
+			return false
 		}
 		pending = append(pending, msg)
 		mu.Unlock()
@@ -138,6 +143,7 @@ func newOrderedSender(send func(tea.Msg)) (queue func(tea.Msg), stop func()) {
 		case wake <- struct{}{}:
 		default:
 		}
+		return true
 	}
 	return queue, sync.OnceFunc(func() {
 		mu.Lock()
