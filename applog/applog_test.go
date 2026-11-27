@@ -142,6 +142,35 @@ func TestParseLevel(t *testing.T) {
 	}
 }
 
+func TestInitStaleCloseDoesNotCloseNewerLogFile(t *testing.T) {
+	reset(t)
+	dir := t.TempDir()
+	close1, err := Init(filepath.Join(dir, "one.log"), LevelInfo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	close2, err := Init(filepath.Join(dir, "two.log"), LevelInfo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer close2()
+
+	if err := close1(); err != nil {
+		t.Fatalf("stale close1() error = %v", err)
+	}
+	Info("still-open")
+	if err := close2(); err != nil {
+		t.Fatalf("close2() error = %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "two.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "still-open") {
+		t.Fatalf("two.log = %q, want entry written after stale close1()", data)
+	}
+}
+
 func TestStatusFootersOnly(t *testing.T) {
 	reset(t)
 	path := filepath.Join(t.TempDir(), "cliamp.log")

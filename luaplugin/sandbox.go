@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	lua "github.com/yuin/gopher-lua"
+	"github.com/yuin/gopher-lua/pm"
 )
 
 const (
@@ -141,26 +142,141 @@ func wrapStringLib(L *lua.LState) {
 		}))
 	}
 
-	if origGsub, ok := strTbl.RawGetString("gsub").(*lua.LFunction); ok {
-		strTbl.RawSetString("gsub", L.NewFunction(func(L *lua.LState) int {
-			checkPatternLimits(L, "gsub")
-			if repl, ok := L.Get(3).(lua.LString); ok && len(repl) > maxStringOutputBytes {
-				L.RaiseError("string.gsub replacement exceeds %d bytes", maxStringOutputBytes)
-				return 0
-			}
-			n := L.GetTop()
-			L.Insert(origGsub, 1)
-			L.Call(n, lua.MultRet)
-			if L.GetTop() >= 1 {
-				if out, ok := L.Get(1).(lua.LString); ok && len(out) > maxStringOutputBytes {
-					L.SetTop(0)
-					L.RaiseError("string.gsub output exceeds %d bytes", maxStringOutputBytes)
-					return 0
+	strTbl.RawSetString("gsub", L.NewFunction(luaBoundedStringGsub))
+}
+
+// luaBoundedStringGsub replaces gopher-lua's string.gsub with a single-pass
+// linear implementation that checks context cancellation and enforces
+// maxStringOutputBytes incrementally before allocating large outputs.
+func luaBoundedStringGsub(L *lua.LState) int {
+	checkPatternLimits(L, "gsub")
+	str := L.CheckString(1)
+	pat := L.CheckString(2)
+	L.CheckTypes(3, lua.LTString, lua.LTNumber, lua.LTTable, lua.LTFunction)
+	repl := L.CheckAny(3)
+	limit := L.OptInt(4, -1)
+
+	if replStr, ok := repl.(lua.LString); ok && len(replStr) > maxStringOutputBytes {
+		L.RaiseError("string.gsub replacement exceeds %d bytes", maxStringOutputBytes)
+		return 0
+	}
+
+	mds, err := pm.Find(pat, []byte(str), 0, limit)
+	if err != nil {
+		L.RaiseError("%s", err.Error())
+		return 0
+	}
+	if len(mds) == 0 {
+		L.Push(lua.LString(str))
+		L.Push(lua.LNumber(0))
+		return 2
+	}
+
+	var out strings.Builder
+	appendChecked := func(s string) {
+		if out.Len()+len(s) > maxStringOutputBytes {
+			L.RaiseError("string.gsub output exceeds %d bytes", maxStringOutputBytes)
+		}
+		out.WriteString(s)
+	}
+	appendByteChecked := func(b byte) {
+		if out.Len()+1 > maxStringOutputBytes {
+			L.RaiseError("string.gsub output exceeds %d bytes", maxStringOutputBytes)
+		}
+		out.WriteByte(b)
+	}
+	capturedString := func(m *pm.MatchData, idx int) string {
+		if idx > 2 && idx >= m.CaptureLength() {
+			L.RaiseError("invalid capture index")
+		}
+		if idx >= m.CaptureLength() && idx == 2 {
+			idx = 0
+		}
+		if m.IsPosCapture(idx) {
+			return fmt.Sprint(m.Capture(idx))
+		}
+		return str[m.Capture(idx):m.Capture(idx+1)]
+	}
+
+	last := 0
+	ctx := L.Context()
+	for _, match := range mds {
+		if ctx != nil && ctx.Err() != nil {
+			L.RaiseError("%s", ctx.Err().Error())
+		}
+		start, end := match.Capture(0), match.Capture(1)
+		if start > last {
+			appendChecked(str[last:start])
+		}
+		switch lv := repl.(type) {
+		case lua.LString, lua.LNumber:
+			replStr := lua.LVAsString(lv)
+			for i := 0; i < len(replStr); i++ {
+				if replStr[i] == '%' && i+1 < len(replStr) {
+					i++
+					c := replStr[i]
+					switch {
+					case c == '%':
+						appendByteChecked('%')
+					case c >= '0' && c <= '9':
+						appendChecked(capturedString(match, 2*int(c-'0')))
+					default:
+						appendByteChecked('%')
+						appendByteChecked(c)
+					}
+				} else {
+					appendByteChecked(replStr[i])
 				}
 			}
-			return L.GetTop()
-		}))
+		case *lua.LTable:
+			idx := 0
+			if match.CaptureLength() > 2 {
+				idx = 2
+			}
+			var val lua.LValue
+			if match.IsPosCapture(idx) {
+				val = L.GetTable(lv, lua.LNumber(match.Capture(idx)))
+			} else {
+				val = L.GetField(lv, str[match.Capture(idx):match.Capture(idx+1)])
+			}
+			if !lua.LVIsFalse(val) {
+				appendChecked(lua.LVAsString(val))
+			} else {
+				appendChecked(str[start:end])
+			}
+		case *lua.LFunction:
+			L.Push(lv)
+			nargs := 0
+			if match.CaptureLength() > 2 {
+				for i := 2; i < match.CaptureLength(); i += 2 {
+					if match.IsPosCapture(i) {
+						L.Push(lua.LNumber(match.Capture(i)))
+					} else {
+						L.Push(lua.LString(capturedString(match, i)))
+					}
+					nargs++
+				}
+			} else {
+				L.Push(lua.LString(capturedString(match, 0)))
+				nargs++
+			}
+			L.Call(nargs, 1)
+			ret := L.Get(-1)
+			L.Pop(1)
+			if !lua.LVIsFalse(ret) {
+				appendChecked(lua.LVAsString(ret))
+			} else {
+				appendChecked(str[start:end])
+			}
+		}
+		last = end
 	}
+	if last < len(str) {
+		appendChecked(str[last:])
+	}
+	L.Push(lua.LString(out.String()))
+	L.Push(lua.LNumber(len(mds)))
+	return 2
 }
 
 // luaBoundedStringRep enforces maxStringOutputBytes before repeating a string.

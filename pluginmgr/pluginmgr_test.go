@@ -765,6 +765,22 @@ func TestValidateNameRejectsControlChars(t *testing.T) {
 	}
 }
 
+func TestListReturnsNonNotExistScanErrors(t *testing.T) {
+	home := withTempHome(t)
+	cfgDir := filepath.Join(home, ".config", "cliamp")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// Make the plugins path a regular file so ReadDir returns ENOTDIR (not ErrNotExist).
+	if err := os.WriteFile(filepath.Join(cfgDir, "plugins"), []byte("not-a-dir"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	silenceOutput(t)
+	if err := List(); err == nil {
+		t.Fatal("List() = nil when plugins path is a regular file, want error")
+	}
+}
+
 func TestInstallAndRemoveHandleDanglingSymlinks(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlinks require elevated privileges on Windows")

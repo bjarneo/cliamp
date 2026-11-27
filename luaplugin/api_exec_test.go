@@ -711,7 +711,7 @@ func TestExecFFmpegOutputPaths(t *testing.T) {
 		},
 		{
 			name:      "allowed progress and log flags",
-			args:      []string{"-i", "in.mp3", "-progress", "-", "-passlogfile", filepath.Join(os.TempDir(), "pass"), "-vstats_file", filepath.Join(os.TempDir(), "vstats.log"), "-sdp_file", filepath.Join(os.TempDir(), "out.sdp"), "-filter_complex_script", filepath.Join(os.TempDir(), "graph.txt"), tmpOut},
+			args:      []string{"-i", "in.mp3", "-progress", "-", "-passlogfile", filepath.Join(os.TempDir(), "pass"), "-vstats_file", filepath.Join(os.TempDir(), "vstats.log"), "-sdp_file", filepath.Join(os.TempDir(), "out.sdp"), "-af", "equalizer=f=1000:width_type=o:width=2:g=3", tmpOut},
 			wantAllow: true,
 		},
 		{
@@ -833,12 +833,42 @@ func TestExecFFmpegOutputPaths(t *testing.T) {
 		{
 			name:    "blocks -filter_complex_script outside allowlist",
 			args:    []string{"-i", "in.mp3", "-filter_complex_script", disallowedFile, "-f", "null", "-"},
-			wantSub: "output path not allowed for ffmpeg flag -filter_complex_script",
+			wantSub: "flag not allowed for ffmpeg: -filter_complex_script",
+		},
+		{
+			name:    "blocks -filter_complex_script even inside allowlist",
+			args:    []string{"-i", "in.mp3", "-filter_complex_script", filepath.Join(os.TempDir(), "graph.txt"), "-f", "null", "-"},
+			wantSub: "flag not allowed for ffmpeg: -filter_complex_script",
+		},
+		{
+			name:    "blocks -filter_script even inside allowlist",
+			args:    []string{"-i", "in.mp3", "-filter_script", filepath.Join(os.TempDir(), "graph.txt"), "-f", "null", "-"},
+			wantSub: "flag not allowed for ffmpeg: -filter_script",
 		},
 		{
 			name:    "blocks -/option file loader outside allowlist",
 			args:    []string{"-i", "in.mp3", "-/filter_complex", disallowedFile, "-f", "null", "-"},
-			wantSub: "output path not allowed for ffmpeg flag -/filter_complex",
+			wantSub: "flag not allowed for ffmpeg: -/filter_complex",
+		},
+		{
+			name:    "blocks -/progress file loader even inside allowlist",
+			args:    []string{"-i", "in.mp3", "-/progress", filepath.Join(os.TempDir(), "arg.txt"), "-f", "null", "-"},
+			wantSub: "flag not allowed for ffmpeg: -/progress",
+		},
+		{
+			name:    "blocks ametadata file option in -af",
+			args:    []string{"-i", "in.mp3", "-af", "ametadata=mode=print:file=" + disallowedFile, "-f", "null", "-"},
+			wantSub: "file option not allowed in ffmpeg filter flag: -af",
+		},
+		{
+			name:    "blocks ametadata positional file in -af",
+			args:    []string{"-i", "in.mp3", "-af", "ametadata=print:::::" + disallowedFile, "-f", "null", "-"},
+			wantSub: "file option not allowed in ffmpeg filter flag: -af",
+		},
+		{
+			name:    "blocks ssim stats_file in -vf",
+			args:    []string{"-i", "in.mp3", "-vf", "ssim=stats_file=" + disallowedFile, "-f", "null", "-"},
+			wantSub: "file option not allowed in ffmpeg filter flag: -vf",
 		},
 		{
 			name:    "blocks relative config.toml when cwd is config dir",

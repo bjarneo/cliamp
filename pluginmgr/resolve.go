@@ -26,8 +26,11 @@ func resolveSource(source string) (urls []string, name string, err error) {
 			return nil, "", fmt.Errorf("invalid URL %q: contains control characters", printable(source))
 		}
 		u, err := url.Parse(source)
-		if err != nil || u.Host == "" {
+		if err != nil {
 			return nil, "", fmt.Errorf("invalid URL: %w", err)
+		}
+		if u.Host == "" {
+			return nil, "", fmt.Errorf("invalid URL %q: missing host", printable(source))
 		}
 		base := path.Base(u.Path)
 		name = strings.TrimSuffix(base, ".lua")

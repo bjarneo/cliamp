@@ -1,6 +1,7 @@
 package pluginmgr
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -113,6 +114,8 @@ func TestResolveSourceInvalid(t *testing.T) {
 		_, _, err := resolveSource(src)
 		if err == nil {
 			t.Errorf("resolveSource(%q) should return error", src)
+		} else if strings.Contains(err.Error(), "%!w(<nil>)") {
+			t.Errorf("resolveSource(%q) formatted nil error: %v", src, err)
 		}
 	}
 }

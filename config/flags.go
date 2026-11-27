@@ -92,9 +92,21 @@ func (o Overrides) Apply(cfg *Config) {
 	}
 	if o.LowPower != nil {
 		cfg.LowPower = *o.LowPower
+		if !*o.LowPower && cfg.lowPowerClamped {
+			if o.Visualizer == nil {
+				cfg.Visualizer = cfg.lowPowerSavedVis
+			}
+			cfg.lowPowerSavedVis = ""
+			cfg.lowPowerClamped = false
+		}
 	}
 	if o.ExpandPlaylist != nil {
 		cfg.YouTubeMusic.ExpandPlaylist = o.ExpandPlaylist
 	}
 	cfg.clamp()
+	// An explicit CLI --visualizer overrides low_power from config.toml unless
+	// --low-power was also passed on the CLI.
+	if o.Visualizer != nil && (o.LowPower == nil || !*o.LowPower) {
+		cfg.Visualizer = *o.Visualizer
+	}
 }

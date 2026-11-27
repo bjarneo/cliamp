@@ -1,6 +1,7 @@
 package luaplugin
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -79,6 +80,7 @@ func loadWriteRules() writeRules {
 	// resolver as newPluginStore.
 	if dataDir, err := appdir.DataDir(); err == nil {
 		add(&r.allow, dataDir)
+		add(&r.deny, filepath.Join(dataDir, "telegram.session"))
 	}
 	if home, err := os.UserHomeDir(); err == nil {
 		add(&r.allow, filepath.Join(home, "Music", "cliamp"))
@@ -96,6 +98,8 @@ func loadWriteRules() writeRules {
 			"radios.toml",
 			"favorites.toml",
 			"history.toml",
+			"radio_favorites.toml",
+			"radio_countries.toml",
 			"resume.json",
 			"cliamp.log",
 			"config.toml.lock",
@@ -121,49 +125,63 @@ func canonicalExistingPath(path string) (string, bool) {
 	return canonicalExistingPathDepth(path, 0)
 }
 
-func canonicalExistingPathDepth(path string, depth int) (string, bool) {
-	if depth > maxSymlinkHops {
+func canonicalExistingPathDepth(rawPath string, depth int) (string, bool) {
+	if depth > maxSymlinkHops || rawPath == "" {
 		return "", false
 	}
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", false
-	}
-	suffix := ""
-	cur := abs
-	for {
-		if resolved, err := filepath.EvalSymlinks(cur); err == nil {
-			if suffix != "" {
-				resolved = filepath.Join(resolved, suffix)
-			}
-			return resolved, true
+	// Make rawPath absolute without calling filepath.Clean, because lexical
+	// cleaning collapses "<symlink>/.." before symlinks are resolved.
+	full := rawPath
+	if !filepath.IsAbs(full) {
+		wd, err := os.Getwd()
+		if err != nil {
+			return "", false
 		}
-		// Inspect cur with Lstat when EvalSymlinks fails so dangling symlinks
-		// and symlink loops resolve instead of falling back to the parent dir.
-		if info, lerr := os.Lstat(cur); lerr == nil && info.Mode()&os.ModeSymlink != 0 {
-			target, rerr := os.Readlink(cur)
+		full = wd + string(os.PathSeparator) + full
+	}
+
+	vol := filepath.VolumeName(full)
+	rest := full[len(vol):]
+	cur := vol + string(os.PathSeparator)
+
+	for _, seg := range splitPathSegments(rest) {
+		if seg == "" || seg == "." {
+			continue
+		}
+		if seg == ".." {
+			cur = filepath.Dir(cur)
+			continue
+		}
+		next := filepath.Join(cur, seg)
+		info, err := os.Lstat(next)
+		if err == nil && info.Mode()&os.ModeSymlink != 0 {
+			target, rerr := os.Readlink(next)
 			if rerr != nil {
 				return "", false
 			}
 			if !filepath.IsAbs(target) {
-				parentDir, ok := canonicalExistingPathDepth(filepath.Dir(cur), depth+1)
-				if !ok {
-					return "", false
-				}
-				target = filepath.Join(parentDir, target)
+				target = cur + string(os.PathSeparator) + target
 			}
-			if suffix != "" {
-				target = filepath.Join(target, suffix)
+			resolved, ok := canonicalExistingPathDepth(target, depth+1)
+			if !ok {
+				return "", false
 			}
-			return canonicalExistingPathDepth(target, depth+1)
+			cur = resolved
+			continue
 		}
-		parent := filepath.Dir(cur)
-		if parent == cur {
-			return abs, true
+		if err != nil && !os.IsNotExist(err) && !errors.Is(err, syscall.ENOTDIR) {
+			return "", false
 		}
-		suffix = filepath.Join(filepath.Base(cur), suffix)
-		cur = parent
+		cur = next
 	}
+	return filepath.Clean(cur), true
+}
+
+func splitPathSegments(p string) []string {
+	if os.PathSeparator == '\\' {
+		return strings.FieldsFunc(p, func(r rune) bool { return r == '/' || r == '\\' })
+	}
+	return strings.Split(p, "/")
 }
 
 // isWriteAllowed checks if a path is within one of the allowed write
@@ -173,33 +191,105 @@ func isWriteAllowed(path string) bool {
 	return currentWriteRules().allows(path)
 }
 
+// resolveAllowedWritePath resolves all symlinks and ".." components left to
+// right and returns the canonical path when it is permitted by write rules.
+func resolveAllowedWritePath(path string) (string, bool) {
+	return currentWriteRules().resolveAllowed(path)
+}
+
+// resolveSafeWriteEntry resolves every parent directory component left to right
+// without following a final symlink leaf, verifies the path against write rules,
+// and returns the parent-canonicalized path for open/remove. Preserving a final
+// symlink leaf lets O_NOFOLLOW reject writes through leaf symlinks and lets
+// remove unlink the symlink itself rather than its target.
+func resolveSafeWriteEntry(rawPath string) (string, bool) {
+	if rawPath == "" {
+		return "", false
+	}
+	trimmed := trimTrailingSeps(rawPath)
+	vol := filepath.VolumeName(trimmed)
+	rest := trimmed[len(vol):]
+	lastSep := strings.LastIndexByte(rest, '/')
+	if os.PathSeparator == '\\' {
+		if bs := strings.LastIndexByte(rest, '\\'); bs > lastSep {
+			lastSep = bs
+		}
+	}
+	var rawParent, base string
+	if lastSep < 0 {
+		if vol != "" {
+			return resolveAllowedWritePath(rawPath)
+		}
+		rawParent = "."
+		base = rest
+	} else {
+		base = rest[lastSep+1:]
+		rawParent = trimmed[:len(vol)+lastSep]
+		if rawParent == vol {
+			rawParent = vol + string(os.PathSeparator)
+		}
+	}
+	if base == "" || base == "." || base == ".." {
+		return resolveAllowedWritePath(rawPath)
+	}
+	resolvedParent, ok := canonicalExistingPath(rawParent)
+	if !ok {
+		return "", false
+	}
+	safePath := filepath.Join(resolvedParent, base)
+	if !currentWriteRules().allows(safePath) {
+		return "", false
+	}
+	return safePath, true
+}
+
+func trimTrailingSeps(p string) string {
+	vol := filepath.VolumeName(p)
+	rest := p[len(vol):]
+	for len(rest) > 1 {
+		last := rest[len(rest)-1]
+		if last == '/' || (os.PathSeparator == '\\' && last == '\\') {
+			rest = rest[:len(rest)-1]
+			continue
+		}
+		break
+	}
+	return vol + rest
+}
+
 // allows reports whether r permits a write to path.
 func (r writeRules) allows(path string) bool {
+	_, ok := r.resolveAllowed(path)
+	return ok
+}
+
+// resolveAllowed resolves path canonically and returns it when r permits writes.
+func (r writeRules) resolveAllowed(path string) (string, bool) {
 	abs, ok := canonicalExistingPath(path)
 	if !ok {
-		return false
+		return "", false
 	}
 	// An NTFS stream name such as config.toml::$DATA writes to config.toml.
 	if runtime.GOOS == "windows" && strings.Contains(abs[len(filepath.VolumeName(abs)):], ":") {
-		return false
+		return "", false
 	}
 	for _, dir := range r.deny {
 		if isWithin(abs, dir) {
-			return false
+			return "", false
 		}
 	}
 	if r.isDeniedConfigPattern(abs) {
-		return false
+		return "", false
 	}
 	if r.sameAsDenied(abs) {
-		return false
+		return "", false
 	}
 	for _, dir := range r.allow {
 		if isWithin(abs, dir) {
-			return true
+			return abs, true
 		}
 	}
-	return false
+	return "", false
 }
 
 // isDeniedConfigPattern blocks provider credential files in the config directory.
@@ -340,17 +430,18 @@ func registerFSAPI(L *lua.LState, cliamp *lua.LTable) {
 	L.SetField(tbl, "write", L.NewFunction(func(L *lua.LState) int {
 		path := L.CheckString(1)
 		content := L.CheckString(2)
-		if !isWriteAllowed(path) {
+		target, ok := resolveSafeWriteEntry(path)
+		if !ok {
 			L.ArgError(1, "write not allowed to this path")
 			return 0
 		}
 		if len(content) > maxFSWriteBytes {
 			return pushErr(L, "content exceeds 16 MiB write limit")
 		}
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return pushErr(L, err.Error())
 		}
-		f, _, err := openRegularWrite(path, false)
+		f, _, err := openRegularWrite(target, false)
 		if err != nil {
 			return pushErr(L, err.Error())
 		}
@@ -374,17 +465,18 @@ func registerFSAPI(L *lua.LState, cliamp *lua.LTable) {
 	L.SetField(tbl, "append", L.NewFunction(func(L *lua.LState) int {
 		path := L.CheckString(1)
 		content := L.CheckString(2)
-		if !isWriteAllowed(path) {
+		target, ok := resolveSafeWriteEntry(path)
+		if !ok {
 			L.ArgError(1, "write not allowed to this path")
 			return 0
 		}
 		if len(content) > maxFSWriteBytes {
 			return pushErr(L, "content exceeds 16 MiB write limit")
 		}
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return pushErr(L, err.Error())
 		}
-		f, info, err := openRegularWrite(path, true)
+		f, info, err := openRegularWrite(target, true)
 		if err != nil {
 			return pushErr(L, err.Error())
 		}
@@ -430,11 +522,12 @@ func registerFSAPI(L *lua.LState, cliamp *lua.LTable) {
 	// cliamp.fs.remove(path)
 	L.SetField(tbl, "remove", L.NewFunction(func(L *lua.LState) int {
 		path := L.CheckString(1)
-		if !isWriteAllowed(path) {
+		target, ok := resolveSafeWriteEntry(path)
+		if !ok {
 			L.ArgError(1, "remove not allowed for this path")
 			return 0
 		}
-		if err := os.Remove(path); err != nil {
+		if err := os.Remove(target); err != nil {
 			return pushErr(L, err.Error())
 		}
 		L.Push(lua.LTrue)
@@ -452,11 +545,12 @@ func registerFSAPI(L *lua.LState, cliamp *lua.LTable) {
 	// cliamp.fs.mkdir(path) — recursive; path must be in write allowlist.
 	L.SetField(tbl, "mkdir", L.NewFunction(func(L *lua.LState) int {
 		path := L.CheckString(1)
-		if !isWriteAllowed(path) {
+		target, ok := resolveAllowedWritePath(path)
+		if !ok {
 			L.ArgError(1, "mkdir not allowed for this path")
 			return 0
 		}
-		if err := os.MkdirAll(path, 0o755); err != nil {
+		if err := os.MkdirAll(target, 0o755); err != nil {
 			return pushErr(L, err.Error())
 		}
 		L.Push(lua.LTrue)

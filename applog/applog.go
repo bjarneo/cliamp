@@ -88,13 +88,12 @@ func Init(path string, level Level) (func() error, error) {
 	return func() error {
 		mu.Lock()
 		defer mu.Unlock()
-		if currentFile == nil {
+		if currentFile != f {
 			return nil
 		}
-		err := currentFile.Close()
 		currentFile = nil
 		logger.Store(slog.New(slog.NewTextHandler(io.Discard, nil)))
-		return err
+		return f.Close()
 	}, nil
 }
 

@@ -39,6 +39,10 @@ func (m *Manager) KeyBindings() []KeyBinding {
 // plugin bound the key. Called by the UI's main key dispatcher for keys the
 // core doesn't handle.
 func (m *Manager) EmitKey(key string) bool {
+	key = normalizeKey(key)
+	if key == "" {
+		return false
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if m.closing {

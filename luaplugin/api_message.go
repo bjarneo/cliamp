@@ -1,6 +1,7 @@
 package luaplugin
 
 import (
+	"math"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
@@ -22,8 +23,12 @@ func registerMessageAPI(L *lua.LState, cliamp *lua.LTable, loadUI func() *UIProv
 		}
 		text := L.CheckString(1)
 		var dur time.Duration
-		if secs := float64(L.OptNumber(2, 0)); secs > 0 {
-			dur = min(time.Duration(secs*float64(time.Second)), messageMaxDuration)
+		if secs := float64(L.OptNumber(2, 0)); !math.IsNaN(secs) && secs > 0 {
+			if secs >= messageMaxDuration.Seconds() {
+				dur = messageMaxDuration
+			} else {
+				dur = time.Duration(secs * float64(time.Second))
+			}
 		}
 		ui.ShowMessage(text, dur)
 		return 0

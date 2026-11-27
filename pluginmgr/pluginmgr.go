@@ -49,7 +49,14 @@ func List() error {
 	}
 
 	plugins, err := scanPlugins(dir)
-	if err != nil || len(plugins) == 0 {
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			fmt.Fprintln(output, "No plugins installed.")
+			return nil
+		}
+		return err
+	}
+	if len(plugins) == 0 {
 		fmt.Fprintln(output, "No plugins installed.")
 		return nil
 	}

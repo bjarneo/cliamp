@@ -854,6 +854,8 @@ type Config struct {
 	Plugins          map[string]map[string]string // per-plugin config from [plugins.*] sections
 	LogLevel         string                       // log level: debug, info, warn, error (default "info")
 	LowPower         bool                         // reduce CPU by lowering UI cadence and disabling visualization
+	lowPowerSavedVis string                       // visualizer saved when clamp() forces "none" in low_power mode
+	lowPowerClamped  bool                         // true when clamp() overwrote Visualizer for low_power mode
 }
 
 // defaultConfig returns a Config with sensible defaults.
@@ -1517,6 +1519,10 @@ func (c *Config) clamp() {
 		c.VisRows = max(min(c.VisRows, maxVisRows), 1)
 	}
 	if c.LowPower {
+		if !c.lowPowerClamped {
+			c.lowPowerSavedVis = c.Visualizer
+			c.lowPowerClamped = true
+		}
 		c.Visualizer = "none"
 	}
 }

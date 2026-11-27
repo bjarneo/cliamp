@@ -42,7 +42,7 @@ func registerUIAPI(L *lua.LState, cliamp *lua.LTable, p *Plugin, m *Manager) {
 		}
 		cursor := optIntField(L, opts, "cursor")
 		cancelFn, _ := opts.RawGetString("on_cancel").(*lua.LFunction)
-		onCancel := func() {}
+		var onCancel func()
 		if cancelFn != nil {
 			onCancel = func() {
 				m.enqueueSafe(p, "ui.select cancel", func() {
@@ -51,12 +51,13 @@ func registerUIAPI(L *lua.LState, cliamp *lua.LTable, p *Plugin, m *Manager) {
 			}
 		}
 		up.ShowSelect(title, options, cursor, func(index int) {
-			if index < 0 {
-				return
+			arg := lua.LNumber(-1)
+			if index >= 0 {
+				arg = lua.LNumber(index + 1)
 			}
 			// Queue the callback under m.mu so Close cannot race with a send.
 			m.enqueueSafe(p, "ui.select", func() {
-				m.call(p, "ui.select", hookTimeout, 0, fixedArgs(fn, lua.LNumber(index+1)))
+				m.call(p, "ui.select", hookTimeout, 0, fixedArgs(fn, arg))
 			})
 		}, onCancel)
 		L.Push(lua.LTrue)

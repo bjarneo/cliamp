@@ -894,6 +894,36 @@ func TestOverridesApplyLowPower(t *testing.T) {
 	}
 }
 
+func TestOverridesNoLowPowerAndVisualizerWithConfigLowPower(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLIAMP_CONFIG_DIR", dir)
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("visualizer = \"Wave\"\nlow_power = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.LowPower || cfg.Visualizer != "none" {
+		t.Fatalf("Load() = (LowPower=%v, Visualizer=%q), want (true, \"none\")", cfg.LowPower, cfg.Visualizer)
+	}
+
+	noLowPower := false
+	cfgNoLP := cfg
+	Overrides{LowPower: &noLowPower}.Apply(&cfgNoLP)
+	if cfgNoLP.LowPower || cfgNoLP.Visualizer != "Wave" {
+		t.Fatalf("--no-low-power produced (LowPower=%v, Visualizer=%q), want (false, \"Wave\")", cfgNoLP.LowPower, cfgNoLP.Visualizer)
+	}
+
+	vis := "Spectrum"
+	cfgVis := cfg
+	Overrides{Visualizer: &vis}.Apply(&cfgVis)
+	if cfgVis.Visualizer != "Spectrum" {
+		t.Fatalf("--visualizer Spectrum with low_power=true produced Visualizer=%q, want \"Spectrum\"", cfgVis.Visualizer)
+	}
+}
+
 // Mock player for ApplyPlayer tests
 type mockPlayer struct {
 	volumeMin float64

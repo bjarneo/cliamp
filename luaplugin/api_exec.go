@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,13 +18,26 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// blockedYTDLPFlags lists yt-dlp flags that run commands or load untrusted code.
+// blockedYTDLPFlags lists yt-dlp flags that run commands, load configs/plugins,
+// or invoke caller-selected executables.
 var blockedYTDLPFlags = []string{
 	"--exec",
 	"--exec-before-download",
 	"--config-location",
 	"--config-locations",
 	"--plugin-dirs",
+	"--alias",
+	"--netrc-cmd",
+	"--js-runtimes",
+	"--ffmpeg-location",
+	"--downloader",
+	"--external-downloader",
+}
+
+// allowedYTDLPPrefixExceptions lists exact safe yt-dlp options that happen to
+// be a literal prefix of a blocked option (e.g. --netrc vs --netrc-cmd).
+var allowedYTDLPPrefixExceptions = map[string]bool{
+	"--netrc": true,
 }
 
 // blockedExecFlag returns the first disallowed flag for binary, or empty string.
@@ -33,8 +47,24 @@ func blockedExecFlag(binary string, argv []string) string {
 		return ""
 	}
 	for _, arg := range argv {
+		if arg == "--" {
+			break
+		}
+		if !strings.HasPrefix(arg, "--") || len(arg) < 3 {
+			continue
+		}
+		opt, _, _ := strings.Cut(arg, "=")
+		if allowedYTDLPPrefixExceptions[opt] {
+			continue
+		}
 		for _, flag := range blockedYTDLPFlags {
-			if arg == flag || strings.HasPrefix(arg, flag+"=") {
+			if opt == flag {
+				return flag
+			}
+		}
+		// Python optparse accepts unambiguous prefixes of long options.
+		for _, flag := range blockedYTDLPFlags {
+			if strings.HasPrefix(flag, opt) {
 				return flag
 			}
 		}
@@ -55,8 +85,6 @@ var ffmpegWriteFlags = map[string]ffmpegWriteFlagRule{
 	"vstats_file":            {},
 	"sdp_file":               {},
 	"passlogfile":            {passLogPrefix: true},
-	"filter_complex_script":  {},
-	"filter_script":          {},
 	"dump_attachment":        {allowEmptyToCWD: true},
 	"hls_segment_filename":   {},
 	"hls_fmp4_init_filename": {},
@@ -65,6 +93,22 @@ var ffmpegWriteFlags = map[string]ffmpegWriteFlagRule{
 	"init_seg_name":          {},
 	"media_seg_name":         {},
 	"manifest_name":          {},
+}
+
+// ffmpegBlockedFlags lists ffmpeg flags that load unchecked option values or
+// filtergraphs from files (which could contain arbitrary output paths).
+var ffmpegBlockedFlags = map[string]struct{}{
+	"filter_complex_script": {},
+	"filter_script":         {},
+}
+
+// ffmpegFilterFlags lists ffmpeg options whose value is a filtergraph string.
+var ffmpegFilterFlags = map[string]struct{}{
+	"af":             {},
+	"vf":             {},
+	"filter":         {},
+	"filter_complex": {},
+	"lavfi":          {},
 }
 
 // ffmpegCWDWriteFlags lists zero-argument ffmpeg flags that write log files
@@ -291,15 +335,26 @@ func validateFFmpegArgsWith(argv []string, cwd string, writeAllowed func(string)
 				return argv[i], true
 			}
 			// ffmpeg loads an option value from a file when the flag starts with "/".
+			// Reject unconditionally because the file's contents can name any path.
 			if strings.HasPrefix(rawName, "/") {
-				val, ok := consumeValue()
-				if !ok || !isFFmpegTargetAllowed(val, cwd, false, writeAllowed) {
-					return "output path not allowed for ffmpeg flag " + flagPart + ": " + val
-				}
-				continue
+				return "flag not allowed for ffmpeg: " + flagPart
 			}
 			baseFlag, _, _ := strings.Cut(rawName, ":")
 			baseFlag = strings.ToLower(baseFlag)
+
+			if _, blocked := ffmpegBlockedFlags[baseFlag]; blocked {
+				return "flag not allowed for ffmpeg: " + flagPart
+			}
+			if _, isFilter := ffmpegFilterFlags[baseFlag]; isFilter {
+				val, ok := consumeValue()
+				if !ok {
+					return "missing value for ffmpeg flag: " + flagPart
+				}
+				if ffmpegFilterHasFileOption(val) {
+					return "file option not allowed in ffmpeg filter flag: " + flagPart
+				}
+				continue
+			}
 
 			if baseFlag == "i" {
 				consumeValue()
@@ -445,6 +500,50 @@ func stripFileSchemePath(rest string) (string, bool) {
 	return path, true
 }
 
+// ffmpegFilterHasFileOption reports whether a filtergraph expression uses a
+// file-writing filter or sets a filter option that writes files.
+func ffmpegFilterHasFileOption(graph string) bool {
+	tokens := strings.FieldsFunc(graph, func(r rune) bool {
+		return r == ':' || r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
+	})
+	isFileKey := func(k string) bool {
+		k = strings.ToLower(strings.Trim(strings.ReplaceAll(k, "\\", ""), "'\""))
+		switch k {
+		case "file", "filename", "stats_file", "log_path", "dumpfile", "output_file", "out_file", "result":
+			return true
+		}
+		return strings.HasSuffix(k, "_file") || strings.HasSuffix(k, "_filename")
+	}
+	isFileWriterFilter := func(name string) bool {
+		// Strip leading pad labels such as "[0:a]ametadata".
+		if i := strings.LastIndexByte(name, ']'); i >= 0 {
+			name = name[i+1:]
+		}
+		name = strings.ToLower(strings.Trim(strings.ReplaceAll(name, "\\", ""), "'\""))
+		switch name {
+		case "ametadata", "metadata", "ssim", "psnr", "libvmaf", "vidstabdetect", "signature":
+			return true
+		}
+		return false
+	}
+	for _, tok := range tokens {
+		lhs, rhs, hasEq := strings.Cut(tok, "=")
+		if isFileWriterFilter(lhs) {
+			return true
+		}
+		if !hasEq {
+			continue
+		}
+		if isFileKey(lhs) {
+			return true
+		}
+		if subKey, _, hasSubEq := strings.Cut(rhs, "="); hasSubEq && isFileKey(subKey) {
+			return true
+		}
+	}
+	return false
+}
+
 func isFFmpegLocalPathAllowed(path, cwd string, writeAllowed func(string) bool) bool {
 	if path == "" {
 		return false
@@ -452,16 +551,19 @@ func isFFmpegLocalPathAllowed(path, cwd string, writeAllowed func(string) bool) 
 	if path == "/dev/null" || strings.EqualFold(path, "nul") {
 		return true
 	}
+	// Preserve ".." segments without filepath.Join lexical cleaning so
+	// canonicalExistingPath resolves intermediate symlinks first.
+	sep := string(os.PathSeparator)
 	if strings.HasPrefix(path, "~") {
 		if path == "~" {
 			path = homeEnv()
 		} else if strings.HasPrefix(path, "~/") || strings.HasPrefix(path, `~\`) {
-			path = filepath.Join(homeEnv(), path[2:])
+			path = homeEnv() + sep + path[2:]
 		} else {
 			return false
 		}
 	} else if !filepath.IsAbs(path) && cwd != "" {
-		path = filepath.Join(cwd, path)
+		path = cwd + sep + path
 	}
 	return writeAllowed(path)
 }
@@ -649,16 +751,22 @@ func (m *Manager) registerExecAPI(L *lua.LState, cliamp *lua.LTable, p *Plugin) 
 			if s, ok := optsTbl.RawGetString("cwd").(lua.LString); ok {
 				cwd = string(s)
 			}
-			if n, ok := optsTbl.RawGetString("timeout").(lua.LNumber); ok && float64(n) > 0 {
-				t := time.Duration(float64(n) * float64(time.Second))
-				if t < timeout {
-					timeout = t
+			if n, ok := optsTbl.RawGetString("timeout").(lua.LNumber); ok {
+				secs := float64(n)
+				if !math.IsNaN(secs) && secs > 0 {
+					if secs < timeout.Seconds() {
+						timeout = time.Duration(secs * float64(time.Second))
+					}
 				}
 			}
 		}
 
-		if cwd != "" && !isWriteAllowed(cwd) {
-			return pushErr(L, "cwd not in write allowlist")
+		if cwd != "" {
+			resolvedCwd, ok := resolveAllowedWritePath(cwd)
+			if !ok {
+				return pushErr(L, "cwd not in write allowlist")
+			}
+			cwd = resolvedCwd
 		}
 
 		if reason := validateFFmpegArgs(binary, argv, cwd); reason != "" {

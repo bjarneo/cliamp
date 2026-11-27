@@ -19,7 +19,10 @@ import (
 	_ "image/jpeg"
 	"image/png"
 	"io"
+	"net/url"
 	"os"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -336,11 +339,31 @@ func load(source string) ([]byte, error) {
 		}
 		return data, nil
 	case strings.HasPrefix(source, "file://"):
-		return readFile(strings.TrimPrefix(source, "file://"))
+		path, err := fileURLToPath(source)
+		if err != nil {
+			return nil, err
+		}
+		return readFile(path)
 	case source != "":
 		return readFile(source)
 	}
 	return nil, fmt.Errorf("kittyimg: empty source")
+}
+
+func fileURLToPath(raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("kittyimg: invalid file url: %w", err)
+	}
+	if u.Host != "" && !strings.EqualFold(u.Host, "localhost") {
+		return "", fmt.Errorf("kittyimg: remote file url host %q is not supported", u.Host)
+	}
+	p := u.Path
+	if runtime.GOOS == "windows" && len(p) >= 3 && p[0] == '/' &&
+		((p[1] >= 'a' && p[1] <= 'z') || (p[1] >= 'A' && p[1] <= 'Z')) && p[2] == ':' {
+		p = p[1:]
+	}
+	return filepath.FromSlash(p), nil
 }
 
 // maxImageBytes caps what a plugin can read as an image. A plugin with only the
