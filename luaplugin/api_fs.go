@@ -330,7 +330,7 @@ func openRegularWrite(path string, appendMode bool) (*os.File, os.FileInfo, erro
 	return f, info, nil
 }
 
-// registerFSAPI adds cliamp.fs.{write,append,read,remove,exists,mkdir,listdir} to the cliamp table.
+// registerFSAPI adds cliamp.fs.{write,append,read,remove,exists,mkdir,listdir,cwd,abs} to the cliamp table.
 func registerFSAPI(L *lua.LState, cliamp *lua.LTable) {
 	tbl := L.NewTable()
 
@@ -474,6 +474,33 @@ func registerFSAPI(L *lua.LState, cliamp *lua.LTable) {
 			result.RawSetInt(i+1, lua.LString(e.Name()))
 		}
 		L.Push(result)
+		return 1
+	}))
+
+	// cliamp.fs.cwd() -> string, err
+	// The working directory of cliamp, which relative track paths, such as
+	// those of files named on the command line, are relative to.
+	L.SetField(tbl, "cwd", L.NewFunction(func(L *lua.LState) int {
+		dir, err := os.Getwd()
+		if err != nil {
+			return pushErr(L, err.Error())
+		}
+		L.Push(lua.LString(dir))
+		return 1
+	}))
+
+	// cliamp.fs.abs(path) -> string, err
+	// The absolute form of a non-empty local path, resolved against cliamp.fs.cwd().
+	L.SetField(tbl, "abs", L.NewFunction(func(L *lua.LState) int {
+		path := L.CheckString(1)
+		if path == "" {
+			return pushErr(L, "empty path")
+		}
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return pushErr(L, err.Error())
+		}
+		L.Push(lua.LString(abs))
 		return 1
 	}))
 

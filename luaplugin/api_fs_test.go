@@ -518,3 +518,47 @@ func TestNewInitializesWriteRulesEagerly(t *testing.T) {
 		t.Errorf("activeWriteRules.configDir = %q, want %q", rules.configDir, wantCfg)
 	}
 }
+
+func TestFSCwdAndAbs(t *testing.T) {
+	t.Chdir(t.TempDir())
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	absolute := filepath.Join(wd, "music", "song.mp3")
+
+	L := lua.NewState()
+	defer L.Close()
+	cliamp := L.NewTable()
+	registerFSAPI(L, cliamp)
+	L.SetGlobal("cliamp", cliamp)
+	L.SetGlobal("relative", lua.LString(filepath.Join("album", "..", "music", "song.mp3")))
+	L.SetGlobal("absolute", lua.LString(absolute))
+
+	if err := L.DoString(`
+		_G.cwd = cliamp.fs.cwd()
+		_G.from_relative = cliamp.fs.abs(relative)
+		_G.from_absolute = cliamp.fs.abs(absolute)
+		_G.empty_val, _G.empty_err = cliamp.fs.abs("")
+	`); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		global string
+		want   string
+	}{
+		{"cwd", wd},
+		{"from_relative", absolute},
+		{"from_absolute", absolute},
+	} {
+		if got := L.GetGlobal(tt.global).String(); got != tt.want {
+			t.Errorf("%s = %q, want %q", tt.global, got, tt.want)
+		}
+	}
+	if L.GetGlobal("empty_val") != lua.LNil {
+		t.Errorf("abs(\"\") value = %v, want nil", L.GetGlobal("empty_val"))
+	}
+	if L.GetGlobal("empty_err").String() == "" {
+		t.Errorf("abs(\"\") error = empty, want non-empty error")
+	}
+}
