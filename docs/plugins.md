@@ -749,8 +749,8 @@ local p = plugin.register({
 })
 
 -- Called every frame (~20 FPS during playback).
--- bands: table of 10 numbers (0.0-1.0), indices 1-10, eased between
---        analyses as in the built-in spectrum modes
+-- bands: table of 10 numbers (0.0-1.0), indices 1-10, of the sound that
+--        plays now, eased between analyses as in the built-in spectrum modes
 -- frame: monotonic counter
 -- rows: available terminal rows (changes in fullscreen mode)
 -- cols: available terminal columns
@@ -788,6 +788,8 @@ end
 cliamp calls `init` before the first frame after you select the visualizer, with the size of that frame. It calls `destroy` when you select another visualizer after `init` ran. It calls neither when you leave the visualizer before it draws a frame, and it does not call `destroy` when cliamp quits. Use the `app.quit` event for cleanup at exit.
 
 `render` has a 50 ms limit for each frame. If it runs longer or fails, cliamp shows the previous frame. cliamp also shows the previous frame while another callback of the same plugin runs, so a slow hook does not delay the UI. cliamp runs `init` and `destroy` in order with the events of the plugin, and `render` shows the previous frame until `init` has run.
+
+`bands` belong to the sound that plays now while the plugin is the selected visualizer. In a layout pane (`cliamp.layout.set_vis`), the plugin gets the bands of the selected visualizer.
 
 ## Sandbox
 
