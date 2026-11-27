@@ -37,6 +37,13 @@ const ytdlStreamCauseGrace = 100 * time.Millisecond
 
 const ytdlPipelineMaxAttempts = 3
 
+// ytdlAudioFormat is the yt-dlp format selector for playback. It prefers
+// direct HTTPS/HTTP streams over HLS (m3u8): HLS requires segment downloading
+// and muxing, which doesn't pipe cleanly to stdout. Live streams (e.g. YouTube
+// live) expose no audio-only formats at all, only muxed video+audio over HLS,
+// so "best" is the last resort; ffmpeg outputs PCM audio and drops the video.
+const ytdlAudioFormat = "bestaudio[protocol=https]/bestaudio[protocol=http]/bestaudio[protocol!=m3u8_native][protocol!=m3u8]/bestaudio/best"
+
 // YTDLPAvailable reports whether yt-dlp is installed and on PATH.
 func YTDLPAvailable() bool {
 	_, err := exec.LookPath("yt-dlp")
@@ -271,13 +278,8 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 	}
 
 	// Start yt-dlp: download best audio to stdout.
-	// Prefer direct HTTPS/HTTP streams over HLS (m3u8). HLS requires segment
-	// downloading and muxing which doesn't pipe cleanly to stdout.
-	// Live streams (e.g. YouTube live) expose no audio-only formats at all,
-	// only muxed video+audio over HLS, so fall back to "best" as a last
-	// resort; the ffmpeg stage below outputs PCM audio and drops the video.
 	ytdlArgs := []string{
-		"-f", "bestaudio[protocol=https]/bestaudio[protocol=http]/bestaudio[protocol!=m3u8_native][protocol!=m3u8]/bestaudio/best",
+		"-f", ytdlAudioFormat,
 		"--no-playlist",
 		"--quiet",
 		"--no-warnings",
@@ -418,32 +420,58 @@ func (p *Player) buildYTDLPipelineContext(ctx context.Context, pageURL string, s
 	}
 }
 
-// buildYTDLSource starts the yt-dlp and ffmpeg chain for pageURL at 0.
+// buildYTDLSource starts pageURL at 0. A YouTube page plays from its direct
+// media URL (see buildYTDLDirectSource). Every other page plays through the
+// yt-dlp | ffmpeg chain: a page of another site, and a YouTube page whose
+// direct read failed mid-track, so that the reconnect that follows does not
+// hit the same failure. When stale reports true, it cancels the setup.
+func (p *Player) buildYTDLSource(pageURL string, knownDuration time.Duration, probe bool, stale func() bool) (*trackPipeline, error) {
+	if directSeekPage(pageURL) && !p.ytdlDirectFailedFor(pageURL) {
+		return p.buildYTDLDirectSource(pageURL, knownDuration, probe, stale)
+	}
+	tp, err := p.buildYTDLPipeSource(pageURL, knownDuration, probe, stale)
+	if err != nil {
+		return nil, err
+	}
+	// Seeks on this page stay on the pipe too.
+	tp.ytdlNoDirect = true
+	return tp, nil
+}
+
+// staleContext returns a context that is cancelled once stale reports true.
+// A nil stale never cancels it. The caller must call the CancelFunc.
+func staleContext(stale func() bool) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	if stale == nil {
+		return ctx, cancel
+	}
+	go func() {
+		ticker := time.NewTicker(25 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if stale() {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	return ctx, cancel
+}
+
+// buildYTDLPipeSource starts the yt-dlp and ffmpeg chain for pageURL at 0.
 // When probe is true and knownDuration is 0, it runs a duration probe in parallel.
 // When stale reports true, it cancels the setup and the duration probe.
-func (p *Player) buildYTDLSource(pageURL string, knownDuration time.Duration, probe bool, stale func() bool) (*trackPipeline, error) {
+func (p *Player) buildYTDLPipeSource(pageURL string, knownDuration time.Duration, probe bool, stale func() bool) (*trackPipeline, error) {
 	if stale != nil && stale() {
 		return nil, errSourceSuperseded
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := staleContext(stale)
 	defer cancel()
-	if stale != nil {
-		go func() {
-			ticker := time.NewTicker(25 * time.Millisecond)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					if stale() {
-						cancel()
-						return
-					}
-				}
-			}
-		}()
-	}
 
 	probe = probe && knownDuration == 0
 	// Probe duration concurrently with pipeline setup so it does not delay playback.

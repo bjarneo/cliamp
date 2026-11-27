@@ -374,8 +374,15 @@ func decodeFFmpegStream(path string, sr beep.SampleRate, bitDepth int) (*ffmpegP
 // initializes fp. When stdin is non-nil, an OS pipe feeds ffmpeg stdin via a
 // background pump so cmd.Wait never blocks on stdin reads.
 func initFFmpegPipe(fp *ffmpegPipe, input string, stdin io.ReadCloser, sr beep.SampleRate, bitDepth int) (beep.Format, error) {
+	return initFFmpegPipeArgs(fp, []string{"-i", input}, stdin, sr, bitDepth)
+}
+
+// initFFmpegPipeArgs is initFFmpegPipe with the full input arguments, for
+// callers that set input options such as -ss or request headers before -i.
+func initFFmpegPipeArgs(fp *ffmpegPipe, inputArgs []string, stdin io.ReadCloser, sr beep.SampleRate, bitDepth int) (beep.Format, error) {
 	_, _, precision := ffmpegPCMArgs(bitDepth)
-	cmd := exec.Command("ffmpeg", append([]string{"-i", input}, pcmOutputArgs(sr, bitDepth)...)...)
+	args := append(append([]string{}, inputArgs...), pcmOutputArgs(sr, bitDepth)...)
+	cmd := exec.Command("ffmpeg", args...)
 	proc := newFFmpegProcess(cmd)
 
 	pcmR, pcmW, err := os.Pipe()
@@ -434,6 +441,10 @@ type ffmpegPipe struct {
 	pcmBuf []byte    // reusable block buffer for decoded PCM bytes
 	f32    bool      // true = f32le, false = s16le
 	live   bool      // true for infinite radio streams: EOF means the upstream died
+	// minFrames, when above zero, is the audio a finite input must produce.
+	// ffmpeg exits 0 when an HTTP input ends early and its reconnect fails, so
+	// an EOF before minFrames means the input was cut short.
+	minFrames int64
 }
 
 func (f *ffmpegPipe) Stream(samples [][2]float64) (int, bool) {
@@ -450,6 +461,9 @@ func (f *ffmpegPipe) Stream(samples [][2]float64) (int, bool) {
 			// A live stream never ends cleanly, so EOF indicates a dropped connection.
 			state.err.publish(io.ErrUnexpectedEOF)
 		}
+	}
+	if !ok && state.pos.Load() < f.minFrames && state.err.load() == nil {
+		state.err.publish(io.ErrUnexpectedEOF)
 	}
 	return n, ok
 }
@@ -505,8 +519,14 @@ func (f *ffmpegPipe) waitForInitialAudio(timeout time.Duration) error {
 }
 
 func (f *ffmpegPipe) waitForAudioBytes(n int, timeout time.Duration) error {
+	return f.waitForAudioBytesContext(context.Background(), n, timeout)
+}
+
+// waitForAudioBytesContext works like waitForAudioBytes and stops when ctx
+// cancels.
+func (f *ffmpegPipe) waitForAudioBytesContext(ctx context.Context, n int, timeout time.Duration) error {
 	stop := func() { _ = f.stop() }
-	return peekWithTimeout(f.reader, n, timeout, stop, func(err error) error {
+	return peekWithTimeoutContext(ctx, f.reader, n, timeout, stop, func(err error) error {
 		if f.input != nil {
 			if in, ok := f.input.(interface{ interrupt() }); ok {
 				in.interrupt()
