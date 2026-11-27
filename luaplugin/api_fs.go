@@ -85,7 +85,8 @@ func loadWriteRules() writeRules {
 	}
 
 	// Deny sensitive cliamp configuration, credentials, trust, state, log,
-	// lock, and IPC files inside the config directory.
+	// lock, and IPC files inside the config directory. A plugin creating a
+	// directory at cliamp.sock.lock would prevent IPC startup and cleanup.
 	if pluginDir, err := appdir.PluginDir(); err == nil {
 		add(&r.deny, pluginDir)
 	}
@@ -110,6 +111,7 @@ func loadWriteRules() writeRules {
 	}
 	add(&r.deny, ipc.DefaultSocketPath())
 	add(&r.deny, ipc.DefaultSocketPath()+".pid")
+	add(&r.deny, ipc.DefaultSocketPath()+".lock")
 	return r
 }
 

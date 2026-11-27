@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -86,14 +87,178 @@ func TestNewServerSocketLifecycle(t *testing.T) {
 	}
 }
 
-func TestNewServerRejectsLivePID(t *testing.T) {
-	dir := shortTempDir(t)
-	sock := filepath.Join(dir, "cliamp.sock")
+// An old server must not remove the replacement socket or PID file if
+// another instance takes over the pathname before the old Close runs.
+func TestOldServerClosePreservesReplacement(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("cannot replace an open Unix socket pathname on Windows")
+	}
+	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
+	old, err := NewServer(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = old.Close() })
+
+	// Simulate stale-path replacement while the old listener is shutting
+	// down. The old listener has disabled net.UnixListener auto-unlink.
+	if err := old.listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(sock); err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := NewServer(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = replacement.Close() })
+	replacementPID, err := os.Lstat(sock + ".pid")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_ = old.Close()
+	listening, err := Listening(sock)
+	if err != nil || !listening {
+		t.Fatalf("old Close displaced replacement socket: listening=%v, err=%v", listening, err)
+	}
+	currentPID, err := os.Lstat(sock + ".pid")
+	if err != nil || !os.SameFile(currentPID, replacementPID) {
+		t.Fatalf("old Close displaced replacement PID: current=%v, err=%v", currentPID, err)
+	}
+}
+
+// Even if the socket is still ours, cleanup must not remove a PID file
+// replaced independently by another process.
+func TestOldServerClosePreservesForeignPIDFile(t *testing.T) {
+	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
+	server, err := NewServer(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pidPath := sock + ".pid"
+	if err := os.Remove(pidPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pidPath, []byte("foreign-pid"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(pidPath); err != nil || string(got) != "foreign-pid" {
+		t.Fatalf("Close changed foreign PID file: content=%q, err=%v", got, err)
+	}
+}
+
+// leaveStaleSocket leaves a socket inode at sock with no listener behind, the
+// way a killed daemon does.
+func leaveStaleSocket(t *testing.T, sock string) {
+	t.Helper()
+	stale, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale.(*net.UnixListener).SetUnlinkOnClose(false)
+	if err := stale.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A live server holding the socket must never be displaced. This is the
+// protection that actually matters, and it comes from the failed bind.
+func TestNewServerRejectsLiveServer(t *testing.T) {
+	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
+	server, err := NewServer(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+
+	if _, err := NewServer(sock); err == nil || !strings.Contains(err.Error(), "already running") || strings.Count(err.Error(), "ipc:") != 1 {
+		t.Fatalf("NewServer() against a live server = %v, want already running with one ipc: prefix", err)
+	}
+}
+
+// A PID file left behind by an unclean exit can name a live process that is not
+// cliamp, because PIDs are reused. That must not stop the daemon from binding,
+// or it never recovers without manual cleanup. See #591.
+func TestNewServerIgnoresStalePIDOfUnrelatedProcess(t *testing.T) {
+	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
+	// A leftover socket inode with no listener, plus a PID file pointing at a
+	// live process that is not this one.
+	leaveStaleSocket(t, sock)
 	if err := os.WriteFile(sock+".pid", []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewServer(sock); err == nil || !strings.Contains(err.Error(), "already running") {
-		t.Fatalf("NewServer() error = %v", err)
+
+	server, err := NewServer(sock)
+	if err != nil {
+		t.Fatalf("NewServer() with a stale PID file = %v, want it to start", err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+
+	pid, err := os.ReadFile(sock + ".pid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.TrimSpace(string(pid)), strconv.Itoa(os.Getpid()); got != want {
+		t.Fatalf("PID file = %q, want %q", got, want)
+	}
+}
+
+// Two daemons starting at once must not both succeed, and the loser must not
+// leave the winner unreachable on an unlinked socket.
+func TestNewServerConcurrentStartsYieldOneServer(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fileutil.LockFile takes no lock on Windows")
+	}
+	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
+
+	const starters = 8
+	var (
+		wg        sync.WaitGroup
+		mu        sync.Mutex
+		succeeded []*Server
+	)
+	start := make(chan struct{})
+	for i := 0; i < starters; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			server, err := NewServer(sock)
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			succeeded = append(succeeded, server)
+			mu.Unlock()
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	if len(succeeded) == 0 {
+		t.Fatal("no server acquired the socket")
+	}
+	t.Cleanup(func() {
+		for _, server := range succeeded {
+			_ = server.Close()
+		}
+	})
+	if len(succeeded) != 1 {
+		t.Fatalf("%d of %d starters acquired %s, want exactly 1", len(succeeded), starters, sock)
+	}
+
+	// The winner must still be reachable at the published path.
+	listening, err := Listening(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !listening {
+		t.Fatal("socket is not accepting connections after a concurrent start")
 	}
 }
 
@@ -645,4 +810,67 @@ func TestStreamBandsValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Both ordinary startup and stale-socket recovery must respect the same
+// lock, including the period before the first bind.
+func assertNewServerWaitsForSocketLock(t *testing.T, stale bool) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fileutil.LockFile takes no lock on Windows")
+	}
+	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
+	if stale {
+		leaveStaleSocket(t, sock)
+	}
+
+	release, err := fileutil.LockFile(sock + ".lock")
+	if err != nil {
+		t.Fatalf("take competing lock: %v", err)
+	}
+	t.Cleanup(func() {
+		if release != nil {
+			_ = release()
+		}
+	})
+
+	started := make(chan struct{})
+	result := make(chan error, 1)
+	go func() {
+		close(started)
+		server, err := NewServer(sock)
+		if err == nil {
+			_ = server.Close()
+		}
+		result <- err
+	}()
+	<-started
+
+	select {
+	case err := <-result:
+		t.Fatalf("NewServer proceeded while another holder owned the lock: %v", err)
+	case <-time.After(250 * time.Millisecond):
+	}
+
+	if err := release(); err != nil {
+		t.Fatalf("release competing lock: %v", err)
+	}
+	release = nil
+
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("NewServer failed after the lock was released: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("NewServer did not proceed after the lock was released")
+	}
+}
+
+func TestNewServerWaitsForSocketLockWithStaleSocket(t *testing.T) {
+	assertNewServerWaitsForSocketLock(t, true)
+}
+
+func TestNewServerWaitsForSocketLockWithoutStaleSocket(t *testing.T) {
+	assertNewServerWaitsForSocketLock(t, false)
 }
