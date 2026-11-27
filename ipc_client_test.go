@@ -18,14 +18,15 @@ import (
 )
 
 // socketDir returns a short config directory for a test that binds the socket.
-// A directory under /tmp keeps the socket path under the 107-byte Unix
-// sun_path limit when TMPDIR or a subtest name is long.
+// Keeping the directory short keeps the socket path under the 107-byte Unix
+// sun_path limit on every platform, even with long subtest names or TMPDIR.
 func socketDir(t *testing.T) string {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		return t.TempDir()
+	base := ""
+	if runtime.GOOS != "windows" {
+		base = "/tmp"
 	}
-	dir, err := os.MkdirTemp("/tmp", "c")
+	dir, err := os.MkdirTemp(base, "c")
 	if err != nil {
 		t.Fatal(err)
 	}
