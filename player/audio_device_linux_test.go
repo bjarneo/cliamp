@@ -131,3 +131,32 @@ printf '%s\n' "$*" > "$TEST_PACTL_LOG"
 		})
 	}
 }
+
+func TestListAudioDevicesSetsCLocaleForPactl(t *testing.T) {
+	dir := t.TempDir()
+	writeExecutable(t, filepath.Join(dir, "pactl"), `#!/bin/sh
+if [ "$LC_ALL" != "C" ]; then
+	echo "locale not C: $LC_ALL" >&2
+	exit 1
+fi
+if [ "$1" = "get-default-sink" ]; then
+	echo "alsa_output.default"
+	exit 0
+fi
+cat <<'EOF'
+Sink #1
+	Name: alsa_output.default
+	Description: Built-in Audio
+EOF
+`)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("LC_ALL", "de_DE.UTF-8")
+
+	devices, err := ListAudioDevices()
+	if err != nil {
+		t.Fatalf("ListAudioDevices() error = %v", err)
+	}
+	if len(devices) != 1 || devices[0].Name != "alsa_output.default" || !devices[0].Active {
+		t.Fatalf("ListAudioDevices() = %+v, want 1 active device", devices)
+	}
+}

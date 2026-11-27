@@ -173,3 +173,25 @@ func TestShuffledAddPreservesPrefixAndContainsAllTracks(t *testing.T) {
 		seen[idx] = true
 	}
 }
+
+func TestPeekNextAgreesWithShuffleWrapWhenQueueOnlyHasUnplayableTracks(t *testing.T) {
+	p := New()
+	p.Add(
+		Track{Path: "a.mp3", Title: "A"},
+		Track{Path: "b.mp3", Title: "B"},
+		Track{Path: "c.mp3", Title: "C", Unplayable: true},
+	)
+	p.SetRepeat(RepeatAll)
+	p.ToggleShuffle()
+
+	// Move to the last slot in shuffle order and queue only an unplayable track.
+	p.mu.Lock()
+	p.pos = len(p.order) - 1
+	p.queuedIdx = -1
+	p.mu.Unlock()
+	p.Queue(2)
+
+	if _, ok := p.PeekNext(); ok {
+		t.Fatal("PeekNext() = true at shuffle wrap with only unplayable queued tracks, want false")
+	}
+}

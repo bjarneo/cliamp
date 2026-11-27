@@ -114,6 +114,23 @@ func (g *gaplessStreamer) Replace(s beep.Streamer) {
 	g.drained.Store(false)
 }
 
+// PrepareReplaceIfCurrent detaches expected (or an already-drained nil slot)
+// and clears any preloaded next stream before an interrupt-and-replace seek.
+// It returns false when gapless already switched to a different track.
+func (g *gaplessStreamer) PrepareReplaceIfCurrent(expected beep.Streamer) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.current != expected && g.current != nil {
+		return false
+	}
+	g.current = nil
+	g.next = nil
+	g.currentVersion++
+	g.nextToken = 0
+	g.drained.Store(false)
+	return true
+}
+
 // Clear removes both current and next tracks. The streamer will output
 // silence until Replace or SetNext is called.
 func (g *gaplessStreamer) Clear() {

@@ -93,6 +93,11 @@ func TestReadTagsWAVInfo(t *testing.T) {
 			data: []byte("not a riff file at all"),
 			want: Track{Title: "03-charlie"},
 		},
+		{
+			name: "malformed sub-chunk with high-bit size does not panic",
+			data: wavFile(format, riffChunk("LIST", append([]byte("INFOINAM"), 0x00, 0x00, 0x00, 0x80))),
+			want: Track{Title: "03-charlie"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

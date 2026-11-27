@@ -14,19 +14,25 @@ import (
 
 const audioDeviceCmdTimeout = 5 * time.Second
 
+func pactlCommand(ctx context.Context, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "pactl", args...)
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	return cmd
+}
+
 // ListAudioDevices returns available output sinks via pactl.
 // Works on PulseAudio and PipeWire.
 func ListAudioDevices() ([]AudioDevice, error) {
 	ctxDefault, cancelDefault := context.WithTimeout(context.Background(), audioDeviceCmdTimeout)
 	defer cancelDefault()
 	defaultSink := ""
-	if out, err := exec.CommandContext(ctxDefault, "pactl", "get-default-sink").Output(); err == nil {
+	if out, err := pactlCommand(ctxDefault, "get-default-sink").Output(); err == nil {
 		defaultSink = strings.TrimSpace(string(out))
 	}
 
 	ctxList, cancelList := context.WithTimeout(context.Background(), audioDeviceCmdTimeout)
 	defer cancelList()
-	out, err := exec.CommandContext(ctxList, "pactl", "list", "sinks").Output()
+	out, err := pactlCommand(ctxList, "list", "sinks").Output()
 	if err != nil {
 		return nil, fmt.Errorf("pactl: %w (is PulseAudio/PipeWire running?)", err)
 	}
@@ -76,7 +82,7 @@ func PrepareAudioDevice(device string) func() {
 func SwitchAudioDevice(deviceName string) error {
 	ctxList, cancelList := context.WithTimeout(context.Background(), audioDeviceCmdTimeout)
 	defer cancelList()
-	out, err := exec.CommandContext(ctxList, "pactl", "list", "sink-inputs").Output()
+	out, err := pactlCommand(ctxList, "list", "sink-inputs").Output()
 	if err != nil {
 		return fmt.Errorf("pactl: %w", err)
 	}
@@ -85,7 +91,7 @@ func SwitchAudioDevice(deviceName string) error {
 	if sinkInputIdx >= 0 {
 		ctxMove, cancelMove := context.WithTimeout(context.Background(), audioDeviceCmdTimeout)
 		defer cancelMove()
-		cmd := exec.CommandContext(ctxMove, "pactl", "--", "move-sink-input",
+		cmd := pactlCommand(ctxMove, "--", "move-sink-input",
 			strconv.Itoa(sinkInputIdx), deviceName)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("move-sink-input: %s (%w)", strings.TrimSpace(string(out)), err)
@@ -96,7 +102,7 @@ func SwitchAudioDevice(deviceName string) error {
 	// Change the system default sink when no cliamp stream is active.
 	ctxDefault, cancelDefault := context.WithTimeout(context.Background(), audioDeviceCmdTimeout)
 	defer cancelDefault()
-	cmd := exec.CommandContext(ctxDefault, "pactl", "--", "set-default-sink", deviceName)
+	cmd := pactlCommand(ctxDefault, "--", "set-default-sink", deviceName)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("set-default-sink: %s (%w)", strings.TrimSpace(string(out)), err)
 	}

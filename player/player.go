@@ -304,8 +304,11 @@ func (p *Player) playPipelineForGeneration(tp *trackPipeline, generation uint64)
 	started := p.started
 	active := p.current
 	next := p.nextPipeline
-	if started && p.gapless != nil {
-		p.gapless.SetNext(nil)
+	if started {
+		p.preloadGen.Add(1)
+		if p.gapless != nil {
+			p.gapless.SetNext(nil)
+		}
 	}
 	p.mu.Unlock()
 
@@ -576,11 +579,15 @@ func (p *Player) Seek(d time.Duration) error {
 		p.lifecycleMu.Unlock()
 		return err
 	}
+	if resetter, ok := cur.stream.(interface{ Reset() }); ok {
+		resetter.Reset()
+	}
 	p.speeder.Reset()
 	// Invalidate the preloaded next pipeline because the gapless boundary moved.
 	p.mu.Lock()
 	p.preloadGen.Add(1)
-	p.gapless.SetNext(nil)
+	p.gapless.Replace(cur.stream)
+	p.gaplessAdvance.Store(false)
 	old := p.nextPipeline
 	p.nextPipeline = nil
 	p.mu.Unlock()
@@ -618,10 +625,11 @@ func (p *Player) commitPreparedSeek(cur *trackPipeline, seeker preparedFFmpegSee
 	p.lifecycleMu.Lock()
 	p.mu.Lock()
 	current := p.current == cur && seeker.seekMatches(prepared)
-	next := p.nextPipeline
-	if current && p.gapless != nil {
-		// Prevent interruption-driven EOF from advancing to a stale preload.
-		p.gapless.SetNext(nil)
+	if current {
+		p.preloadGen.Add(1)
+		if p.gapless != nil && !p.gapless.PrepareReplaceIfCurrent(cur.stream) {
+			current = false
+		}
 	}
 	p.mu.Unlock()
 	if !current {
@@ -631,9 +639,6 @@ func (p *Player) commitPreparedSeek(cur *trackPipeline, seeker preparedFFmpegSee
 	}
 
 	seeker.interrupt()
-	if next != nil {
-		next.interrupt()
-	}
 
 	speaker.Lock()
 	p.mu.Lock()
@@ -646,7 +651,6 @@ func (p *Player) commitPreparedSeek(cur *trackPipeline, seeker preparedFFmpegSee
 		return nil
 	}
 
-	p.preloadGen.Add(1)
 	oldPipe, _ := seeker.commitPreparedSeek(prepared)
 	oldNext := p.nextPipeline
 	p.nextPipeline = nil
@@ -697,7 +701,7 @@ func (p *Player) SeekYTDL(d time.Duration) error {
 
 	newPos := max(curPos+d, 0)
 	if cur.knownDuration > 0 && newPos >= cur.knownDuration {
-		newPos = cur.knownDuration - time.Second
+		newPos = max(0, cur.knownDuration-time.Second)
 	}
 	startSec := int(newPos.Seconds())
 
@@ -725,18 +729,24 @@ func (p *Player) SeekYTDL(d time.Duration) error {
 // under the same locks that commitYTDLSeek uses.
 func (p *Player) muteYTDLSeekSource(cur *trackPipeline, gen int64) (time.Duration, bool) {
 	speaker.Lock()
-	defer speaker.Unlock()
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if p.current != cur || p.seekGen.Load() != gen {
+		p.mu.Unlock()
+		speaker.Unlock()
 		return 0, false
 	}
+	p.preloadGen.Add(1)
+	oldNext := p.nextPipeline
+	p.nextPipeline = nil
 	p.gapless.Replace(nil)
 	p.speeder.Reset()
 	p.gaplessAdvance.Store(false)
 	// The decoder of a prefetched pipeline reads ahead of the speaker. Seek
 	// from the audio that played, as the Position that the caller read does.
 	pos, _ := cur.positionAndDuration()
+	p.mu.Unlock()
+	speaker.Unlock()
+	p.closeAsync(oldNext)
 	return pos, true
 }
 
@@ -775,14 +785,18 @@ func (p *Player) restoreYTDLSeekSource(cur *trackPipeline, gen int64) {
 	}
 	speaker.Lock()
 	p.mu.Lock()
-	stillCurrent := p.current == cur && p.seekGen.Load() == gen
-	if stillCurrent {
+	var oldNext *trackPipeline
+	if p.current == cur && p.seekGen.Load() == gen {
+		p.preloadGen.Add(1)
+		oldNext = p.nextPipeline
+		p.nextPipeline = nil
 		p.gapless.Replace(cur.stream)
 		p.speeder.Reset()
 		p.gaplessAdvance.Store(false)
 	}
 	p.mu.Unlock()
 	speaker.Unlock()
+	p.closeAsync(oldNext)
 }
 
 // IsYTDLSeek reports whether the current track uses yt-dlp seek-by-restart.

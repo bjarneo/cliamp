@@ -62,11 +62,12 @@ func wavInfoTrack(data []byte, path string) (Track, bool) {
 	fields := map[string]string{}
 	for len(data) >= 8 {
 		id := string(data[0:4])
-		size := int(binary.LittleEndian.Uint32(data[4:8]))
+		rawSize := binary.LittleEndian.Uint32(data[4:8])
 		data = data[8:]
-		if size > len(data) {
+		if uint64(rawSize) > uint64(len(data)) {
 			break
 		}
+		size := int(rawSize)
 		fields[id] = wavInfoString(data[:size])
 		data = data[min(size+size%2, len(data)):]
 	}

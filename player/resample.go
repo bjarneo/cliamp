@@ -234,6 +234,20 @@ func (r *polyphaseResampler) refill(remOut int) {
 	}
 }
 
+// Reset discards buffered input and filter history so a resampler can resume
+// cleanly after its underlying source seeks.
+func (r *polyphaseResampler) Reset() {
+	pad := r.halfLen - 1
+	r.bufStart = -int64(pad)
+	r.bufLen = pad
+	clear(r.buf[:pad])
+	r.totalIn = 0
+	r.srcIdx = 0
+	r.rem = 0
+	r.eof = false
+	r.paddedEnd = false
+}
+
 func (r *polyphaseResampler) Stream(samples [][2]float64) (int, bool) {
 	if len(samples) == 0 {
 		return 0, !(r.eof && r.srcIdx >= r.totalIn)

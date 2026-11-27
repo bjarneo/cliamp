@@ -1228,3 +1228,93 @@ exec sleep 30
 		t.Fatal("Close() returned before FFmpeg was reaped")
 	}
 }
+
+type failAfterReadCloser struct {
+	data []byte
+	err  error
+	read bool
+}
+
+func (r *failAfterReadCloser) Read(p []byte) (int, error) {
+	if !r.read && len(r.data) > 0 {
+		r.read = true
+		n := copy(p, r.data)
+		return n, nil
+	}
+	return 0, r.err
+}
+
+func (r *failAfterReadCloser) Close() error { return nil }
+
+func TestFFmpegPipePublishesUpstreamInputReadError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX shell fixtures")
+	}
+	wantErr := errors.New("upstream network drop")
+	dir := t.TempDir()
+	// Drain stdin and exit 0 cleanly, simulating ffmpeg treating truncated pipe:0 as EOF.
+	writeExecutable(t, filepath.Join(dir, "ffmpeg"), `#!/bin/sh
+cat > /dev/null
+printf '\000\100\000\300'
+`)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	src := &failAfterReadCloser{data: []byte("audio"), err: wantErr}
+	decoder, _, err := decodeFFmpegPipeStream(src, beep.SampleRate(100), 16, false)
+	if err != nil {
+		t.Fatalf("decodeFFmpegPipeStream() error = %v", err)
+	}
+	defer decoder.Close()
+
+	buf := make([][2]float64, 8)
+	for {
+		_, ok := decoder.Stream(buf)
+		if !ok {
+			break
+		}
+	}
+	if err := decoder.Err(); !errors.Is(err, wantErr) {
+		t.Fatalf("Err() = %v, want %v", err, wantErr)
+	}
+}
+
+func TestPipeInputInterruptDoesNotRecordCloseError(t *testing.T) {
+	pr, pw := io.Pipe()
+	defer pw.Close()
+	_, dstW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := startPipeInput(pr, dstW)
+	in.interrupt()
+	<-in.done
+	if err := in.err(); err != nil {
+		t.Fatalf("err() after interrupt = %v, want nil", err)
+	}
+}
+
+func TestClampFFmpegSeekPosition(t *testing.T) {
+	tests := []struct {
+		name  string
+		pos   int
+		total int
+		sr    beep.SampleRate
+		want  int
+	}{
+		{name: "negative clamps to zero", pos: -5, total: 44100, sr: 44100, want: 0},
+		{name: "unknown total passes through", pos: 12345, total: 0, sr: 44100, want: 12345},
+		{name: "in range passes through", pos: 44100, total: 441000, sr: 44100, want: 44100},
+		{name: "near end clamps 1s before EOF", pos: 440999, total: 441000, sr: 44100, want: 396900},
+		{name: "past end clamps 1s before EOF", pos: 500000, total: 441000, sr: 44100, want: 396900},
+		{name: "short clip keeps valid mid seek", pos: 8820, total: 22050, sr: 44100, want: 8820},
+		{name: "short clip clamps near EOF", pos: 22049, total: 22050, sr: 44100, want: 17640},
+		{name: "tiny clip clamps to zero", pos: 2000, total: 2205, sr: 44100, want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := clampFFmpegSeekPosition(tt.pos, tt.total, tt.sr); got != tt.want {
+				t.Fatalf("clampFFmpegSeekPosition(%d, %d, %d) = %d, want %d", tt.pos, tt.total, tt.sr, got, tt.want)
+			}
+		})
+	}
+}

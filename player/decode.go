@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -316,22 +317,32 @@ func extFromContentType(ct string) string {
 // formatExt returns the audio format extension for a path.
 // For URLs, it parses the path component (ignoring query params),
 // checks a "format" query param as fallback, and defaults to ".mp3".
-func formatExt(path string) string {
-	if !isURL(path) {
-		return strings.ToLower(filepath.Ext(path))
+func formatExt(rawPath string) string {
+	if !isURL(rawPath) {
+		return strings.ToLower(filepath.Ext(rawPath))
 	}
-	u, err := url.Parse(path)
+	u, err := url.Parse(rawPath)
 	if err != nil {
 		return ".mp3"
 	}
-	ext := strings.ToLower(filepath.Ext(u.Path))
-	if ext == "" || ext == ".view" {
+	ext := strings.ToLower(path.Ext(u.Path))
+	if !isKnownAudioExt(ext) {
 		if f := u.Query().Get("format"); f != "" {
 			return "." + strings.ToLower(f)
 		}
 		return ".mp3"
 	}
 	return ext
+}
+
+// isKnownAudioExt reports whether ext names a format that the player routes
+// directly without consulting HTTP Content-Type or MP3 header probing.
+func isKnownAudioExt(ext string) bool {
+	switch ext {
+	case ".mp3", ".wav", ".flac", ".ogg":
+		return true
+	}
+	return needsFFmpeg(ext) || isHLS(ext)
 }
 
 // needsFFmpeg reports whether the given extension requires ffmpeg to decode.

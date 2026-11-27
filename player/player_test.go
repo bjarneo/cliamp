@@ -1297,6 +1297,7 @@ func TestPreloadGenInvalidatedOnCommitAndSeek(t *testing.T) {
 				}
 				p.mu.Lock()
 				p.current = cur
+				p.gapless.Replace(cur.stream)
 				p.mu.Unlock()
 				_ = p.commitPreparedSeek(cur, seeker, &preparedFFmpegSeek{})
 			},
@@ -1522,6 +1523,7 @@ func TestSpeederResetOnReplaceClearAndSeek(t *testing.T) {
 				}
 				p.mu.Lock()
 				p.current = cur
+				p.gapless.Replace(cur.stream)
 				p.mu.Unlock()
 				_ = p.commitPreparedSeek(cur, seeker, &preparedFFmpegSeek{})
 			},
@@ -1794,6 +1796,190 @@ func TestPlayerSetTapEnabledAndLockFreeReads(t *testing.T) {
 
 	if nMono != 4 || nWave != 4 || nStereo != 4 {
 		t.Fatalf("sample counts = (%d, %d, %d), want (4, 4, 4)", nMono, nWave, nStereo)
+	}
+	p.Close()
+}
+
+type interruptTrackingPipeline struct {
+	*playbackTestDecoder
+	interrupted atomic.Bool
+}
+
+func TestCommitPreparedSeekAbortsWhenGaplessTransitioned(t *testing.T) {
+	p := newTestPlayer()
+	p.sr = 100
+	p.gapless = &gaplessStreamer{}
+	p.speeder = newSpeedStreamer(p.gapless, &p.speed)
+	p.ctrl = &beep.Ctrl{}
+	p.started = true
+	p.suspended = true
+
+	seeker := preparedSeekTestDecoder{playbackTestDecoder: newPlaybackTestDecoder()}
+	cur := &trackPipeline{
+		decoder:  seeker,
+		stream:   seeker,
+		format:   beep.Format{SampleRate: 100, NumChannels: 2, Precision: 2},
+		seekable: true,
+	}
+	nextDec := &interruptTrackingPipeline{playbackTestDecoder: newPlaybackTestDecoder()}
+	next := &trackPipeline{
+		decoder:         nextDec,
+		stream:          nextDec,
+		sourceInterrupt: func() { nextDec.interrupted.Store(true) },
+	}
+
+	// Simulate gapless having already transitioned g.current to next while
+	// handleGaplessSwap has not yet acquired p.mu to update p.current.
+	p.mu.Lock()
+	p.current = cur
+	p.nextPipeline = next
+	p.gapless.Replace(next.stream)
+	p.mu.Unlock()
+
+	if err := p.commitPreparedSeek(cur, seeker, &preparedFFmpegSeek{}); err != nil {
+		t.Fatalf("commitPreparedSeek() error = %v", err)
+	}
+	if nextDec.interrupted.Load() {
+		t.Fatal("commitPreparedSeek interrupted newly active next track")
+	}
+	p.Close()
+}
+
+type seekableRampDecoder struct {
+	samples [][2]float64
+	pos     int
+}
+
+func (d *seekableRampDecoder) Stream(out [][2]float64) (int, bool) {
+	if d.pos >= len(d.samples) {
+		return 0, false
+	}
+	n := copy(out, d.samples[d.pos:])
+	d.pos += n
+	return n, true
+}
+
+func (d *seekableRampDecoder) Err() error    { return nil }
+func (d *seekableRampDecoder) Len() int      { return len(d.samples) }
+func (d *seekableRampDecoder) Position() int { return d.pos }
+func (d *seekableRampDecoder) Close() error  { return nil }
+func (d *seekableRampDecoder) Seek(p int) error {
+	if p < 0 || p > len(d.samples) {
+		return errors.New("out of range")
+	}
+	d.pos = p
+	return nil
+}
+
+func TestNativeSeekResetsResamplerAndClearsDrained(t *testing.T) {
+	p := newTestPlayer()
+	p.sr = 48000
+	p.gapless = &gaplessStreamer{}
+	p.speeder = newSpeedStreamer(p.gapless, &p.speed)
+	p.ctrl = &beep.Ctrl{}
+	p.started = true
+	p.suspended = true
+
+	// Source at 44100 Hz so polyphaseResampler wraps the decoder.
+	samples := make([][2]float64, 44100)
+	for i := range samples {
+		if i < 22050 {
+			samples[i] = [2]float64{0.25, 0.25}
+		} else {
+			samples[i] = [2]float64{0.75, 0.75}
+		}
+	}
+	dec := &seekableRampDecoder{samples: samples}
+	stream := resampleWithHeadroom(4, 44100, 48000, dec)
+	cur := &trackPipeline{
+		decoder:  dec,
+		stream:   stream,
+		format:   beep.Format{SampleRate: 44100, NumChannels: 2, Precision: 2},
+		seekable: true,
+	}
+	p.mu.Lock()
+	p.current = cur
+	p.gapless.Replace(cur.stream)
+	p.mu.Unlock()
+
+	// Drain the stream completely so polyphaseResampler sets eof=true and gapless drains.
+	buf := make([][2]float64, 4096)
+	for !p.Drained() {
+		p.gapless.Stream(buf)
+	}
+
+	// Seek back to start.
+	if err := p.Seek(-2 * time.Second); err != nil {
+		t.Fatalf("Seek() error = %v", err)
+	}
+	if p.Drained() {
+		t.Fatal("Drained() = true after backward seek")
+	}
+	// Stream after seek must produce non-zero samples from the beginning (~0.25) and not drain.
+	out := make([][2]float64, 2048)
+	p.gapless.Stream(out)
+	if p.Drained() {
+		t.Fatal("stream prematurely drained right after backward seek")
+	}
+	var sum float64
+	for _, s := range out[512:] {
+		sum += s[0]
+	}
+	avg := sum / float64(len(out[512:]))
+	if avg < 0.1 || avg > 0.35 {
+		t.Fatalf("average sample after backward seek = %v, want ~0.25 (stale buffer or silence)", avg)
+	}
+	p.Close()
+}
+
+func TestMuteAndRestoreYTDLSeekClearPreload(t *testing.T) {
+	p := newTestPlayer()
+	p.sr = 48000
+	p.gapless = &gaplessStreamer{}
+	p.speeder = newSpeedStreamer(p.gapless, &p.speed)
+	p.ctrl = &beep.Ctrl{}
+	p.started = true
+	p.suspended = true
+
+	curDec := newPlaybackTestDecoder()
+	cur := &trackPipeline{decoder: curDec, stream: curDec, ytdlSeek: true}
+	nextDec := newPlaybackTestDecoder()
+	next := &trackPipeline{decoder: nextDec, stream: nextDec}
+
+	p.mu.Lock()
+	p.current = cur
+	p.nextPipeline = next
+	p.gapless.Replace(cur.stream)
+	p.gapless.SetNext(next.stream)
+	p.mu.Unlock()
+
+	gen := p.seekGen.Load()
+	beforePreloadGen := p.preloadGen.Load()
+	if _, ok := p.muteYTDLSeekSource(cur, gen); !ok {
+		t.Fatal("muteYTDLSeekSource() = false, want true")
+	}
+	if p.HasPreload() {
+		t.Fatal("HasPreload() = true after muteYTDLSeekSource")
+	}
+	if p.preloadGen.Load() == beforePreloadGen {
+		t.Fatal("preloadGen did not increment on muteYTDLSeekSource")
+	}
+
+	// Re-arm a preload while muted, then restore and ensure it is cleared.
+	nextDec2 := newPlaybackTestDecoder()
+	next2 := &trackPipeline{decoder: nextDec2, stream: nextDec2}
+	p.mu.Lock()
+	p.nextPipeline = next2
+	p.gapless.SetNext(next2.stream)
+	p.mu.Unlock()
+
+	beforeRestoreGen := p.preloadGen.Load()
+	p.restoreYTDLSeekSource(cur, gen)
+	if p.HasPreload() {
+		t.Fatal("HasPreload() = true after restoreYTDLSeekSource")
+	}
+	if p.preloadGen.Load() == beforeRestoreGen {
+		t.Fatal("preloadGen did not increment on restoreYTDLSeekSource")
 	}
 	p.Close()
 }

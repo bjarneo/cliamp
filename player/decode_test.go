@@ -166,3 +166,28 @@ func TestOpenSSHSourcePrefetchInterruptAndDoubleClose(t *testing.T) {
 		t.Fatalf("second Close() error = %v", err)
 	}
 }
+
+func TestFormatExt(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "local mp3", path: "/music/song.mp3", want: ".mp3"},
+		{name: "local flac upper", path: "/music/SONG.FLAC", want: ".flac"},
+		{name: "url flac", path: "https://example.com/track.flac", want: ".flac"},
+		{name: "url hls", path: "https://example.com/live/stream.m3u8", want: ".m3u8"},
+		{name: "url subsonic view with format", path: "https://example.com/rest/stream.view?format=flac", want: ".flac"},
+		{name: "url php falls back to mp3", path: "https://radio.example.com/stream.php?id=1", want: ".mp3"},
+		{name: "url cgi with format query", path: "https://radio.example.com/listen.cgi?format=aac", want: ".aac"},
+		{name: "url numeric bitrate suffix falls back to mp3", path: "https://radio.example.com/stream.128", want: ".mp3"},
+		{name: "url ashx falls back to mp3", path: "https://radio.example.com/live.ashx", want: ".mp3"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := formatExt(tt.path); got != tt.want {
+				t.Errorf("formatExt(%q) = %q, want %q", tt.path, got, tt.want)
+			}
+		})
+	}
+}

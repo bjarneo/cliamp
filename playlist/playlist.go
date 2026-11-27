@@ -465,7 +465,8 @@ func (p *Playlist) CurrentIsQueued() bool {
 }
 
 func (p *Playlist) atShuffleWrap() bool {
-	return p.repeat == RepeatAll && p.shuffle && len(p.queue) == 0 && p.queuedIdx == -1 && p.pos+1 >= len(p.order)
+	_, _, hasQueued := p.nextPlayableQueued()
+	return p.repeat == RepeatAll && p.shuffle && !hasQueued && p.queuedIdx == -1 && p.pos+1 >= len(p.order)
 }
 
 // SelectionActivation describes the playable track activated from the selected row.

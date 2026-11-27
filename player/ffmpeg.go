@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -324,6 +325,8 @@ type pipeInput struct {
 	src           io.ReadCloser
 	dst           io.WriteCloser
 	done          chan struct{}
+	interrupted   atomic.Bool
+	readErr       firstError
 	interruptOnce sync.Once
 	closeOnce     sync.Once
 }
@@ -331,15 +334,37 @@ type pipeInput struct {
 func startPipeInput(src io.ReadCloser, dst io.WriteCloser) *pipeInput {
 	in := &pipeInput{src: src, dst: dst, done: make(chan struct{})}
 	go func() {
-		_, _ = io.Copy(dst, src)
+		buf := make([]byte, 32*1024)
+		for {
+			n, err := src.Read(buf)
+			if n > 0 {
+				if _, werr := dst.Write(buf[:n]); werr != nil {
+					break
+				}
+			}
+			if err != nil {
+				if !errors.Is(err, io.EOF) && !in.interrupted.Load() {
+					in.readErr.publish(err)
+				}
+				break
+			}
+		}
 		_ = dst.Close()
 		close(in.done)
 	}()
 	return in
 }
 
+func (in *pipeInput) err() error {
+	if in == nil {
+		return nil
+	}
+	return in.readErr.load()
+}
+
 func (in *pipeInput) interrupt() {
 	in.interruptOnce.Do(func() {
+		in.interrupted.Store(true)
 		_ = in.src.Close()
 		_ = in.dst.Close()
 	})
@@ -455,6 +480,13 @@ func (f *ffmpegPipe) Stream(samples [][2]float64) (int, bool) {
 		if f.proc != nil && state.err.load() == nil {
 			if err := f.proc.waitErr(ffmpegExitGrace); err != nil {
 				state.err.publish(err)
+			}
+		}
+		if f.input != nil && state.err.load() == nil {
+			if in, ok := f.input.(interface{ err() error }); ok {
+				if err := in.err(); err != nil {
+					state.err.publish(err)
+				}
 			}
 		}
 		if f.live && state.err.load() == nil {
@@ -781,7 +813,7 @@ func (f *ffmpegPipe) applyPreparedSeek(prepared *preparedFFmpegSeek) {
 
 func (s *localFFmpegStreamer) prepareSeek(pos int) (*preparedFFmpegSeek, error) {
 	expected := s.state.Load()
-	pos = clampSeekPosition(pos, int(s.total.Load()))
+	pos = clampFFmpegSeekPosition(pos, int(s.total.Load()), s.sr)
 	replacement, err := s.startPipe(pos)
 	if err != nil {
 		return nil, err
@@ -970,7 +1002,7 @@ func (s *navFFmpegStreamer) Seek(targetFrame int) error {
 
 func (s *navFFmpegStreamer) prepareSeek(pos int) (*preparedFFmpegSeek, error) {
 	expected := s.state.Load()
-	pos = clampSeekPosition(pos, s.Len())
+	pos = clampFFmpegSeekPosition(pos, s.Len(), s.sr)
 	replacement, err := s.startPipe(pos, true)
 	if err != nil {
 		return nil, err
@@ -994,12 +1026,23 @@ func (s *navFFmpegStreamer) Close() error {
 	return nil
 }
 
-func clampSeekPosition(pos, total int) int {
+func clampFFmpegSeekPosition(pos, total int, sr beep.SampleRate) int {
 	if pos < 0 {
 		return 0
 	}
-	if total > 0 && pos > total {
-		return total
+	if total <= 0 {
+		return pos
+	}
+	margin := 1
+	if sr > 0 {
+		margin = int(sr)
+		if margin >= total {
+			margin = max(1, int(sr)/10)
+		}
+	}
+	maxPos := max(0, total-margin)
+	if pos > maxPos {
+		return maxPos
 	}
 	return pos
 }
