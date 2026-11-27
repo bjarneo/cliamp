@@ -355,7 +355,7 @@ func protocolCommand() *cli.Command {
 		Usage: "register cliamp:// links with the desktop",
 		Description: "Makes cliamp the handler for cliamp:// links, so clicking one plays\n" +
 			"or queues its target. install.sh already registers the scheme; use\n" +
-			"these commands after a go install build, to point the scheme at a\n" +
+			"these commands after a source build, to point the scheme at a\n" +
 			"different binary, or to remove the registration.",
 		Commands: []*cli.Command{
 			{

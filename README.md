@@ -51,14 +51,6 @@ environment.systemPackages = [
 ];
 ```
 
-**Go**
-
-```sh
-go install github.com/bjarneo/cliamp@latest
-```
-
-Install ALSA development headers before you build on Linux. See [Building from source](#building-from-source).
-
 **Pre-built binaries**
 
 Download from [GitHub Releases](https://github.com/bjarneo/cliamp/releases/latest).

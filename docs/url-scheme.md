@@ -84,7 +84,7 @@ Where it lands follows the install location:
 | Anywhere else | `/usr/local/share/applications/` |
 
 `cliamp protocol register` writes the same entry to your user directory. Use
-it after a `go install` build, or to point the scheme at a different binary.
+it after a source build, or to point the scheme at a different binary.
 
 `cliamp protocol status` lists every entry it finds, user directory first.
 `cliamp protocol unregister` removes the ones you own; a system-wide entry
