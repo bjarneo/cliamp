@@ -548,6 +548,7 @@ const (
 	searchOverlayAlbumPlay      searchOverlayAlbumAction = iota // start the album now
 	searchOverlayAlbumAppend                                    // add to the end of the queue
 	searchOverlayAlbumQueueNext                                 // play right after the current track
+	searchOverlayAlbumReplace                                   // replace the queue with the album
 )
 
 type searchOverlayAlbumTracksMsg struct {
