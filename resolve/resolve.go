@@ -572,6 +572,9 @@ func resolveM3U(ctx context.Context, m3uURL string) ([]playlist.Track, error) {
 	if err != nil {
 		return nil, err
 	}
+	for i := range entries {
+		entries[i].Path = resolveAgainstURL(m3uURL, entries[i].Path)
+	}
 	return remoteM3UEntriesToTracks(filterRemoteM3UEntries(entries)), nil
 }
 
@@ -602,7 +605,38 @@ func resolvePLS(ctx context.Context, plsURL string) ([]playlist.Track, error) {
 	if err != nil {
 		return nil, err
 	}
+	for i := range entries {
+		entries[i].File = resolveAgainstURL(plsURL, entries[i].File)
+	}
 	return remotePLSEntriesToTracks(filterRemotePLSEntries(entries)), nil
+}
+
+// resolveAgainstURL resolves a relative entry of a remote playlist against the
+// playlist URL, as players do for a playlist served next to its files, so
+// "song.mp3" becomes a stream instead of a local path. Entries with a scheme
+// and absolute local paths are returned as they are.
+func resolveAgainstURL(playlistURL, entry string) string {
+	if entry == "" || URIScheme(entry) != "" || isAbsLocalPath(entry) {
+		return entry
+	}
+	base, err := url.Parse(playlistURL)
+	if err != nil {
+		return entry
+	}
+	ref, err := url.Parse(entry)
+	if err != nil {
+		return entry
+	}
+	return base.ResolveReference(ref).String()
+}
+
+// isAbsLocalPath reports whether entry is an absolute path on any OS:
+// "/music/a.mp3", `\\server\a.mp3` or `C:\music\a.mp3`.
+func isAbsLocalPath(entry string) bool {
+	if strings.HasPrefix(entry, "/") || strings.HasPrefix(entry, `\`) {
+		return true
+	}
+	return len(entry) >= 2 && entry[1] == ':'
 }
 
 // hasHLSEndList reports whether an HLS body holds #EXT-X-ENDLIST. head is the
