@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"mime"
 	"net/http"
 	"net/url"
@@ -416,27 +415,7 @@ func AudioFiles(dir string, recursive bool) ([]string, error) {
 
 	if recursive {
 		var files []string
-		err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-			if err != nil {
-				// Skip entries we cannot read instead of aborting the scan, so
-				// one unreadable subdirectory cannot empty the whole result.
-				if d != nil && d.IsDir() {
-					return fs.SkipDir
-				}
-				return nil
-			}
-			if p != dir && isHiddenName(d.Name()) {
-				if d.IsDir() {
-					return fs.SkipDir
-				}
-				return nil
-			}
-			if !d.IsDir() && playlist.IsAudioFile(p) {
-				files = append(files, p)
-			}
-			return nil
-		})
-		if err != nil {
+		if err := walkAudioDir(dir, &files); err != nil {
 			return nil, fmt.Errorf("walk audio directory %q: %w", dir, err)
 		}
 
@@ -454,12 +433,84 @@ func AudioFiles(dir string, recursive bool) ([]string, error) {
 			continue
 		}
 		p := filepath.Join(dir, e.Name())
+		if !e.Type().IsRegular() {
+			tinfo, err := os.Stat(p)
+			if err != nil || !tinfo.Mode().IsRegular() {
+				continue
+			}
+		}
 		if playlist.IsAudioFile(p) {
 			files = append(files, p)
 		}
 	}
 	slices.Sort(files)
 	return files, nil
+}
+
+// walkAudioDir recursively collects audio files under root, following symlinked
+// directories while tracking canonical targets to prevent cycles and duplicate
+// scans. Unreadable subdirectories and broken symlinks are skipped.
+func walkAudioDir(root string, files *[]string) error {
+	visited := make(map[string]struct{})
+	var walk func(cur string, isRoot bool) error
+	walk = func(cur string, isRoot bool) error {
+		if key := canonicalDirKey(cur); key != "" {
+			if _, seen := visited[key]; seen {
+				return nil
+			}
+			visited[key] = struct{}{}
+		}
+		entries, err := os.ReadDir(cur)
+		if err != nil {
+			if isRoot {
+				return err
+			}
+			return nil
+		}
+		for _, e := range entries {
+			if isHiddenName(e.Name()) {
+				continue
+			}
+			p := filepath.Join(cur, e.Name())
+			if e.IsDir() {
+				if err := walk(p, false); err != nil {
+					return err
+				}
+				continue
+			}
+			if !e.Type().IsRegular() {
+				tinfo, err := os.Stat(p)
+				if err != nil {
+					continue
+				}
+				if tinfo.IsDir() {
+					if err := walk(p, false); err != nil {
+						return err
+					}
+					continue
+				}
+				if tinfo.Mode().IsRegular() && playlist.IsAudioFile(p) {
+					*files = append(*files, p)
+				}
+				continue
+			}
+			if playlist.IsAudioFile(p) {
+				*files = append(*files, p)
+			}
+		}
+		return nil
+	}
+	return walk(root, true)
+}
+
+func canonicalDirKey(dir string) string {
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		return filepath.Clean(resolved)
+	}
+	if abs, err := filepath.Abs(dir); err == nil {
+		return filepath.Clean(abs)
+	}
+	return ""
 }
 
 // isHiddenName reports whether a directory entry name is a dotfile.
