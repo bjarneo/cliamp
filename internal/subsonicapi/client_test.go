@@ -1,6 +1,8 @@
 package subsonicapi
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -46,7 +48,7 @@ func subsonicHandler(t *testing.T) http.HandlerFunc {
 					"playlist": {
 						"entry": [
 							{
-								"id":"song-1","title":"So What","artist":"Miles Davis",
+								"id":"song-1","coverArt":"cover-1","title":"So What","artist":"Miles Davis",
 								"album":"Kind of Blue","year":1959,"track":1,"genre":"Jazz","duration":565,"userRating":4
 							},
 							{
@@ -240,6 +242,19 @@ func TestTracks(t *testing.T) {
 	if tr.UserRating != 4 {
 		t.Errorf("UserRating = %d, want 4", tr.UserRating)
 	}
+	artURL, err := url.Parse(tr.AlbumArtURL)
+	if err != nil {
+		t.Fatalf("parse AlbumArtURL: %v", err)
+	}
+	if artURL.Host != srv.Listener.Addr().String() || artURL.Path != "/rest/getCoverArt" {
+		t.Errorf("AlbumArtURL = %q, want this server's getCoverArt endpoint", tr.AlbumArtURL)
+	}
+	q := artURL.Query()
+	salt := q.Get("s")
+	token := md5.Sum([]byte("testpass" + salt))
+	if q.Get("id") != "cover-1" || q.Get("u") != "testuser" || salt == "" || q.Get("t") != hex.EncodeToString(token[:]) {
+		t.Errorf("AlbumArtURL query = %v, want cover-1 and authenticated parameters", q)
+	}
 	if !tr.Stream {
 		t.Error("Stream = false, want true")
 	}
@@ -251,6 +266,14 @@ func TestTracks(t *testing.T) {
 	}
 	if strings.Contains(tr.Path, "format=") {
 		t.Errorf("Path %q sets a format param without StreamFormat configured", tr.Path)
+	}
+}
+
+func TestBandcampTracksDoNotUseNavidromeCoverEndpoint(t *testing.T) {
+	c := NewBandcampClient(Config{BaseURL: "https://bandcamp.example", User: "u", Password: "p"})
+	track := c.songToTrack(subsonicSong{ID: "song-1", CoverArt: "cover-1"})
+	if track.AlbumArtURL != "" {
+		t.Errorf("Bandcamp AlbumArtURL = %q, want empty until its cover endpoint is confirmed", track.AlbumArtURL)
 	}
 }
 

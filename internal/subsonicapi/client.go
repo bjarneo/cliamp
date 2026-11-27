@@ -743,6 +743,7 @@ func (c *Client) AddTracksToPlaylist(ctx context.Context, playlistID string, tra
 // for tracks in both getPlaylist and getAlbum responses.
 type subsonicSong struct {
 	ID          string `json:"id"`
+	CoverArt    string `json:"coverArt"`
 	Title       string `json:"title"`
 	Artist      string `json:"artist"`
 	Album       string `json:"album"`
@@ -754,8 +755,13 @@ type subsonicSong struct {
 }
 
 func (c *Client) songToTrack(s subsonicSong) playlist.Track {
+	artURL := ""
+	if c.d.coverArtSupported() && s.CoverArt != "" {
+		artURL = c.buildURL("getCoverArt", url.Values{"id": {s.CoverArt}})
+	}
 	return playlist.Track{
 		Path:         c.streamURL(s.ID),
+		AlbumArtURL:  artURL,
 		Title:        s.Title,
 		Artist:       s.Artist,
 		Album:        s.Album,
