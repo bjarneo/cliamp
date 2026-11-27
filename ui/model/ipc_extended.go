@@ -726,7 +726,7 @@ func (m *Model) handleIPCLyrics(request ipcLyricsRequest) tea.Cmd {
 		request.Reply <- ipc.Response{OK: false, Error: "no current track"}
 		return nil
 	}
-	artist, title := m.lyricsArtistTitle()
+	artist, title := lyricsSearch(m.lyricsArtistTitle())
 	lookups := lyricsLookups(track, m.trackLyricsSources())
 	ctx := requestContext(request.Context)
 	return func() tea.Msg {

@@ -6,12 +6,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/bjarneo/cliamp/internal/httpclient"
@@ -155,6 +160,69 @@ func fetch(ctx context.Context, artist, title string) ([]Line, error) {
 		return nil, lastErr
 	}
 	return nil, ErrNotFound
+}
+
+// maxLRCFileSize limits how much of an .lrc file LRCFile reads.
+const maxLRCFileSize = 1 << 20
+
+// LRCFile returns a Source that reads the lyrics of the local audio file at
+// audioPath from the .lrc file next to it with the same base name, such as
+// song.lrc for song.mp3. The file may hold timestamped LRC lines or plain
+// text. The Source returns ErrNotFound when there is no such file.
+func LRCFile(audioPath string) Source {
+	return func(context.Context) ([]Line, error) {
+		base := strings.TrimSuffix(audioPath, filepath.Ext(audioPath))
+		for _, ext := range []string{".lrc", ".LRC"} {
+			data, err := readLRCFile(base + ext)
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			if lines := ParseEmbedded(withoutIDTags(string(data))); len(lines) > 0 {
+				return lines, nil
+			}
+		}
+		return nil, ErrNotFound
+	}
+}
+
+// lrcIDTagRegex matches an LRC ID tag line such as [ar:Artist] or
+// [offset:+250]. A time tag starts with a digit, so it does not match.
+var lrcIDTagRegex = regexp.MustCompile(`^\[[A-Za-z#]+:[^\]]*\]$`)
+
+// withoutIDTags drops the ID tag lines of an LRC file, which are not lyrics.
+// parseLRC skips them anyway, but plain text would show them as lines.
+func withoutIDTags(data string) string {
+	var b strings.Builder
+	for line := range strings.SplitSeq(data, "\n") {
+		if lrcIDTagRegex.MatchString(strings.TrimSpace(strings.TrimPrefix(line, "\ufeff"))) {
+			continue
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+// readLRCFile reads up to maxLRCFileSize bytes of the regular file at path.
+// Anything else at path, such as a directory or a FIFO, reads as missing.
+// O_NONBLOCK keeps the open of a FIFO without a writer from blocking.
+func readLRCFile(path string) ([]byte, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fs.ErrNotExist
+	}
+	return io.ReadAll(io.LimitReader(f, maxLRCFileSize))
 }
 
 // ParseEmbedded converts lyrics read from local file tags into display lines.

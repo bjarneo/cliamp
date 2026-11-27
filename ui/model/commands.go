@@ -315,6 +315,7 @@ func refreshEmbeddedMetaCmd(track playlist.Track, gen uint64) tea.Cmd {
 
 func fetchTrackLyricsCmd(ctx context.Context, track playlist.Track, artist, title, query string, gen uint64, sources []trackLyricsSource) tea.Cmd {
 	lookups := lyricsLookups(track, sources)
+	artist, title = lyricsSearch(artist, title)
 	return func() tea.Msg {
 		lines, err := lyrics.Lookup(requestContext(ctx), track.EmbeddedLyrics, artist, title, lookups...)
 		return lyricsLoadedMsg{lines: lines, err: err, query: query, gen: gen}

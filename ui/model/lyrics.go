@@ -30,10 +30,13 @@ func (m Model) trackLyricsSources() []trackLyricsSource {
 	return sources
 }
 
-// lyricsLookups returns the lyrics lookups of sources for track, in the
-// order of sources.
+// lyricsLookups returns the lyrics lookups for track: the .lrc file next to
+// a local audio file first, then sources in their order.
 func lyricsLookups(track playlist.Track, sources []trackLyricsSource) []lyrics.Source {
-	lookups := make([]lyrics.Source, 0, len(sources))
+	lookups := make([]lyrics.Source, 0, len(sources)+1)
+	if localAudioFile(track.Path) {
+		lookups = append(lookups, lyrics.LRCFile(track.Path))
+	}
 	for _, source := range sources {
 		lookups = append(lookups, func(ctx context.Context) ([]lyrics.Line, error) {
 			return source.TrackLyrics(ctx, track)
@@ -59,11 +62,30 @@ func (m *Model) lyricsArtistTitle() (artist, title string) {
 	return track.Artist, track.Title
 }
 
+// lyricsSearch returns the artist and title for the LRCLIB and NetEase
+// search. Without both it returns neither, and the track gets only its own
+// lyrics, embedded or in an .lrc file: a search for the title alone could
+// find another song.
+func lyricsSearch(artist, title string) (string, string) {
+	if artist == "" || title == "" {
+		return "", ""
+	}
+	return artist, title
+}
+
+// localAudioFile reports whether path names a local audio file, which may
+// have an .lrc file next to it.
+func localAudioFile(path string) bool {
+	return plainLocalPath(path) && playlist.IsAudioFile(path)
+}
+
 func lyricsLookupKey(track playlist.Track, artist, title string) string {
 	if artist != "" && title != "" {
 		return artist + "\n" + title
 	}
-	if track.EmbeddedLyrics == "" {
+	// Lyrics in the tags of a local file or in an .lrc file next to it need
+	// no artist and title.
+	if track.EmbeddedLyrics == "" && !localAudioFile(track.Path) {
 		return ""
 	}
 	if track.Path != "" {
