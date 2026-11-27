@@ -600,6 +600,7 @@ type Model struct {
 	pureVis        bool // full-screen visualizer: draw only the visualizer, edge to edge (key f)
 	hideHelpBar    bool // hide the key-binding hint bar above the status line
 	hideSettings   bool // close the two-column settings pane beside the playlist
+	keepSearchOpen bool // keep the Ctrl+F results open after q or a
 	showMetadata   bool // expand highlighted-track metadata below settings
 	heightExpanded bool // tracks whether manual 'x' expansion is active
 

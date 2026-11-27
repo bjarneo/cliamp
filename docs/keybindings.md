@@ -379,8 +379,8 @@ search and the results list is open:
 | `↑` `↓` / `j` `k` / `Ctrl+N` `Ctrl+P` | Move cursor (single item) |
 | `Ctrl+U` `Ctrl+D` | Scroll results by page |
 | `Enter` | Play the selected track now |
-| `a` | Append the selected track to the playlist |
-| `q` | Queue the selected track to play next |
+| `a` | Append the selected track to the playlist (the results close unless `keep_search_open = true`) |
+| `q` | Queue the selected track to play next (the results close unless `keep_search_open = true`) |
 | `f` | Toggle the favorite ♥ on the selected track. On a podcast show, subscribe or unsubscribe. |
 | `p` | (Spotify only) Save the selected track to a Spotify playlist |
 | `Esc` `Backspace` | Back to the search input |

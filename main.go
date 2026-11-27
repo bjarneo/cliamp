@@ -369,6 +369,9 @@ func configureModel(m *model.Model, cfg config.Config, headless bool) {
 	if cfg.HideSettingsPane {
 		m.SetHideSettingsPane(true)
 	}
+	if cfg.KeepSearchOpen {
+		m.SetKeepSearchOpen(true)
+	}
 	if cfg.ShowMetadata {
 		m.SetShowMetadata(true)
 	}
