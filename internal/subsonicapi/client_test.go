@@ -576,8 +576,8 @@ func TestRetryOn429(t *testing.T) {
 func TestAlbumSortTypes(t *testing.T) {
 	c := NewNavidromeClient(Config{BaseURL: "http://localhost", User: "u", Password: "p"})
 	sorts := c.AlbumSortTypes()
-	if len(sorts) != 8 {
-		t.Fatalf("expected 8 sort types, got %d", len(sorts))
+	if len(sorts) != 9 {
+		t.Fatalf("expected 9 sort types, got %d", len(sorts))
 	}
 }
 
@@ -739,5 +739,41 @@ func TestDialErrorGetsNetdiagHint(t *testing.T) {
 				t.Errorf("error = %q, want it to contain %q", err, want)
 			}
 		})
+	}
+}
+
+func TestAlbumSortTypesRandom(t *testing.T) {
+	has := func(c *Client) bool {
+		for _, st := range c.AlbumSortTypes() {
+			if st.ID == SortRandom {
+				return st.Label == "Random"
+			}
+		}
+		return false
+	}
+	cfg := Config{BaseURL: "http://localhost", User: "u", Password: "p"}
+	if !has(NewNavidromeClient(cfg)) {
+		t.Error("navidrome sort list is missing Random")
+	}
+	if has(NewBandcampClient(cfg)) {
+		t.Error("bandcamp sort list must not offer Random")
+	}
+}
+
+func TestAlbumListSendsRandomType(t *testing.T) {
+	var gotType string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotType = r.URL.Query().Get("type")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"subsonic-response":{"status":"ok","albumList2":{"album":[{"id":"al-1","name":"Kind of Blue"}]}}}`))
+	}))
+	defer srv.Close()
+
+	c := NewNavidromeClient(Config{BaseURL: srv.URL, User: "u", Password: "p"})
+	if _, err := c.AlbumList(SortRandom, 0, 10); err != nil {
+		t.Fatalf("AlbumList() error: %v", err)
+	}
+	if gotType != "random" {
+		t.Errorf("getAlbumList2 type = %q, want random", gotType)
 	}
 }

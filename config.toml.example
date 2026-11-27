@@ -221,7 +221,7 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 #
 # Album browse sort order for the Navidrome browser (press N to open).
 # Valid values: alphabeticalByName, alphabeticalByArtist, newest, recent,
-#               frequent, starred, byYear, byGenre
+#               frequent, starred, byYear, byGenre, random
 # This is updated automatically when you press [s] inside the browser.
 # browse_sort = alphabeticalByName
 #
