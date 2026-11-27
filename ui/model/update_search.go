@@ -26,7 +26,7 @@ func (m *Model) handleNetSearchResults(msg netSearchResultsMsg) {
 
 // handleSearchOverlayResults shows the track results of a provider search.
 func (m *Model) handleSearchOverlayResults(msg searchOverlayResultsMsg) {
-	if !m.isCurrentSearchOverlayRequest(msg.gen, msg.providerName) || m.searchOverlay.query != msg.query {
+	if !m.isCurrentSearchOverlayRequest(msg.gen, msg.providerName) || m.searchOverlay.request != msg.query {
 		return
 	}
 	m.cancelSearchOverlayRequest()

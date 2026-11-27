@@ -77,7 +77,7 @@ func (m *Model) handleLuaSelectKey(msg tea.KeyPressMsg) bool {
 		if sel.onDone != nil {
 			sel.onDone(-1)
 		}
-	case "enter", " ":
+	case "enter", "space":
 		index := sel.cursor
 		m.luaSelect = nil
 		if sel.onDone != nil {

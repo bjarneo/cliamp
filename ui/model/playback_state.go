@@ -74,6 +74,7 @@ func (m *Model) stopPlayback() (playlist.Track, bool) {
 	nextRequest(&m.requests.stream)
 	m.player.SetPlaybackGeneration(m.requests.stream)
 	m.player.Stop()
+	m.clearPreload()
 	m.clockFresh = false
 	// The refused stream result would have cleared this; nothing else will.
 	m.buffering = false

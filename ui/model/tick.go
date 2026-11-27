@@ -256,6 +256,9 @@ func (m *Model) isFullyIdle() bool {
 	if !m.reconnect.at.IsZero() {
 		return false
 	}
+	if m.seek.active || m.seek.timer > 0 || m.seek.grace > 0 || m.speedSaveAfter > 0 || m.eqSaveAfter > 0 {
+		return false
+	}
 	return true
 }
 
@@ -362,7 +365,6 @@ func (m *Model) handleTick(msg tickMsg) tea.Cmd {
 	if !m.headless {
 		m.tickVisualizer(now)
 	}
-	m.tickProgressReport(now)
 	var cmds []tea.Cmd
 	// Process debounced yt-dlp seek.
 	if cmd := m.tickSeek(dt); cmd != nil {
@@ -390,6 +392,7 @@ func (m *Model) handleTick(msg tickMsg) tea.Cmd {
 		}
 		cmds = append(cmds, gaplessCmds...)
 	}
+	m.tickProgressReport(now)
 	m.tickResumeSave(now)
 	if !gaplessAdvanced {
 		if cmd := m.tickDrain(now); cmd != nil {
@@ -681,11 +684,15 @@ func (m *Model) tickDrain(now time.Time) tea.Cmd {
 	}
 	m.leaveTrack(drainDur, drainDur)
 
-	// Stop the player before dispatching the async nextTrack command.
+	next, ok := m.advanceToNext()
+	if !ok {
+		return nil
+	}
+	// Stop the player before dispatching the async playTrack command.
 	// This clears the gapless streamer so the finished track cannot
 	// replay while waiting for a yt-dlp pipe chain to spin up.
 	m.player.Stop()
-	return m.nextTrack()
+	return m.playTrack(next)
 }
 
 // tickPreloadRetry retries a deferred stream preload. preloadNext() returns

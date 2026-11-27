@@ -359,7 +359,7 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 		if m.fileBrowser.cursor < m.fbCount() && m.fileBrowser.targetPlaylist == "" {
 			e := m.fbEntry(m.fileBrowser.cursor)
-			if e.isAudio || e.isDir {
+			if !e.isParent && (e.isAudio || e.isDir) {
 				m.fileBrowser.selected[e.path] = true
 				return m.fbConfirmToPlaylist()
 			}
@@ -395,7 +395,7 @@ func (m *Model) fbCommitAndRefresh() tea.Cmd {
 		// playlist counts now. A resolver command refreshes from its
 		// fbTracksResolvedMsg handler instead — batching a fetch here
 		// would read Playlists() before the tracks are written.
-		return m.fetchProviderPlaylists()
+		return m.refreshPaneAfterLocalWrite()
 	}
 	return cmd
 }
@@ -445,6 +445,9 @@ func (m *Model) fbConfirm(replace bool) tea.Cmd {
 		}
 	}
 	m.fileBrowser.visible = false
+	if len(paths) == 0 {
+		return nil
+	}
 
 	target := m.fileBrowser.targetPlaylist
 	if target != "" && plMgrVirtualPlaylistName(target) == "" {

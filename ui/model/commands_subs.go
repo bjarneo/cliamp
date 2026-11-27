@@ -196,7 +196,7 @@ func (m *Model) handleSubsEpisodes(msg subsEpisodesMsg) tea.Cmd {
 		}
 		return nil
 	}
-	if msg.mode == subsLoadPlay && msg.streamGen != 0 && msg.streamGen != m.requests.stream {
+	if msg.mode == subsLoadPlay && msg.streamGen != m.requests.stream {
 		return nil
 	}
 	return m.appendSubscriptionTracks(msg.tracks, msg.mode, msg.name)

@@ -41,15 +41,26 @@ func (m *Model) handleSearchOverlayInputKey(msg tea.KeyPressMsg) tea.Cmd {
 				return nil
 			}
 			m.searchOverlay.loading = true
+			m.searchOverlay.request = m.searchOverlay.query
 			m.searchOverlay.err = ""
-			return fetchSearchOverlayCmd(m.newSearchOverlayRequestContext(30*time.Second), s, m.searchOverlay.prov.Name(), m.searchOverlay.query, nextRequest(&m.requests.searchOverlay))
+			return fetchSearchOverlayCmd(m.newSearchOverlayRequestContext(30*time.Second), s, m.searchOverlay.prov.Name(), m.searchOverlay.request, nextRequest(&m.requests.searchOverlay))
 		}
 	default:
 		if m.editText("search-overlay", &m.searchOverlay.query, msg) {
-			m.searchOverlay.err = ""
+			m.onSearchOverlayQueryEdited()
 		}
 	}
 	return nil
+}
+
+func (m *Model) onSearchOverlayQueryEdited() {
+	m.searchOverlay.err = ""
+	if m.searchOverlay.loading {
+		m.cancelSearchOverlayRequest()
+		nextRequest(&m.requests.searchOverlay)
+		m.searchOverlay.loading = false
+		m.searchOverlay.request = ""
+	}
 }
 
 func (m *Model) searchOverlayResultsMaybeAdjustScroll(visible int) {

@@ -560,11 +560,12 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyPressMsg) tea.Cmd {
 		// Append all displayed tracks to the playlist (keep current playback).
 		tracks := m.navPlaybackTracks()
 		if len(tracks) > 0 {
-			wasEmpty := m.playlist.Len() == 0
-			m.appendTracks(tracks...)
+			start := m.appendTracks(tracks...)
 			m.status.Showf(statusTTLMedium, "Added %d tracks", len(tracks))
-			if wasEmpty || !m.player.IsPlaying() {
-				m.playlist.SetIndex(0)
+			if m.idleForNewTrack() {
+				m.playlist.SetIndex(start)
+				m.plCursor = start
+				m.adjustScroll()
 				return m.playCurrentTrack()
 			}
 		}
@@ -580,7 +581,7 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.playlist.Queue(newIdx)
 			m.normalizeQueueOverlay()
 			m.status.Showf(statusTTLMedium, "Queued: %s", t.DisplayName())
-			if !m.player.IsPlaying() {
+			if m.idleForNewTrack() {
 				return m.nextTrack()
 			}
 			return m.rearmStalePreload()
@@ -614,6 +615,9 @@ func (m *Model) navDisplayedTracks() []playlist.Track {
 	}
 	tracks := make([]playlist.Track, 0, len(m.navBrowser.searchIdx))
 	for _, i := range m.navBrowser.searchIdx {
+		if i < 0 || i >= len(m.navBrowser.tracks) {
+			continue
+		}
 		tracks = append(tracks, m.navBrowser.tracks[i])
 	}
 	return tracks
@@ -693,6 +697,12 @@ func navNextSort(s string, types []provider.SortType) string {
 
 // navMaybeAdjustScroll keeps navCursor visible within the rendered list window.
 func (m *Model) navMaybeAdjustScroll() {
+	visible := m.effectivePlaylistVisible()
+	if m.navView() == navViewTracks && m.navBrowser.search == "" && m.navBrowser.showAlbumHeaders {
+		clampScroll(&m.navBrowser.cursor, &m.navBrowser.scroll, len(m.navBrowser.tracks), visible)
+		m.navBrowser.scroll = m.fitHeaderScroll(m.navBrowser.tracks, m.navBrowser.scroll, m.navBrowser.cursor, visible, true)
+		return
+	}
 	count := len(m.navMenuItems())
 	switch m.navView() {
 	case navViewArtists:
@@ -709,5 +719,5 @@ func (m *Model) navMaybeAdjustScroll() {
 	if m.navBrowser.search != "" {
 		count = len(m.navBrowser.searchIdx)
 	}
-	clampScroll(&m.navBrowser.cursor, &m.navBrowser.scroll, count, m.effectivePlaylistVisible())
+	clampScroll(&m.navBrowser.cursor, &m.navBrowser.scroll, count, visible)
 }

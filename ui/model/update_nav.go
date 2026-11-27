@@ -15,6 +15,9 @@ func (m *Model) handleNavArtistsLoaded(msg navArtistsLoadedMsg) {
 	m.navBrowser.artists = msg.artists
 	m.navBrowser.cursor = 0
 	m.navBrowser.scroll = 0
+	if m.navBrowser.search != "" {
+		m.navUpdateSearch()
+	}
 }
 
 // handleNavAlbumsLoaded shows a fresh album list in the nav browser, or
@@ -62,6 +65,9 @@ func (m *Model) handleNavGenresLoaded(msg navGenresLoadedMsg) {
 	m.navBrowser.genres = msg.genres
 	m.navBrowser.cursor = 0
 	m.navBrowser.scroll = 0
+	if m.navBrowser.search != "" {
+		m.navUpdateSearch()
+	}
 }
 
 // handleNavTracksLoaded shows the tracks in the nav browser. When the
@@ -92,6 +98,7 @@ func (m *Model) handleNavTracksLoaded(msg navTracksLoadedMsg) {
 		m.status.Successf(statusTTLDefault, "Replaced queue with %d tracks", len(msg.tracks))
 		return
 	}
+	m.navClearSearch()
 	m.navBrowser.tracks = msg.tracks
 	m.navBrowser.showAlbumHeaders = tracksHaveAlbumCohesion(m.navBrowser.tracks)
 	m.navBrowser.cursor = 0

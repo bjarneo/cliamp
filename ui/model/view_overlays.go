@@ -83,10 +83,11 @@ func (m Model) renderPlMgrBody() string {
 
 func (m Model) renderPlMgrFormBody() string {
 	budget := m.effectivePlaylistVisible()
+	prompt := "  Enter creates an empty playlist, then opens the file browser."
 	if m.plManager.screen == plMgrScreenRename {
-		return bodyMessage("Enter a new name for the playlist above.", budget)
+		prompt = "  Enter a new name for the playlist above."
 	}
-	lines := []string{dimStyle.Render("  Enter creates an empty playlist, then opens the file browser.")}
+	lines := []string{dimStyle.Render(prompt)}
 	if m.plManager.inputErr != "" {
 		lines = append(lines, errorStyle.Render("  "+m.plManager.inputErr))
 	}

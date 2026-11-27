@@ -24,9 +24,10 @@ type seekTickMsg struct {
 // ytdlUnpauseReconnectMsg reports a yt-dlp reconnect on unpause. gen holds
 // the stream generation and seekGen holds the seek generation at its start.
 type ytdlUnpauseReconnectMsg struct {
-	err     error
-	gen     uint64
-	seekGen uint64
+	err          error
+	gen          uint64
+	seekGen      uint64
+	reconnectGen uint64
 }
 
 // doSeek handles a seek keypress. Seeks that restart a decoder accumulate into
@@ -37,7 +38,11 @@ func (m *Model) doSeek(d time.Duration) tea.Cmd {
 
 func (m *Model) seekRelative(d time.Duration, debounceTicks int) tea.Cmd {
 	if !m.needsDebouncedSeek() {
-		m.player.Seek(d)
+		if err := m.player.Seek(d); err == nil {
+			if m.preloading || m.player.HasPreload() {
+				m.clearPreload()
+			}
+		}
 		m.finishSeek()
 		return nil
 	}
@@ -76,6 +81,9 @@ func (m *Model) trySeekAbsolute(target time.Duration) (tea.Cmd, error) {
 		if err := m.player.Seek(target - m.player.Position()); err != nil {
 			return nil, err
 		}
+		if m.preloading || m.player.HasPreload() {
+			m.clearPreload()
+		}
 		m.finishSeek()
 		return nil, nil
 	}
@@ -84,6 +92,7 @@ func (m *Model) trySeekAbsolute(target time.Duration) (tea.Cmd, error) {
 
 func (m *Model) queueSeekTarget(target time.Duration, debounceTicks int) tea.Cmd {
 	m.seek.active = true
+	m.seek.reconnectGen++
 	m.seek.targetPos = m.clampPosition(target)
 
 	if m.player.IsYTDLSeek() {
@@ -163,6 +172,7 @@ func (m *Model) resetSeek() {
 	m.seek.inFlight = false
 	m.seek.pending = false
 	m.seek.gen++
+	m.seek.reconnectGen++
 	m.seek.timer = 0
 	m.seek.timerFor = 0
 	m.seek.grace = 0
@@ -176,7 +186,7 @@ func (m *Model) clampPosition(pos time.Duration) time.Duration {
 	}
 	dur := m.player.Duration()
 	if dur > 0 && pos >= dur {
-		return dur - time.Second
+		return max(0, dur-time.Second)
 	}
 	return pos
 }

@@ -101,18 +101,19 @@ type provSearchState struct {
 
 // seekState holds debounce state for yt-dlp seek-by-restart.
 type seekState struct {
-	active    bool          // true from first keypress until seek completes
-	inFlight  bool          // a decoder-restarting seek command is running
-	gen       uint64        // bumped per track; completions from older tracks are ignored
-	pending   bool          // targetPos still needs a commit once inFlight clears
-	targetPos time.Duration // absolute target position
-	timer     int           // tick countdown for debounce (0 = idle)
-	grace     int           // ticks to suppress reconnect after seek completes
-	rewind    bool          // a rewind with previous waits to land and start a replay
-	rewindAt  time.Duration // position of the play that a landed rewind reports
-	rewindDur time.Duration // duration of the play that a landed rewind reports
-	timerFor  time.Duration
-	graceFor  time.Duration
+	active       bool          // true from first keypress until seek completes
+	inFlight     bool          // a decoder-restarting seek command is running
+	gen          uint64        // bumped per track; completions from older tracks are ignored
+	reconnectGen uint64        // bumped per yt-dlp unpause reconnect or seek override
+	pending      bool          // targetPos still needs a commit once inFlight clears
+	targetPos    time.Duration // absolute target position
+	timer        int           // tick countdown for debounce (0 = idle)
+	grace        int           // ticks to suppress reconnect after seek completes
+	rewind       bool          // a rewind with previous waits to land and start a replay
+	rewindAt     time.Duration // position of the play that a landed rewind reports
+	rewindDur    time.Duration // duration of the play that a landed rewind reports
+	timerFor     time.Duration
+	graceFor     time.Duration
 }
 
 // providerPane holds the playlist list of the active provider on the left
@@ -419,6 +420,7 @@ type searchOverlayState struct {
 	visible bool
 	screen  searchOverlayScreenType
 	query   string
+	request string
 	results []playlist.Track
 	cursor  int
 	scroll  int

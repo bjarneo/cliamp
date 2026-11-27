@@ -84,7 +84,7 @@ func (m *Model) handleSeekTick(msg seekTickMsg) tea.Cmd {
 // reconnects on unpause, and unpauses the track. A track that started since
 // then owns the seek state, and a stop keeps the engine stopped.
 func (m *Model) handleYTDLUnpauseReconnect(msg ytdlUnpauseReconnectMsg) {
-	if msg.seekGen != m.seek.gen {
+	if msg.seekGen != m.seek.gen || msg.reconnectGen != m.seek.reconnectGen {
 		return
 	}
 	m.seek.active = false

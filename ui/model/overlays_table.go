@@ -109,6 +109,7 @@ func init() {
 				switch m.searchOverlay.screen {
 				case searchOverlayInput:
 					m.insertText("search-overlay", &m.searchOverlay.query, s)
+					m.onSearchOverlayQueryEdited()
 				case searchOverlayNewName:
 					m.insertText("search-overlay-playlist-name", &m.searchOverlay.newName, s)
 				}

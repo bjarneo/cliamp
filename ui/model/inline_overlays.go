@@ -606,6 +606,9 @@ func (m Model) renderSearchOverlayBody() string {
 			body = bodyLines([]string{loadingLine("Loading playlists…")}, bodyBudget)
 			break
 		}
+		if bodyBudget <= 0 {
+			break
+		}
 		track := m.searchOverlay.selTrack
 		head := dimStyle.Render("  " + truncate(terminalText(fmt.Sprintf("%s - %s", track.Artist, track.Title)), m.layout.panelWidth-2))
 		count := len(m.searchOverlay.playlists) + 1
@@ -615,7 +618,11 @@ func (m Model) renderSearchOverlayBody() string {
 			}
 			return "+ New Playlist..."
 		})
-		body = strings.Join([]string{head, list}, "\n")
+		if list == "" {
+			body = head
+		} else {
+			body = strings.Join([]string{head, list}, "\n")
+		}
 	case searchOverlayNewName:
 		body = bodyMessage("Enter a name for the new playlist above.", bodyBudget)
 	default:

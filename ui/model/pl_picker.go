@@ -63,7 +63,11 @@ func (m *Model) plPickerCount() int {
 
 func (m *Model) plPickerVisible() int {
 	if m.plPicker.screen == plPickerChoose {
-		return max(1, m.effectivePlaylistVisible()-1)
+		reserved := 1
+		if m.plPicker.inputErr != "" {
+			reserved++
+		}
+		return max(1, m.effectivePlaylistVisible()-reserved)
 	}
 	return m.effectivePlaylistVisible()
 }
@@ -95,26 +99,49 @@ func (m Model) renderPlaylistPickerBody() string {
 		return bodyLines(lines, budget)
 	}
 
-	var head string
-	switch n := len(m.plPicker.tracks); {
-	case m.plPicker.title != "":
-		head = m.plPicker.title
-	case n == 0:
-		head = "No tracks selected. Choose + New Playlist to create an empty one."
-	case n == 1:
-		head = "Track: " + terminalText(m.plPicker.tracks[0].DisplayName())
-	default:
-		head = fmt.Sprintf("%d tracks selected", n)
+	if budget <= 0 {
+		return ""
 	}
-	head = dimStyle.Render("  " + truncate(terminalText(head), max(1, m.layout.panelWidth-2)))
-	count := len(m.plPicker.playlists) + 1
-	list := windowListFunc(count, m.plPicker.cursor, m.plPicker.scroll, max(0, budget-1), func(i int) string {
-		if i < len(m.plPicker.playlists) {
-			return playlistLabel("", m.plPicker.playlists[i])
+	showErr := m.plPicker.inputErr != ""
+	bodyBudget := budget
+	if showErr {
+		bodyBudget = max(0, bodyBudget-1)
+	}
+	var body string
+	if bodyBudget > 0 {
+		var head string
+		switch n := len(m.plPicker.tracks); {
+		case m.plPicker.title != "":
+			head = m.plPicker.title
+		case n == 0:
+			head = "No tracks selected. Choose + New Playlist to create an empty one."
+		case n == 1:
+			head = "Track: " + terminalText(m.plPicker.tracks[0].DisplayName())
+		default:
+			head = fmt.Sprintf("%d tracks selected", n)
 		}
-		return "+ New Playlist..."
-	})
-	return strings.Join([]string{head, list}, "\n")
+		head = dimStyle.Render("  " + truncate(terminalText(head), max(1, m.layout.panelWidth-2)))
+		count := len(m.plPicker.playlists) + 1
+		list := windowListFunc(count, m.plPicker.cursor, m.plPicker.scroll, max(0, bodyBudget-1), func(i int) string {
+			if i < len(m.plPicker.playlists) {
+				return playlistLabel("", m.plPicker.playlists[i])
+			}
+			return "+ New Playlist..."
+		})
+		if list == "" {
+			body = head
+		} else {
+			body = strings.Join([]string{head, list}, "\n")
+		}
+	}
+	if showErr {
+		errLine := errorStyle.Render("  " + terminalText(m.plPicker.inputErr))
+		if body == "" {
+			return errLine
+		}
+		return strings.Join([]string{body, errLine}, "\n")
+	}
+	return body
 }
 
 func (m *Model) handlePlaylistPickerKey(msg tea.KeyPressMsg) tea.Cmd {
@@ -174,7 +201,9 @@ func (m *Model) handlePlaylistPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 		// the same request as Enter.
 		m.plPicker.screen = plPickerNewName
 		m.plPicker.newName = ""
+		m.plPicker.inputErr = ""
 		m.plPicker.cursor = 0
+		m.plPicker.scroll = 0
 	case "enter":
 		if m.plPicker.cursor < len(m.plPicker.playlists) {
 			if m.writePickerTracks(m.plPicker.playlists[m.plPicker.cursor].Name) {
@@ -184,6 +213,7 @@ func (m *Model) handlePlaylistPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 		m.plPicker.screen = plPickerNewName
 		m.plPicker.newName = ""
+		m.plPicker.inputErr = ""
 		m.plPicker.cursor = 0
 		m.plPicker.scroll = 0
 	}

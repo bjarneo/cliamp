@@ -154,8 +154,9 @@ func (m *Model) advanceToNext() (playlist.Track, bool) {
 // Unplayable tracks are skipped automatically.
 func (m *Model) prevTrack() tea.Cmd {
 	// A pending or running seek has not moved Position yet, so a rewind that
-	// is still on its way counts as done.
-	pos := m.player.Position()
+	// is still on its way counts as done. While buffering, playbackClock returns
+	// 0 so we do not inspect the outgoing track's position.
+	pos, _ := m.playbackClock()
 	if m.seek.active {
 		pos = m.seek.targetPos
 	}
@@ -714,6 +715,7 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 	m.lyrics.err = nil
 	m.lyrics.query = ""
 	m.lyrics.scroll = 0
+	m.lyrics.loading = false
 	m.resetSeek()
 	if m.lyrics.visible {
 		q := lyricsLookupKey(track, track.Artist, track.Title)
@@ -724,7 +726,6 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 		m.lyrics.query = q
 		return track, tea.Batch(cmd, m.fetchLyricsForTrack(track, track.Artist, track.Title))
 	}
-	m.lyrics.loading = false
 	return track, cmd
 }
 
@@ -785,14 +786,15 @@ func (m *Model) reconnectYTDLOnUnpause() tea.Cmd {
 	m.seek.timerFor = 0
 	m.seek.grace = 0
 	m.seek.graceFor = 0
+	m.seek.reconnectGen++
 	m.player.CancelSeekYTDL()
 	m.status.Activity("Reconnecting stream...", statusTTLMedium)
 
 	// The Update loop unpauses after the reconnect, and only when the same
-	// track still plays. A skip or a stop can come first.
-	p, gen, seekGen := m.player, m.requests.stream, m.seek.gen
+	// track still plays. A skip, stop, newer reconnect, or seek can come first.
+	p, gen, seekGen, reconnectGen := m.player, m.requests.stream, m.seek.gen, m.seek.reconnectGen
 	return func() tea.Msg {
-		return ytdlUnpauseReconnectMsg{err: p.SeekYTDL(0), gen: gen, seekGen: seekGen}
+		return ytdlUnpauseReconnectMsg{err: p.SeekYTDL(0), gen: gen, seekGen: seekGen, reconnectGen: reconnectGen}
 	}
 }
 

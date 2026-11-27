@@ -1180,6 +1180,9 @@ func (m Model) renderProviderList() string {
 				scroll := m.provSearch.scroll
 				for j := scroll; j < scroll+visible && j < len(m.provSearch.results); j++ {
 					idx := m.provSearch.results[j]
+					if idx < 0 || idx >= len(m.provPane.lists) {
+						continue
+					}
 					p := m.provPane.lists[idx]
 					prefix, style := m.providerRowStyle(p, j == m.provSearch.cursor)
 					lines = append(lines, style.Render(m.providerRowLabel(prefix, p)))

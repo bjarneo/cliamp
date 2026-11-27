@@ -114,6 +114,17 @@ func (m *Model) preloadTarget() (playlist.Track, bool) {
 	return next, true
 }
 
+// clearPreload discards any armed or in-flight preload and advances the
+// preload generation so a cancelled preload cannot mark preloadFailed.
+func (m *Model) clearPreload() {
+	nextRequest(&m.requests.preload)
+	m.preloading = false
+	m.preloadFor = ""
+	if m.player != nil {
+		m.player.ClearPreload()
+	}
+}
+
 // dropStalePreload discards an armed or in-flight preload that is no longer
 // for the track that plays next, so a queue change can never play the old
 // one. Update runs it after every message; the tick loop then arms the new
@@ -125,8 +136,5 @@ func (m *Model) dropStalePreload() {
 	if next, ok := m.preloadTarget(); ok && next.Path == m.preloadFor {
 		return
 	}
-	nextRequest(&m.requests.preload)
-	m.preloading = false
-	m.preloadFor = ""
-	m.player.ClearPreload()
+	m.clearPreload()
 }

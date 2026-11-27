@@ -393,7 +393,8 @@ const progressReportInterval = 15 * time.Second
 // tickProgressReport pushes an interim position update for the playing track to
 // providers that accept them, at most once per progressReportInterval.
 func (m *Model) tickProgressReport(now time.Time) {
-	if m.player == nil || !m.player.IsPlaying() || m.player.IsPaused() {
+	if m.player == nil || !m.player.IsPlaying() || m.player.IsPaused() ||
+		m.buffering || m.seek.active || m.seek.inFlight || m.seek.pending {
 		return
 	}
 	if !m.lastProgressReport.IsZero() && now.Sub(m.lastProgressReport) < progressReportInterval {

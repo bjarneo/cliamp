@@ -407,6 +407,10 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.openPlaylistPicker(tracks, title)
 		}
 	case "o":
+		if name := plMgrVirtualPlaylistName(m.plManager.selPlaylist); name != "" {
+			m.status.Showf(statusTTLDefault, "%q is a virtual playlist", name)
+			return nil
+		}
 		m.openFileBrowserForPlaylist(m.plManager.selPlaylist)
 	case "D":
 		m.plMgrOpenDirs()

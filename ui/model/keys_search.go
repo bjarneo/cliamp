@@ -102,8 +102,12 @@ func (m *Model) handleProvSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 	case tea.KeyEscape:
 		m.provSearch.active = false
 	case tea.KeyEnter:
-		if len(m.provSearch.results) > 0 && !m.provPane.loading {
+		if len(m.provSearch.results) > 0 && !m.provPane.loading &&
+			m.provSearch.cursor >= 0 && m.provSearch.cursor < len(m.provSearch.results) {
 			idx := m.provSearch.results[m.provSearch.cursor]
+			if idx < 0 || idx >= len(m.provPane.lists) {
+				return nil
+			}
 			m.provPane.cursor = idx
 			m.providerMaybeAdjustScroll()
 			m.provSearch.active = false

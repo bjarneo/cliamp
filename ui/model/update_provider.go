@@ -102,8 +102,7 @@ func (m *Model) handleTracksLoaded(msg tracksLoadedMsg) tea.Cmd {
 		// UI, scrobble and now-playing announced another. Drop it and let the
 		// tick loop re-arm against the order this page produced.
 		if m.player.HasPreload() || m.preloading {
-			m.player.ClearPreload()
-			m.preloading = false
+			m.clearPreload()
 		}
 	} else {
 		m.replacePlayerPlaylist(msg.tracks)

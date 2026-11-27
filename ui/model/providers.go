@@ -59,6 +59,7 @@ func (m *Model) switchProvider(idx int) tea.Cmd {
 	m.provider = m.providers[idx].Provider
 	m.provPane.setLists(nil)
 	m.provPane.signIn = false
+	m.provPane.authURL = ""
 	m.catalogBatch = catalogBatchState{}
 	m.activeProviderPlaylistID = ""
 	m.resetProviderNav()
@@ -163,6 +164,12 @@ func (m *Model) replaceProviderLists(lists []playlist.PlaylistInfo) {
 		}
 	}
 	m.providerMaybeAdjustScroll()
+	if m.provSearch.active {
+		if _, searchable := m.provider.(provider.CatalogSearcher); !searchable {
+			m.updateProvSearch()
+			m.provSearchMaybeAdjustScroll()
+		}
+	}
 }
 
 // refreshPaneAfterLocalWrite re-pulls Playlists() into the provider pane after
@@ -269,12 +276,10 @@ func tracksContainPath(tracks []playlist.Track, path string) bool {
 func (m *Model) replacePlayerPlaylist(tracks []playlist.Track) {
 	if m.player.IsPlaying() || m.buffering {
 		m.detachPlaybackTrack()
-		m.player.ClearPreload()
-		m.preloading = false
+		m.clearPreload()
 	} else {
-		m.player.Stop()
-		m.player.ClearPreload()
-		m.clearPlaybackTrack()
+		m.stopPlayback()
+		m.clearPreload()
 	}
 	m.replacePlaylist(tracks)
 	m.setHeaderStateFromTracks(tracks)

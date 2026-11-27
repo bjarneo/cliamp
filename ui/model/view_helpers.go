@@ -619,7 +619,11 @@ func (m Model) navScrollItems(total int, labelFn func(int) string) []string {
 
 	if useFilter {
 		for j := scroll; j < len(m.navBrowser.searchIdx) && rendered < maxVisible; j++ {
-			label := terminalText(labelFn(m.navBrowser.searchIdx[j]))
+			idx := m.navBrowser.searchIdx[j]
+			if idx < 0 || idx >= total {
+				continue
+			}
+			label := terminalText(labelFn(idx))
 			lines = append(lines, cursorLine(label, j == m.navBrowser.cursor))
 			rendered++
 		}
