@@ -15,40 +15,38 @@ var matrixChars = []rune{
 // Band energy controls how many columns are active (rain density).
 func (v *Visualizer) renderMatrix(bands []float64) string {
 	height := v.Rows
-	lines := make([]string, height)
 	bandCount := len(bands)
 	width := v.columns()
 
+	var sb strings.Builder
+	sb.Grow(height * (width*5 + 16))
+	w := styleRunWriter{sb: &sb}
+
 	for row := range height {
-		var sb, run strings.Builder
+		if row > 0 {
+			sb.WriteByte('\n')
+		}
 		tag := -1
+		w.setTag(-1)
 		col := 0
 		for b := range bandCount {
-			w := visBandWidth(bandCount, b, width)
-			for range w {
+			bw := visBandWidth(bandCount, b, width)
+			for range bw {
 				energy := bands[b]
 				seed := uint64(col)*7919 + 104729
 
-				// Column activity: stable gate, changes every ~20 frames.
-				// Higher energy activates more columns.
 				if scatterHash(b, 0, col, v.frame/20) > energy*1.5+0.1 {
 					if tag != -1 {
-						flushStyleRun(&sb, &run, tag)
 						tag = -1
+						w.setTag(-1)
 					}
-					run.WriteByte(' ')
+					w.writeByte(' ')
 					col++
 					continue
 				}
 
-				// Fixed speed per column (2-4 frames per row step), derived
-				// from column position so each drop falls steadily.
 				speed := 2 + int(seed%3)
-
-				// Trail length: 3-5 characters.
 				trailLen := 3 + int((seed/7)%3)
-
-				// Cycle length large enough for a visible gap between drops.
 				cycleLen := height + trailLen + 4
 				offset := int((seed / 13) % uint64(cycleLen))
 				pos := (int(v.frame)/speed + offset) % cycleLen
@@ -56,12 +54,11 @@ func (v *Visualizer) renderMatrix(bands []float64) string {
 				dist := pos - row
 				if dist < 0 || dist > trailLen {
 					if tag != -1 {
-						flushStyleRun(&sb, &run, tag)
 						tag = -1
+						w.setTag(-1)
 					}
-					run.WriteByte(' ')
+					w.writeByte(' ')
 				} else {
-					// Character mutates slowly (~every 4 frames).
 					charSeed := seed ^ (uint64(row)*31 + (v.frame/4)*17)
 					ch := matrixChars[charSeed%uint64(len(matrixChars))]
 					var newTag int
@@ -74,24 +71,23 @@ func (v *Visualizer) renderMatrix(bands []float64) string {
 						newTag = 0
 					}
 					if newTag != tag {
-						flushStyleRun(&sb, &run, tag)
 						tag = newTag
+						w.setTag(tag)
 					}
-					run.WriteRune(ch)
+					w.writeRune(ch)
 				}
 				col++
 			}
 			if bandGapAfter(bandCount, b, width) {
 				if tag != -1 {
-					flushStyleRun(&sb, &run, tag)
 					tag = -1
+					w.setTag(-1)
 				}
-				run.WriteByte(' ')
+				w.writeByte(' ')
 				col++
 			}
 		}
-		flushStyleRun(&sb, &run, tag)
-		lines[row] = sb.String()
+		w.flush()
 	}
-	return strings.Join(lines, "\n")
+	return sb.String()
 }

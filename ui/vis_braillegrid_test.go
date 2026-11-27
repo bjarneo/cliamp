@@ -128,7 +128,7 @@ func TestDotMaskForReusesAndClears(t *testing.T) {
 func TestSharedDotBuffersDoNotLeakBetweenModes(t *testing.T) {
 	modes := []VisMode{
 		VisWave, VisScope, VisHeartbeat, VisFirework, VisBubbles,
-		VisLogo, VisSakura, VisButterfly, VisFirefly, VisMirror,
+		VisLogo, VisSakura, VisButterfly, VisFirefly, VisMirror, VisRetro,
 	}
 	prime := func(mode VisMode) *Visualizer {
 		v := NewVisualizer(44100)
@@ -163,15 +163,19 @@ func TestSharedDotBuffersDoNotLeakBetweenModes(t *testing.T) {
 
 func TestBrailleGridRenderPalettes(t *testing.T) {
 	spec := func(tier int, body string) string {
-		var sb, run strings.Builder
-		run.WriteString(body)
-		flushSpectrumTier(&sb, &run, tier)
+		var sb strings.Builder
+		w := styleRunWriter{sb: &sb}
+		w.switchStyle(spectrumTierStyle(tier))
+		w.writeString(body)
+		w.flush()
 		return sb.String()
 	}
 	star := func(tag int, body string) string {
-		var sb, run strings.Builder
-		run.WriteString(body)
-		flushRedSectorRun(&sb, &run, tag)
+		var sb strings.Builder
+		w := styleRunWriter{sb: &sb}
+		w.switchStyle(redSectorTierStyle(tag))
+		w.writeString(body)
+		w.flush()
 		return sb.String()
 	}
 	tests := []struct {
@@ -216,6 +220,25 @@ func TestBrailleGridRenderPalettes(t *testing.T) {
 				t.Fatalf("render = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestBrailleUTF8Table(t *testing.T) {
+	var sb strings.Builder
+	w := styleRunWriter{sb: &sb}
+	for m := range 256 {
+		want := string(rune('\u2800' | rune(m)))
+		if got := brailleUTF8[m]; got != want {
+			t.Fatalf("brailleUTF8[%d] = %q, want %q", m, got, want)
+		}
+		sb.Reset()
+		w = styleRunWriter{sb: &sb}
+		w.switchStyle(styleANSI{})
+		w.writeBraille(byte(m))
+		w.flush()
+		if got := sb.String(); got != want {
+			t.Fatalf("writeBraille(%d) = %q, want %q", m, got, want)
+		}
 	}
 }
 

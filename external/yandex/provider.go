@@ -16,6 +16,7 @@ var (
 	_ playlist.Provider         = (*Provider)(nil)
 	_ provider.Searcher         = (*Provider)(nil)
 	_ provider.PlaybackReporter = (*Provider)(nil)
+	_ provider.TrackFavoriter   = (*Provider)(nil)
 )
 
 // TrackURIPrefix is the custom URI scheme for Yandex Music tracks. Track
@@ -24,10 +25,11 @@ var (
 const TrackURIPrefix = "yandex:track:"
 
 const (
-	likedPlaylistID  = "likes"
-	wavePlaylistID   = "wave"
-	playlistIDPrefix = "pl:"
-	urlTTL           = 45 * time.Second // signed CDN URLs expire after ~1 minute
+	likedPlaylistID    = "likes"
+	wavePlaylistID     = "wave"
+	playlistIDPrefix   = "pl:"
+	urlTTL             = 45 * time.Second // signed CDN URLs expire after ~1 minute
+	maxURLCacheEntries = 1000
 )
 
 // Config holds settings for the Yandex Music provider.
@@ -365,11 +367,15 @@ func (p *Provider) ResolveSource(uri string) (string, error) {
 // resolveStreamURL returns a signed CDN URL for a track, caching entries for
 // urlTTL. force bypasses the cache, for example after the URL expired.
 func (p *Provider) resolveStreamURL(trackID string, force bool) (string, error) {
+	now := time.Now()
 	p.mu.Lock()
 	if !force {
-		if e, ok := p.urlCache[trackID]; ok && time.Since(e.at) < urlTTL {
-			p.mu.Unlock()
-			return e.url, nil
+		if e, ok := p.urlCache[trackID]; ok {
+			if now.Sub(e.at) < urlTTL {
+				p.mu.Unlock()
+				return e.url, nil
+			}
+			delete(p.urlCache, trackID)
 		}
 	}
 	p.mu.Unlock()
@@ -378,8 +384,17 @@ func (p *Provider) resolveStreamURL(trackID string, force bool) (string, error) 
 	if err != nil {
 		return "", err
 	}
+	now = time.Now()
 	p.mu.Lock()
-	p.urlCache[trackID] = urlEntry{url: u, at: time.Now()}
+	for k, e := range p.urlCache {
+		if now.Sub(e.at) >= urlTTL {
+			delete(p.urlCache, k)
+		}
+	}
+	if len(p.urlCache) >= maxURLCacheEntries {
+		clear(p.urlCache)
+	}
+	p.urlCache[trackID] = urlEntry{url: u, at: now}
 	p.mu.Unlock()
 	return u, nil
 }
@@ -433,6 +448,27 @@ func (p *Provider) report(track playlist.Track, playedSeconds int, waveEvent str
 		waveKeyFor(wave.keys, id),
 		float64(track.DurationSecs), float64(playedSeconds),
 	)
+}
+
+// CanFavoriteTrack reports whether track belongs to Yandex Music.
+func (p *Provider) CanFavoriteTrack(track playlist.Track) bool {
+	return track.Meta(provider.MetaYandexID) != ""
+}
+
+// SetTrackFavorite likes or unlikes a track on the Yandex Music service.
+func (p *Provider) SetTrackFavorite(ctx context.Context, track playlist.Track, favorite bool) error {
+	id := track.Meta(provider.MetaYandexID)
+	if id == "" {
+		return fmt.Errorf("yandex: track has no id")
+	}
+	uid, err := p.accountUserID(ctx)
+	if err != nil {
+		return err
+	}
+	if favorite {
+		return p.api.likeTracks(ctx, uid, []string{id})
+	}
+	return p.api.unlikeTracks(ctx, uid, []string{id})
 }
 
 func trackTitle(t track) string {

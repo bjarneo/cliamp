@@ -8,17 +8,25 @@ import "strings"
 func (v *Visualizer) renderScatter(bands []float64) string {
 	height := v.Rows
 	dotRows := height * 4
-	lines := make([]string, height)
 	bandCount := len(bands)
 	width := v.columns()
 
+	var sb strings.Builder
+	sb.Grow(height * (width*3 + 24))
+
 	for row := range height {
-		var content strings.Builder
+		if row > 0 {
+			sb.WriteByte('\n')
+		}
+		style := specANSI[specTag(float64(height-1-row)/float64(height))]
+		if style.prefix != "" {
+			sb.WriteString(style.prefix)
+		}
 
 		for b := range bandCount {
 			charsPerBand := visBandWidth(bandCount, b, width)
 			for c := range charsPerBand {
-				var braille rune = '\u2800'
+				var mask byte
 
 				for dr := range 4 {
 					for dc := range 2 {
@@ -32,21 +40,23 @@ func (v *Visualizer) renderScatter(bands []float64) string {
 						threshold := bands[b] * bands[b] * heightFactor
 
 						if h < threshold {
-							braille |= brailleBit[dr][dc]
+							mask |= brailleBit[dr][dc]
 						}
 					}
 				}
 
-				content.WriteRune(braille)
+				sb.WriteString(brailleUTF8[mask])
 			}
 			if bandGapAfter(bandCount, b, width) {
-				content.WriteByte(' ')
+				sb.WriteByte(' ')
 			}
 		}
-		lines[row] = specWrap(float64(height-1-row)/float64(height), content.String())
+		if style.prefix != "" {
+			sb.WriteString(style.suffix)
+		}
 	}
 
-	return strings.Join(lines, "\n")
+	return sb.String()
 }
 
 // scatterHash returns a pseudo-random value in [0, 1) for a given dot position

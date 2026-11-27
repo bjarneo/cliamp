@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -154,7 +156,7 @@ func newTestGlobeModel(t *testing.T) *globeModel {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return newGlobeModel(world, globeStylesFromTheme(theme.Default()))
+	return newGlobeModel(t.Context(), world, globeStylesFromTheme(theme.Default()))
 }
 
 // TestGlobeStylesFromTheme checks that the globe draws with the palette of
@@ -177,7 +179,7 @@ func TestGlobeStylesFromTheme(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			text, background := ui.ColorText, ui.ColorBackground
-			m := newGlobeModel(world, globeStylesFromTheme(tt.theme))
+			m := newGlobeModel(t.Context(), world, globeStylesFromTheme(tt.theme))
 			if ui.ColorText != text || ui.ColorBackground != background {
 				t.Error("globe styles changed the ui color variables")
 			}
@@ -190,6 +192,15 @@ func TestGlobeStylesFromTheme(t *testing.T) {
 				t.Errorf("view foreground = %v, want %v", v.ForegroundColor, p.Text)
 			}
 		})
+	}
+}
+
+// TestGlobeStylesDefaultForeground checks that the default theme, whose text
+// is the terminal foreground, draws lit land in the default foreground (SGR
+// 39) and not in black.
+func TestGlobeStylesDefaultForeground(t *testing.T) {
+	if got, want := globeStylesFromTheme(theme.Default()).palette.Lit.String(), "\x1b[39m"; got != want {
+		t.Errorf("lit land = %q, want %q", got, want)
 	}
 }
 
@@ -223,7 +234,7 @@ func TestGlobeModelView(t *testing.T) {
 	if !strings.Contains(view.Content, "US 48") {
 		t.Error("heaviest country should be labelled on the globe")
 	}
-	if !strings.Contains(view.Content, ansi.Style{}.ForegroundColor(ui.PaletteFor(theme.Default()).Text).String()) {
+	if !strings.Contains(view.Content, globeStylesFromTheme(theme.Default()).palette.Lit.String()) {
 		t.Error("countries with listeners should be lit")
 	}
 
@@ -304,5 +315,66 @@ func TestGlobeModelUpdate(t *testing.T) {
 	}
 	if !strings.Contains(m.View().Content, "refresh failed: boom") {
 		t.Error("the footer should report a failed refresh")
+	}
+}
+
+func TestRadioFetchesHonorCanceledContext(t *testing.T) {
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	tests := []struct {
+		name string
+		run  func() error
+	}{
+		{
+			name: "channelNames returns nil on canceled context",
+			run: func() error {
+				if names := channelNames(canceled); len(names) != 0 {
+					return errors.New("expected empty channel names on canceled context")
+				}
+				return nil
+			},
+		},
+		{
+			name: "fetchGlobeStats returns context error on canceled context",
+			run: func() error {
+				msg, ok := fetchGlobeStats(canceled).(globeStatsMsg)
+				if !ok {
+					return errors.New("unexpected message type")
+				}
+				if !errors.Is(msg.err, context.Canceled) {
+					return errors.New("expected context.Canceled error")
+				}
+				return nil
+			},
+		},
+		{
+			name: "fetchGlobeNames returns empty map on canceled context",
+			run: func() error {
+				msg, ok := fetchGlobeNames(canceled).(globeNamesMsg)
+				if !ok {
+					return errors.New("unexpected message type")
+				}
+				if len(msg) != 0 {
+					return errors.New("expected empty globe names on canceled context")
+				}
+				return nil
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			done := make(chan error, 1)
+			go func() { done <- tt.run() }()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("fetch ignored canceled context")
+			}
+		})
 	}
 }

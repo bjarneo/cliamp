@@ -521,7 +521,7 @@ func TestConfigureModel(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			m := model.New(&player.Player{}, playlist.New(), nil, "cliamp", nil, nil, nil, nil, nil, config.SaveFunc{})
-			configureModel(&m, config.Config{Visualizer: "Wave"}, tt.headless, false)
+			configureModel(&m, config.Config{Visualizer: "Wave"}, tt.headless)
 			if got := m.VisualizerName(); got != tt.want {
 				t.Fatalf("visualizer = %q, want %q", got, tt.want)
 			}
@@ -561,7 +561,7 @@ cliamp.fs.write(` + strconv.Quote(marker) + `, "loaded")`
 		t.Fatal(err)
 	}
 
-	err := run(config.Overrides{}, nil, true, false)
+	err := run(config.Overrides{}, nil, true)
 	if err == nil || !strings.Contains(err.Error(), "cliamp is already running") || !strings.Contains(err.Error(), ipc.DefaultSocketPath()) {
 		t.Fatalf("run error = %v, want the running instance and its socket", err)
 	}

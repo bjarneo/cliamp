@@ -31,7 +31,18 @@ const ytdlPipeTimeout = 30 * time.Second
 // when the process is slow to flush and exit.
 const ytdlCauseGrace = 3 * time.Second
 
+// ytdlStreamCauseGrace bounds how long Stream waits after PCM EOF for
+// monitorExit to report a mid-stream yt-dlp or ffmpeg error.
+const ytdlStreamCauseGrace = 100 * time.Millisecond
+
 const ytdlPipelineMaxAttempts = 3
+
+// ytdlAudioFormat is the yt-dlp format selector for playback. It prefers
+// direct HTTPS/HTTP streams over HLS (m3u8): HLS requires segment downloading
+// and muxing, which doesn't pipe cleanly to stdout. Live streams (e.g. YouTube
+// live) expose no audio-only formats at all, only muxed video+audio over HLS,
+// so "best" is the last resort; ffmpeg outputs PCM audio and drops the video.
+const ytdlAudioFormat = "bestaudio[protocol=https]/bestaudio[protocol=http]/bestaudio[protocol!=m3u8_native][protocol!=m3u8]/bestaudio/best"
 
 // YTDLPAvailable reports whether yt-dlp is installed and on PATH.
 func YTDLPAvailable() bool {
@@ -39,20 +50,25 @@ func YTDLPAvailable() bool {
 	return err == nil
 }
 
-func appendYTDLCookieArgs(args []string, pageURL string) []string {
-	if browser := ytdlcookies.ForURL(pageURL); browser != "" {
-		return append(args, "--cookies-from-browser", browser)
-	}
-	return args
+func appendYTDLCookieArgs(args []string, pageURL string) ([]string, func(), error) {
+	cookieArgs, cleanup, err := ytdlcookies.Args(pageURL)
+	return append(args, cookieArgs...), cleanup, err
 }
 
 // probeYTDLDuration runs a quick yt-dlp --print duration to obtain
-// the track duration when --flat-playlist didn't provide it.
-func probeYTDLDuration(pageURL string) time.Duration {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+// the track duration when --flat-playlist did not provide it.
+func probeYTDLDuration(parent context.Context, pageURL string) time.Duration {
+	if parent.Err() != nil {
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
 	args := []string{"--skip-download", "--no-playlist", "--socket-timeout", "10", "--print", "duration"}
-	args = appendYTDLCookieArgs(args, pageURL)
+	args, cleanup, err := appendYTDLCookieArgs(args, pageURL)
+	defer cleanup()
+	if err != nil || ctx.Err() != nil {
+		return 0
+	}
 	// "--" stops yt-dlp parsing pageURL as a flag. Callers gate on
 	// playlist.IsURL, but keep the terminator so a future caller cannot turn
 	// a crafted URL into --exec and reach arbitrary command execution.
@@ -99,28 +115,30 @@ func ffmpegInstallHint() string {
 // yt-dlp downloads the best audio and writes raw data to stdout; ffmpeg reads
 // that via a pipe and converts it to PCM on its stdout, which we consume.
 type ytdlPipeStreamer struct {
-	pipeReport // total stays 0: the length of a piped page is unknown
-	ytdlCmd    *exec.Cmd
-	ffmpegCmd  *exec.Cmd
-	pipe       io.ReadCloser // ffmpeg stdout (PCM output)
-	reader     *bufio.Reader // buffered reader over pipe
-	ytdlErr    <-chan error  // yt-dlp exit error from monitoring goroutine
-	ffmpegErr  <-chan error  // ffmpeg exit error from monitoring goroutine
-	ytdlDone   <-chan struct{}
-	ffmpegDone <-chan struct{}
-	pcmBuf     []byte
-	f32        bool // true = f32le, false = s16le
-	closeOnce  sync.Once
+	pipeReport   // total stays 0: the length of a piped page is unknown
+	ytdlCmd      *exec.Cmd
+	ffmpegCmd    *exec.Cmd
+	pipe         io.ReadCloser // ffmpeg stdout (PCM output)
+	reader       *bufio.Reader // buffered reader over pipe
+	ytdlErr      <-chan error  // yt-dlp exit error from monitoring goroutine
+	ffmpegErr    <-chan error  // ffmpeg exit error from monitoring goroutine
+	ytdlDone     <-chan struct{}
+	ffmpegDone   <-chan struct{}
+	pcmBuf       []byte
+	f32          bool // true = f32le, false = s16le
+	causeChecked bool
+	closeOnce    sync.Once
 }
 
 func (y *ytdlPipeStreamer) Stream(samples [][2]float64) (int, bool) {
-	n, ok := streamFromReader(y.reader, samples, &y.pcmBuf, y.f32, y.state)
-	y.state.pos.Add(int64(n))
-	// On EOF with no frames read, surface why the pipe closed (yt-dlp bot
-	// wall, 404, DRM, or undecodable ffmpeg input) instead of a bare EOF.
-	if !ok && n == 0 && y.state.err.load() == nil {
-		if cause := y.waitCause(0); cause != nil {
-			y.state.err.publish(cause)
+	state := y.state.Load()
+	n, ok := streamFromReader(y.reader, samples, &y.pcmBuf, y.f32, state)
+	state.pos.Add(int64(n))
+	// Check why the pipe closed when PCM hits EOF or ends on a partial read.
+	if (!ok || n < len(samples)) && !y.causeChecked && state.err.load() == nil {
+		y.causeChecked = true
+		if cause := y.waitCause(ytdlStreamCauseGrace); cause != nil {
+			state.err.publish(cause)
 		}
 	}
 	return n, ok
@@ -132,35 +150,44 @@ func (y *ytdlPipeStreamer) Stream(samples [][2]float64) (int, bool) {
 // waits up to d for a process to report. Returns nil if neither reported an
 // error, leaving the caller to surface the bare EOF.
 func (y *ytdlPipeStreamer) waitCause(d time.Duration) error {
+	ytdlCh := y.ytdlErr
+	ffmpegCh := y.ffmpegErr
 	if d <= 0 {
-		select {
-		case e := <-y.ytdlErr:
-			if e != nil {
-				return e
+		if ytdlCh != nil {
+			select {
+			case e := <-ytdlCh:
+				if e != nil {
+					return e
+				}
+			default:
 			}
-		default:
 		}
-		select {
-		case e := <-y.ffmpegErr:
-			return e
-		default:
-			return nil
+		if ffmpegCh != nil {
+			select {
+			case e := <-ffmpegCh:
+				return e
+			default:
+				return nil
+			}
 		}
+		return nil
 	}
-	deadline := time.After(d)
-	ytdlDone, ffmpegDone := false, false
+	timer := time.NewTimer(d)
+	defer timer.Stop()
 	var ffErr error
-	for !ytdlDone || !ffmpegDone {
+	for ytdlCh != nil || ffmpegCh != nil {
 		select {
-		case e := <-y.ytdlErr:
-			ytdlDone = true
-			if e != nil {
+		case e, ok := <-ytdlCh:
+			ytdlCh = nil
+			if ok && e != nil {
 				return e
 			}
-		case e := <-y.ffmpegErr:
-			ffmpegDone = true
-			ffErr = e
-		case <-deadline:
+		case e, ok := <-ffmpegCh:
+			ffmpegCh = nil
+			if ok {
+				ffErr = e
+			}
+		case <-timer.C:
 			return ffErr
 		}
 	}
@@ -205,15 +232,22 @@ func (y *ytdlPipeStreamer) Close() error {
 }
 
 // monitorExit waits for cmd to exit and reports the result on a buffered
-// channel: a wrapped error preferring captured stderr over the bare exit code
-// on failure, or nil on clean exit. The channel is buffered so the goroutine
-// always completes even with no receiver (e.g. after Close kills the process).
+// channel.
 func monitorExit(cmd *exec.Cmd, stderr *limitedBuffer, name string) (<-chan error, <-chan struct{}) {
+	return monitorExitWithCleanup(cmd, stderr, name, nil)
+}
+
+// monitorExitWithCleanup waits for cmd to exit, runs cleanup before closing
+// done, and reports the exit error on a buffered channel.
+func monitorExitWithCleanup(cmd *exec.Cmd, stderr *limitedBuffer, name string, cleanup func()) (<-chan error, <-chan struct{}) {
 	ch := make(chan error, 1)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		err := cmd.Wait()
+		if cleanup != nil {
+			cleanup()
+		}
 		switch trimmed := strings.TrimSpace(stderr.String()); {
 		case err == nil:
 			ch <- nil
@@ -244,20 +278,27 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 	}
 
 	// Start yt-dlp: download best audio to stdout.
-	// Prefer direct HTTPS/HTTP streams over HLS (m3u8). HLS requires segment
-	// downloading and muxing which doesn't pipe cleanly to stdout.
-	// Live streams (e.g. YouTube live) expose no audio-only formats at all,
-	// only muxed video+audio over HLS, so fall back to "best" as a last
-	// resort; the ffmpeg stage below outputs PCM audio and drops the video.
 	ytdlArgs := []string{
-		"-f", "bestaudio[protocol=https]/bestaudio[protocol=http]/bestaudio[protocol!=m3u8_native][protocol!=m3u8]/bestaudio/best",
+		"-f", ytdlAudioFormat,
 		"--no-playlist",
 		"--quiet",
 		"--no-warnings",
 		"--socket-timeout", "15",
 		"-o", "-",
 	}
-	ytdlArgs = appendYTDLCookieArgs(ytdlArgs, pageURL)
+	ytdlArgs, cookieCleanup, err := appendYTDLCookieArgs(ytdlArgs, pageURL)
+	// The cookie copy outlives this call only once yt-dlp is running.
+	ownCookies := true
+	defer func() {
+		if ownCookies {
+			cookieCleanup()
+		}
+	}()
+	if err != nil {
+		pr.Close()
+		pw.Close()
+		return nil, beep.Format{}, fmt.Errorf("yt-dlp cookies: %w", err)
+	}
 	ytdlArgs = append(ytdlArgs, "--", pageURL)
 	ytdlCmd := exec.Command("yt-dlp", ytdlArgs...)
 	ytdlCmd.Stdout = pw
@@ -312,10 +353,9 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 	pr.Close()
 	pcmW.Close()
 
-	// Monitor each process's exit so we can surface why the pipe closed. A
-	// process's stderr is only safe to read after Wait() returns, so the
-	// capture happens inside monitorExit.
-	ytdlErrCh, ytdlDone := monitorExit(ytdlCmd, &ytdlStderr, "yt-dlp")
+	// Monitor each process exit and run cookieCleanup before closing ytdlDone.
+	ytdlErrCh, ytdlDone := monitorExitWithCleanup(ytdlCmd, &ytdlStderr, "yt-dlp", cookieCleanup)
+	ownCookies = false
 	ffmpegErrCh, ffmpegDone := monitorExit(ffmpegCmd, &ffmpegStderr, "ffmpeg")
 
 	format := beep.Format{
@@ -324,7 +364,7 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 		Precision:   precision,
 	}
 
-	return &ytdlPipeStreamer{
+	streamer := &ytdlPipeStreamer{
 		ytdlCmd:    ytdlCmd,
 		ffmpegCmd:  ffmpegCmd,
 		pipe:       pcmR,
@@ -333,23 +373,32 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 		ffmpegErr:  ffmpegErrCh,
 		ytdlDone:   ytdlDone,
 		ffmpegDone: ffmpegDone,
-		pipeReport: pipeReport{state: newPipeStreamState(0)},
 		f32:        bitDepth == 32,
-	}, format, nil
+	}
+	streamer.setState(newPipeStreamState(0))
+	return streamer, format, nil
 }
 
 // buildYTDLPipeline creates a trackPipeline for a yt-dlp URL.
 // If startSec > 0, playback begins at that offset (seek-by-restart).
 func (p *Player) buildYTDLPipeline(pageURL string, startSec int) (*trackPipeline, error) {
-	p.streamTitle.Store("")
+	return p.buildYTDLPipelineContext(context.Background(), pageURL, startSec)
+}
 
+func (p *Player) buildYTDLPipelineContext(ctx context.Context, pageURL string, startSec int) (*trackPipeline, error) {
 	for attempt := 1; ; attempt++ {
+		if ctx.Err() != nil {
+			return nil, errSourceSuperseded
+		}
 		decoder, format, err := decodeYTDLPipe(pageURL, p.sr, p.bitDepth, startSec)
 		if err != nil {
 			return nil, err
 		}
 
-		if err := prefillYTDLPipe(decoder); err != nil {
+		if err := prefillYTDLPipeContext(ctx, decoder); err != nil {
+			if ctx.Err() != nil {
+				return nil, errSourceSuperseded
+			}
 			if attempt == ytdlPipelineMaxAttempts || !isTransientYTDL403(err) {
 				return nil, err
 			}
@@ -371,51 +420,98 @@ func (p *Player) buildYTDLPipeline(pageURL string, startSec int) (*trackPipeline
 	}
 }
 
-// buildYTDLSource starts the yt-dlp | ffmpeg chain for pageURL at 0. With
-// probe and no known duration, it asks yt-dlp for the duration while the chain
-// starts.
-func (p *Player) buildYTDLSource(pageURL string, knownDuration time.Duration, probe bool) (*trackPipeline, error) {
+// buildYTDLSource starts pageURL at 0. A YouTube page plays from its direct
+// media URL (see buildYTDLDirectSource). Every other page plays through the
+// yt-dlp | ffmpeg chain: a page of another site, and a YouTube page whose
+// direct read failed mid-track, so that the reconnect that follows does not
+// hit the same failure. When stale reports true, it cancels the setup.
+func (p *Player) buildYTDLSource(pageURL string, knownDuration time.Duration, probe bool, stale func() bool) (*trackPipeline, error) {
+	if directSeekPage(pageURL) && !p.ytdlDirectFailedFor(pageURL) {
+		return p.buildYTDLDirectSource(pageURL, knownDuration, probe, stale)
+	}
+	tp, err := p.buildYTDLPipeSource(pageURL, knownDuration, probe, stale)
+	if err != nil {
+		return nil, err
+	}
+	// Seeks on this page stay on the pipe too.
+	tp.ytdlNoDirect = true
+	return tp, nil
+}
+
+// staleContext returns a context that is cancelled once stale reports true.
+// A nil stale never cancels it. The caller must call the CancelFunc.
+func staleContext(stale func() bool) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	if stale == nil {
+		return ctx, cancel
+	}
+	go func() {
+		ticker := time.NewTicker(25 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if stale() {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	return ctx, cancel
+}
+
+// buildYTDLPipeSource starts the yt-dlp and ffmpeg chain for pageURL at 0.
+// When probe is true and knownDuration is 0, it runs a duration probe in parallel.
+// When stale reports true, it cancels the setup and the duration probe.
+func (p *Player) buildYTDLPipeSource(pageURL string, knownDuration time.Duration, probe bool, stale func() bool) (*trackPipeline, error) {
+	if stale != nil && stale() {
+		return nil, errSourceSuperseded
+	}
+	ctx, cancel := staleContext(stale)
+	defer cancel()
+
 	probe = probe && knownDuration == 0
-	// Probe duration concurrently with pipeline setup so it doesn't delay playback.
+	// Probe duration concurrently with pipeline setup so it does not delay playback.
 	probeCh := make(chan time.Duration, 1)
 	if probe {
-		go func() { probeCh <- probeYTDLDuration(pageURL) }()
+		go func() { probeCh <- probeYTDLDuration(ctx, pageURL) }()
 	}
-	tp, err := p.buildYTDLPipeline(pageURL, 0)
+	tp, err := p.buildYTDLPipelineContext(ctx, pageURL, 0)
 	if err != nil {
 		return nil, err
 	}
 	if probe {
-		// The probe ran concurrently with buildYTDLPipeline. Try to
-		// collect the result, but don't block playback for more than 2s.
-		// A hung probeYTDLDuration (e.g. yt-dlp zombie keeping pipes
-		// open) previously blocked here forever, leaving the UI stuck
-		// at "Buffering...".
+		timer := time.NewTimer(2 * time.Second)
+		defer timer.Stop()
 		select {
 		case d := <-probeCh:
 			if d > 0 {
 				knownDuration = d
 			}
-		case <-time.After(2 * time.Second):
-			// Probe still running — start playback without duration.
-			// The seek bar won't show progress but audio plays immediately.
+		case <-ctx.Done():
+			tp.close()
+			return nil, errSourceSuperseded
+		case <-timer.C:
 		}
+	}
+	if stale != nil && stale() {
+		tp.close()
+		return nil, errSourceSuperseded
 	}
 	tp.knownDuration = knownDuration
 	return tp, nil
 }
 
 func prefillYTDLPipe(decoder *ytdlPipeStreamer) error {
-	// Pre-fill: block until yt-dlp + ffmpeg produce initial audio data.
-	// This runs in a tea.Cmd goroutine (not the UI thread), so a chain that
-	// fails before its first byte reports why before the track starts. A 30s
-	// timeout prevents hanging when yt-dlp is slow to produce output.
+	return prefillYTDLPipeContext(context.Background(), decoder)
+}
+
+func prefillYTDLPipeContext(ctx context.Context, decoder *ytdlPipeStreamer) error {
 	stop := func() { decoder.Close() }
-	return peekWithTimeout(decoder.reader, 1, ytdlPipeTimeout, stop, func(err error) error {
-		// The audio pipe closed before producing a byte. Prefer the real
-		// cause from yt-dlp (e.g. "Sign in to confirm you're not a bot",
-		// "HTTP Error 404", DRM, region block) or ffmpeg over the opaque
-		// EOF — the pipe only tells us the upstream closed, not why.
+	return peekWithTimeoutContext(ctx, decoder.reader, 1, ytdlPipeTimeout, stop, func(err error) error {
 		cause := decoder.waitCause(ytdlCauseGrace)
 		decoder.Close()
 		if cause != nil {

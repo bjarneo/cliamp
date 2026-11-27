@@ -51,12 +51,15 @@ var classicPeakGlyphs = [4]rune{
 }
 
 type classicPeakDriver struct {
-	barPos   []float64
-	peakPos  []float64
-	peakVel  []float64
-	peakHold []float64
-	lastTick time.Time
-	bandsAt  time.Time
+	barPos      []float64
+	peakPos     []float64
+	peakVel     []float64
+	peakHold    []float64
+	levelsBuf   []float64
+	capRowBuf   []int
+	capGlyphBuf []rune
+	lastTick    time.Time
+	bandsAt     time.Time
 }
 
 func newClassicPeakDriver() visModeDriver {
@@ -75,36 +78,71 @@ func (*classicPeakDriver) AnalysisSpec(*Visualizer) VisAnalysisSpec {
 
 func (d *classicPeakDriver) Render(v *Visualizer) string {
 	height := v.Rows
+	width := v.columns()
 	cols, peaks := d.renderState(v)
-	rowPad := max(0, v.columns()-classicPeakRenderWidth(len(cols)))
+	rowPad := max(0, width-classicPeakRenderWidth(len(cols)))
 
-	lines := make([]string, height)
+	// Precompute detached cap rows and glyphs once per column for this frame.
+	nCols := len(cols)
+	if cap(d.capRowBuf) < nCols {
+		d.capRowBuf = make([]int, nCols)
+	} else {
+		d.capRowBuf = d.capRowBuf[:nCols]
+	}
+	if cap(d.capGlyphBuf) < nCols {
+		d.capGlyphBuf = make([]rune, nCols)
+	} else {
+		d.capGlyphBuf = d.capGlyphBuf[:nCols]
+	}
+	for col, level := range cols {
+		if classicPeakDetached(level, peaks[col], height) {
+			d.capRowBuf[col], d.capGlyphBuf[col] = classicPeakGlyph(peaks[col], height)
+		} else {
+			d.capRowBuf[col] = -1
+		}
+	}
+
+	var sb strings.Builder
+	sb.Grow(height * (width*3 + 24))
 	for row := range height {
-		var content strings.Builder
-		if rowPad > 0 {
-			content.WriteString(strings.Repeat(" ", rowPad))
+		if row > 0 {
+			sb.WriteByte('\n')
 		}
 		rowBottom := float64(height-1-row) / float64(height)
 		rowTop := float64(height-row) / float64(height)
+		style := specANSI[specTag(rowBottom)]
+		if style.prefix != "" {
+			sb.WriteString(style.prefix)
+		}
+		for range rowPad {
+			sb.WriteByte(' ')
+		}
 
 		for col, level := range cols {
-			capVisible := classicPeakDetached(level, peaks[col], height)
-			capRow, capGlyph := classicPeakGlyph(peaks[col], height)
-			cell := fracBlock(level, rowBottom, rowTop)
-
-			if capVisible && row == capRow {
-				cell = string(capGlyph)
+			if d.capRowBuf[col] == row {
+				capGlyph := d.capGlyphBuf[col]
+				for range classicPeakBarWidth {
+					sb.WriteRune(capGlyph)
+				}
+			} else {
+				cell := fracBlock(level, rowBottom, rowTop)
+				for range classicPeakBarWidth {
+					sb.WriteString(cell)
+				}
 			}
-			content.WriteString(strings.Repeat(cell, classicPeakBarWidth))
-			if col < len(cols)-1 {
-				content.WriteString(strings.Repeat(" ", classicPeakBarGap))
+			if col < nCols-1 {
+				for range classicPeakBarGap {
+					sb.WriteByte(' ')
+				}
 			}
 		}
 
-		lines[row] = specWrap(rowBottom, content.String())
+		if style.prefix != "" {
+			sb.WriteString(style.suffix)
+		}
 	}
 
-	return strings.Join(lines, "\n")
+	return sb.String()
 }
 
 func (d *classicPeakDriver) Tick(v *Visualizer, ctx VisTickContext) {
@@ -124,9 +162,10 @@ func (d *classicPeakDriver) Tick(v *Visualizer, ctx VisTickContext) {
 		d.bandsAt = time.Time{}
 		v.bands = v.Analyze(nil, d.AnalysisSpec(v))
 	}
-	d.sync(v)
-	if d.animating(v) {
-		d.advance(v, ctx.Now)
+	levels := d.levels(v)
+	d.syncLevels(levels)
+	if d.animatingLevels(levels) {
+		d.advanceLevels(levels, ctx.Now)
 	}
 }
 
@@ -151,7 +190,10 @@ func (*classicPeakDriver) ownsCadence() {}
 func (d *classicPeakDriver) OnLeave(*Visualizer) {}
 
 func (d *classicPeakDriver) animating(v *Visualizer) bool {
-	levels := d.levels(v)
+	return d.animatingLevels(d.levels(v))
+}
+
+func (d *classicPeakDriver) animatingLevels(levels []float64) bool {
 	if len(levels) != len(d.barPos) || len(levels) != len(d.peakPos) {
 		return false
 	}
@@ -166,17 +208,28 @@ func (d *classicPeakDriver) animating(v *Visualizer) bool {
 
 func (d *classicPeakDriver) levels(v *Visualizer) []float64 {
 	activeCols := classicPeakColsForWidth(v.columns())
-	return classicPeakBands(v.bands, activeCols)
+	d.levelsBuf = classicPeakBandsInto(d.levelsBuf, v.bands, activeCols)
+	return d.levelsBuf
 }
 
 // Average all contributing bands when shrinking the spectrum. Point sampling
 // can skip narrow peaks entirely; fractional overlap keeps boundary bands from
 // jumping between columns as the panel is resized. Expansion still interpolates.
 func classicPeakBands(bands []float64, cols int) []float64 {
+	return classicPeakBandsInto(nil, bands, cols)
+}
+
+func classicPeakBandsInto(dst, bands []float64, cols int) []float64 {
 	if cols <= 0 || cols >= len(bands) {
-		return resampleBandsLinear(bands, cols)
+		return resampleBandsLinearInto(dst, bands, cols)
 	}
-	out := make([]float64, cols)
+	var out []float64
+	if cap(dst) >= cols {
+		out = dst[:cols]
+		clear(out)
+	} else {
+		out = make([]float64, cols)
+	}
 	span := float64(len(bands)) / float64(cols)
 	for col := range out {
 		lo, hi := float64(col)*span, float64(col+1)*span
@@ -245,9 +298,17 @@ func (d *classicPeakDriver) landed(i int) bool {
 }
 
 func (d *classicPeakDriver) reset(levels []float64, now time.Time) {
-	d.barPos = make([]float64, len(levels))
+	if cap(d.barPos) >= len(levels) {
+		d.barPos = d.barPos[:len(levels)]
+	} else {
+		d.barPos = make([]float64, len(levels))
+	}
 	copy(d.barPos, levels)
-	d.peakPos = make([]float64, len(levels))
+	if cap(d.peakPos) >= len(levels) {
+		d.peakPos = d.peakPos[:len(levels)]
+	} else {
+		d.peakPos = make([]float64, len(levels))
+	}
 	copy(d.peakPos, levels)
 	if cap(d.peakVel) >= len(levels) {
 		d.peakVel = d.peakVel[:len(levels)]
@@ -265,7 +326,10 @@ func (d *classicPeakDriver) reset(levels []float64, now time.Time) {
 }
 
 func (d *classicPeakDriver) sync(v *Visualizer) {
-	levels := d.levels(v)
+	d.syncLevels(d.levels(v))
+}
+
+func (d *classicPeakDriver) syncLevels(levels []float64) {
 	if len(levels) != len(d.barPos) || len(levels) != len(d.peakPos) {
 		d.reset(levels, time.Time{})
 		return
@@ -281,7 +345,10 @@ func (d *classicPeakDriver) sync(v *Visualizer) {
 }
 
 func (d *classicPeakDriver) advance(v *Visualizer, now time.Time) {
-	levels := d.levels(v)
+	d.advanceLevels(d.levels(v), now)
+}
+
+func (d *classicPeakDriver) advanceLevels(levels []float64, now time.Time) {
 	if len(levels) != len(d.barPos) || len(levels) != len(d.peakPos) {
 		d.reset(levels, now)
 		return
@@ -321,6 +388,10 @@ func (d *classicPeakDriver) advance(v *Visualizer, now time.Time) {
 }
 
 func (d *classicPeakDriver) renderState(v *Visualizer) ([]float64, []float64) {
+	activeCols := classicPeakColsForWidth(v.columns())
+	if len(v.bands) > 0 && len(d.barPos) == activeCols && len(d.peakPos) == activeCols {
+		return d.barPos, d.peakPos
+	}
 	levels := d.levels(v)
 	if len(levels) != len(d.barPos) || len(levels) != len(d.peakPos) {
 		return levels, levels

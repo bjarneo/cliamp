@@ -1,6 +1,9 @@
 package luaplugin
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	lua "github.com/yuin/gopher-lua"
@@ -171,4 +174,72 @@ func TestStoreRejectsValuesThatJSONCannotHold(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestStoreSizeCapAndRollback(t *testing.T) {
+	t.Run("rejects payload over 1 MiB and restores prior value", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		L := newStoreState(t, "cap")
+		L.SetGlobal("huge", lua.LString(strings.Repeat("a", maxStoreBytes+1)))
+		if err := L.DoString(`
+			assert(cliamp.store.set("k", "initial"))
+			_G.ok, _G.err = cliamp.store.set("k", huge)
+			_G.after = cliamp.store.get("k")
+			_G.ok2, _G.err2 = cliamp.store.set("newkey", huge)
+			_G.newkey = cliamp.store.get("newkey")
+		`); err != nil {
+			t.Fatal(err)
+		}
+		if L.GetGlobal("ok") != lua.LNil || !strings.Contains(L.GetGlobal("err").String(), "limit") {
+			t.Errorf("oversized update = %v, %v; want nil and limit error", L.GetGlobal("ok"), L.GetGlobal("err"))
+		}
+		if got := L.GetGlobal("after").String(); got != "initial" {
+			t.Errorf("value after rollback = %q, want %q", got, "initial")
+		}
+		if L.GetGlobal("ok2") != lua.LNil {
+			t.Errorf("oversized insert succeeded unexpectedly")
+		}
+		if L.GetGlobal("newkey") != lua.LNil {
+			t.Errorf("newkey leaked into memory after failed save: %v", L.GetGlobal("newkey"))
+		}
+	})
+
+	t.Run("rolls back set delete and clear when disk write fails", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		L := newStoreState(t, "rollback")
+		if err := L.DoString(`assert(cliamp.store.set("a", "1"))`); err != nil {
+			t.Fatal(err)
+		}
+		// Replace store.json with a directory so os.Rename fails during save.
+		storePath := newPluginStore("rollback").path
+		if err := os.Remove(storePath); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(storePath, "keep"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+
+		tests := []struct {
+			name string
+			code string
+		}{
+			{"set", `_G.ok, _G.err = cliamp.store.set("a", "2")`},
+			{"delete", `_G.ok, _G.err = cliamp.store.delete("a")`},
+			{"clear", `_G.ok, _G.err = cliamp.store.clear()`},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				if err := L.DoString(tt.code + `; _G.after = cliamp.store.get("a")`); err != nil {
+					t.Fatal(err)
+				}
+				if L.GetGlobal("ok") != lua.LNil {
+					t.Errorf("%s succeeded unexpectedly", tt.name)
+				}
+				if got := L.GetGlobal("after").String(); got != "1" {
+					t.Errorf("after failed %s, get(a) = %q, want %q", tt.name, got, "1")
+				}
+			})
+		}
+	})
 }

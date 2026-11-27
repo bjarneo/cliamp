@@ -15,17 +15,39 @@ func (m *Model) updateSearch() {
 	if m.search.query == "" {
 		return
 	}
+	names := m.playlist.DisplayNames()
+	m.search.results = fuzzyRank(m.search.query, len(names), func(i int) string {
+		return names[i]
+	})
+}
+
+// fuzzyRank returns the indices of the n items whose text fuzzy-matches
+// query, best match first; equal scores keep their list order.
+func fuzzyRank(query string, n int, text func(int) string) []int {
+	return rankMatches(n, func(i int) (int, bool) {
+		return fuzzy.Match(query, text(i))
+	})
+}
+
+// rankMatches returns the indices of the n items that score reports as
+// matches, best score first; equal scores keep their list order.
+func rankMatches(n int, score func(int) (int, bool)) []int {
 	type match struct{ idx, score int }
-	matches := make([]match, 0, m.playlist.Len())
-	for i, t := range m.playlist.Tracks() {
-		if score, ok := fuzzy.Match(m.search.query, t.DisplayName()); ok {
-			matches = append(matches, match{i, score})
+	matches := make([]match, 0, n)
+	for i := range n {
+		if s, ok := score(i); ok {
+			matches = append(matches, match{i, s})
 		}
 	}
 	sort.SliceStable(matches, func(a, b int) bool {
 		return matches[a].score > matches[b].score
 	})
-	for _, mt := range matches {
-		m.search.results = append(m.search.results, mt.idx)
+	if len(matches) == 0 {
+		return nil
 	}
+	results := make([]int, len(matches))
+	for i, mt := range matches {
+		results[i] = mt.idx
+	}
+	return results
 }

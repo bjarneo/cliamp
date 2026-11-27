@@ -22,6 +22,7 @@ func TestTrackGetters(t *testing.T) {
 	track := Track{
 		Title: "Angel", Artist: "Massive Attack", Album: "Mezzanine", Genre: "Trip hop",
 		Path: "/angel.flac", Year: 1998, Number: 1, Duration: 379, Stream: true, Live: true,
+		ArtURL: "file:///art.jpg",
 	}
 	full := &StateProvider{CurrentTrack: func() Track { return track }}
 	tests := []struct {
@@ -39,6 +40,7 @@ func TestTrackGetters(t *testing.T) {
 		{"is_stream", lua.LTrue, lua.LFalse},
 		{"is_live", lua.LTrue, lua.LFalse},
 		{"duration_secs", lua.LNumber(379), lua.LNumber(0)},
+		{"album_art_url", lua.LString("file:///art.jpg"), lua.LString("")},
 	}
 	if len(tests) != len(trackGetters) {
 		t.Fatalf("the test covers %d getters, want all %d", len(tests), len(trackGetters))

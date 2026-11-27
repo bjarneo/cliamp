@@ -14,6 +14,7 @@ import (
 	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/config"
 	"github.com/bjarneo/cliamp/external/audiobookshelf"
+	"github.com/bjarneo/cliamp/external/bandcamp"
 	"github.com/bjarneo/cliamp/external/emby"
 	"github.com/bjarneo/cliamp/external/jellyfin"
 	"github.com/bjarneo/cliamp/external/local"
@@ -28,6 +29,7 @@ import (
 	"github.com/bjarneo/cliamp/external/radiometa"
 	"github.com/bjarneo/cliamp/external/soundcloud"
 	"github.com/bjarneo/cliamp/external/spotify"
+	"github.com/bjarneo/cliamp/external/telegram"
 	"github.com/bjarneo/cliamp/external/tidal"
 	"github.com/bjarneo/cliamp/external/yandex"
 	"github.com/bjarneo/cliamp/external/ytmusic"
@@ -77,6 +79,7 @@ var providerKeys = []providerKey{
 	{key: "radio", name: "Radio"},
 	{key: "podcast", name: "Podcasts"},
 	{key: "navidrome", name: "Navidrome", optional: true},
+	{key: "telegram", name: "Telegram", optional: true},
 	{key: "lyrion", name: "Lyrion", optional: true},
 	{key: "plex", name: "Plex", optional: true},
 	{key: "jellyfin", name: "Jellyfin", optional: true},
@@ -84,6 +87,7 @@ var providerKeys = []providerKey{
 	{key: "spotify", name: "Spotify", optional: true},
 	{key: "qobuz", name: "Qobuz", optional: true},
 	{key: "tidal", name: "Tidal", optional: true},
+	{key: "bandcamp", name: "Bandcamp", optional: true},
 	{key: "soundcloud", name: "SoundCloud", optional: true},
 	{key: "mixcloud", name: "Mixcloud", optional: true},
 	{key: "netease", name: "NetEase", optional: true},
@@ -176,6 +180,13 @@ func buildProviders(cfg config.Config, interactive bool) *providerSet {
 		nav.SaveSort = config.SaveNavidromeSort
 		add("navidrome", nav)
 	}
+	if bc := bandcamp.NewFromConfig(cfg.Bandcamp); bc != nil {
+		bc.SaveSort = config.SaveBandcampSort
+		add("bandcamp", bc)
+	}
+	if p := telegram.NewFromConfig(cfg.Telegram); p != nil {
+		add("telegram", p)
+	}
 	lyr := lyrion.NewFromConfig(cfg.Lyrion)
 	if lyr == nil {
 		lyr = lyrion.NewFromEnv(cfg.Lyrion)
@@ -228,6 +239,7 @@ func buildProviders(cfg config.Config, interactive bool) *providerSet {
 	if p := netease.NewFromConfig(netease.Config{
 		Enabled:     cfg.NetEase.Enabled,
 		CookiesFrom: cfg.NetEase.CookiesFrom,
+		CookiesFile: cfg.NetEase.CookiesFile,
 		UserID:      cfg.NetEase.UserID,
 	}); p != nil {
 		add("netease", p)

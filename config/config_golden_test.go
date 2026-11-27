@@ -63,6 +63,12 @@ user = 'bob'
 password = "lyr#ion"
 show_unplayable = true
 
+[bandcamp]
+url = "https://example.test/api/subsonic"
+user = " fan"
+password = "band#camp "
+browse_sort = " alphabeticalByArtist "
+
 [spotify]
 client_id = "spotify-client"
 bitrate = 160
@@ -130,6 +136,7 @@ stream_creators = 10
 [netease]
 enabled = true
 cookies_from = "chrome:Profile 1"
+cookies_file = "/home/user/cookies.txt"
 user_id = "42"
 
 [yandex]
@@ -170,6 +177,7 @@ speed = 1.25
 simplified = true
 hide_help_bar = true
 hide_settings_pane = true
+keep_search_open = true
 show_metadata = true
 expanded = true
 audio_device = "USB DAC #2"
@@ -222,6 +230,12 @@ func TestLoadGolden(t *testing.T) {
 		ScrobbleDisabled: true,
 	}
 	sectionsWant.Lyrion = LyrionConfig{URL: "http://nas.local:9000", User: "bob", Password: "lyr#ion", ShowUnplayable: true}
+	sectionsWant.Bandcamp = BandcampConfig{
+		URL:        "https://example.test/api/subsonic",
+		User:       "fan",
+		Password:   "band#camp",
+		BrowseSort: "alphabeticalByArtist",
+	}
 	sectionsWant.Spotify = SpotifyConfig{Enabled: true, ClientID: "spotify-client", Bitrate: 160}
 	sectionsWant.Qobuz = QobuzConfig{Enabled: true, Quality: 27}
 	sectionsWant.Tidal = TidalConfig{Enabled: true, ClientID: "tidal-id", ClientSecret: "tidal-secret", Quality: "hires"}
@@ -267,7 +281,7 @@ func TestLoadGolden(t *testing.T) {
 		MaxItems:       50,
 		StreamCreators: 10,
 	}
-	sectionsWant.NetEase = NetEaseConfig{Enabled: true, CookiesFrom: "chrome:Profile 1", UserID: "42"}
+	sectionsWant.NetEase = NetEaseConfig{Enabled: true, CookiesFrom: "chrome:Profile 1", CookiesFile: "/home/user/cookies.txt", UserID: "42"}
 	sectionsWant.Yandex = YandexConfig{Enabled: true, Token: "y0_token"}
 	sectionsWant.Plugins = map[string]map[string]string{
 		"": {"disabled": "webhook, discord-rpc"},
@@ -302,6 +316,7 @@ func TestLoadGolden(t *testing.T) {
 	topWant.Simplified = true
 	topWant.HideHelpBar = true
 	topWant.HideSettingsPane = true
+	topWant.KeepSearchOpen = true
 	topWant.ShowMetadata = true
 	topWant.Expanded = true
 	topWant.AudioDevice = "USB DAC #2"
@@ -320,6 +335,7 @@ func TestLoadGolden(t *testing.T) {
 	allWant.Simplified = true
 	allWant.HideHelpBar = true
 	allWant.HideSettingsPane = true
+	allWant.KeepSearchOpen = true
 	allWant.Expanded = true
 	allWant.Theme = "Tokyo Night"
 	allWant.Visualizer = "Bars"
@@ -334,7 +350,20 @@ func TestLoadGolden(t *testing.T) {
 		Format:     "raw",
 		BrowseSort: "alphabeticalByName",
 	}
+	allWant.Telegram = TelegramConfig{
+		AppID:       123456,
+		AppHash:     "0123456789abcdef0123456789abcdef",
+		Phone:       "+5491100000000",
+		BufferMB:    1,
+		SessionFile: "~/.local/share/cliamp/telegram.session",
+	}
 	allWant.Lyrion = LyrionConfig{URL: "http://nas.local:9000", User: "alice", Password: "secret", ShowUnplayable: true}
+	allWant.Bandcamp = BandcampConfig{
+		URL:        "https://bandcamp.com/api/subsonic",
+		User:       "your-subsonic-username",
+		Password:   "your-subsonic-password",
+		BrowseSort: "newest",
+	}
 	allWant.SoundCloud = SoundCloudConfig{Enabled: true, User: "yourname", CookiesFrom: "firefox"}
 	allWant.Mixcloud = MixcloudConfig{
 		Enabled:        true,
@@ -346,7 +375,12 @@ func TestLoadGolden(t *testing.T) {
 		MaxItems:       100,
 		StreamCreators: 20,
 	}
-	allWant.NetEase = NetEaseConfig{Enabled: true, CookiesFrom: "chrome", UserID: "optional-account-user-id"}
+	allWant.NetEase = NetEaseConfig{
+		Enabled:     true,
+		CookiesFrom: "chrome",
+		CookiesFile: "/path/to/cookies.txt",
+		UserID:      "optional-account-user-id",
+	}
 	allWant.Yandex = YandexConfig{Enabled: true, Token: "y0_YourPersonalOAuthToken"}
 	allWant.Plex = PlexConfig{URL: "http://192.168.1.10:32400", Token: "xxxxxxxxxxxxxxxxxxxx", Libraries: []string{"Music", "Jazz"}}
 	allWant.Jellyfin = JellyfinConfig{

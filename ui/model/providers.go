@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"time"
@@ -56,7 +57,7 @@ func (m *Model) switchProvider(idx int) tea.Cmd {
 	}
 	m.provPillIdx = idx
 	m.provider = m.providers[idx].Provider
-	m.provPane.lists = nil
+	m.provPane.setLists(nil)
 	m.provPane.signIn = false
 	m.catalogBatch = catalogBatchState{}
 	m.activeProviderPlaylistID = ""
@@ -151,7 +152,7 @@ func (m *Model) replaceProviderLists(lists []playlist.PlaylistInfo) {
 	if m.provPane.cursor >= 0 && m.provPane.cursor < len(m.provPane.lists) {
 		selectedID = m.provPane.lists[m.provPane.cursor].ID
 	}
-	m.provPane.lists = providerListsWithBrowse(m.provider, lists)
+	m.provPane.setLists(providerListsWithBrowse(m.provider, lists))
 	m.provPane.cursor = max(0, min(m.provPane.cursor, len(m.provPane.lists)-1))
 	if selectedID != "" {
 		for i, item := range m.provPane.lists {
@@ -223,6 +224,7 @@ func (m *Model) refreshActiveProvider(tracksOnly bool) tea.Cmd {
 	if r, ok := m.provider.(playlist.Refresher); ok {
 		r.Refresh()
 	}
+	m.clearArtworkCache()
 	nextRequest(&m.requests.catalog)
 	m.catalogBatch = catalogBatchState{}
 	m.provPane.loading = true
@@ -342,7 +344,7 @@ func (m *Model) fetchCatalogBatch(loader provider.CatalogLoader) tea.Cmd {
 // configured leaves the overlays alone: there is nowhere to land, so only
 // the setup hint applies.
 func (m *Model) quickSwitchProvider(key string) (cmd tea.Cmd, ok bool) {
-	provKey := providerKeyForShortcut(key)
+	provKey := m.shortcutProviderKey(key)
 	if provKey == "" {
 		return nil, false
 	}
@@ -364,11 +366,39 @@ func (m *Model) providerShortcut(key string) (cmd tea.Cmd, ok bool) {
 	if key == "N" {
 		return nil, false
 	}
-	provKey := providerKeyForShortcut(key)
+	provKey := m.shortcutProviderKey(key)
 	if provKey == "" {
 		return nil, false
 	}
 	return m.switchToProvider(provKey), true
+}
+
+// youTubeProviderKeys lists the YouTube providers in the order that Y opens
+// them.
+var youTubeProviderKeys = []string{"yt", "youtube", "ytmusic"}
+
+// shortcutProviderKey returns the config key of the provider that the
+// Shift+letter key opens, or "" when key is no shortcut. Y opens the next
+// registered YouTube provider when a YouTube provider is active, and the
+// first one otherwise. With no YouTube provider registered, Y names yt, so
+// the setup hint shows.
+func (m Model) shortcutProviderKey(key string) string {
+	provKey := providerKeyForShortcut(key)
+	if provKey != youTubeProviderKeys[0] {
+		return provKey
+	}
+	var registered []string
+	for _, k := range youTubeProviderKeys {
+		if m.hasProvider(k) {
+			registered = append(registered, k)
+		}
+	}
+	if len(registered) == 0 {
+		return provKey
+	}
+	// Index is -1 when no YouTube provider is active: Y opens the first.
+	i := slices.Index(registered, m.activeProviderKey())
+	return registered[(i+1)%len(registered)]
 }
 
 // providerKeyForShortcut maps the Shift+letter provider shortcuts to the
@@ -399,6 +429,10 @@ func providerKeyForShortcut(key string) string {
 		return "qobuz"
 	case "T":
 		return "tidal"
+	case "K":
+		return "bandcamp"
+	case "U":
+		return "telegram"
 	case "L":
 		return "local"
 	case "R":
@@ -432,12 +466,13 @@ func (m Model) hasProvider(key string) bool {
 	return false
 }
 
-// unconfiguredProviderHint names the setup step for a provider shortcut
-// whose provider did not register (fresh config, missing credentials).
+// unconfiguredProviderHint names the setup step for a provider that did not
+// register, for example on a fresh config or with no credentials. A provider
+// shortcut and a default provider that name it show the hint.
 func unconfiguredProviderHint(key string) string {
 	switch key {
 	case "yt", "youtube", "ytmusic":
-		return "YouTube not configured — run `cliamp ytmusic-login` (needs yt-dlp)"
+		return "YouTube not configured. Run `cliamp setup` and install yt-dlp."
 	case "spotify":
 		return "Spotify not configured — run `cliamp setup` to sign in"
 	case "local":
@@ -735,7 +770,7 @@ func (m Model) canOpenProviderBrowser() bool {
 
 // openNavBrowserWith resets and opens the hierarchy for prov at its root menu.
 func (m *Model) openNavBrowserWith(prov playlist.Provider) {
-	nextRequest(&m.requests.nav)
+	m.cancelNavRequests()
 	m.navBrowser.prov = prov
 	m.navBrowser.genreBrowser, _ = prov.(provider.GenreBrowser)
 	m.navBrowser.visible = true
@@ -758,6 +793,7 @@ func (m *Model) openNavBrowserWith(prov playlist.Provider) {
 	m.navBrowser.directTrackJump = false
 	m.navBrowser.fromProvList = false
 	m.navBrowser.openInPlaylist = false
+	m.navBrowser.showAlbumHeaders = false
 	m.navBrowser.selArtist = provider.ArtistInfo{}
 	m.navBrowser.selAlbum = provider.AlbumInfo{}
 	m.navBrowser.selGenre = provider.GenreInfo{}
@@ -911,11 +947,28 @@ func (m *Model) openSelectedTrackArtistBrowser() (tea.Cmd, bool) {
 	return fetchNavArtistAlbumsCmd(target.browser, target.artist.ID, m.nextNavRequest()), true
 }
 
+func (m *Model) newNavContext() (context.Context, context.CancelFunc) {
+	if m.navCancel == nil {
+		m.navCancel = &cancelSlot{}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.navCancel.replace(cancel)
+	return ctx, cancel
+}
+
+func (m *Model) cancelNavContext() {
+	if m.navCancel != nil {
+		m.navCancel.cancelActive()
+	}
+}
+
 func (m *Model) nextNavRequest() uint64 {
+	m.cancelNavContext()
 	return nextRequest(&m.requests.nav)
 }
 
 func (m *Model) cancelNavRequests() {
+	m.cancelNavContext()
 	nextRequest(&m.requests.nav)
 	m.navBrowser.loading = false
 	m.navBrowser.albumLoading = false
@@ -992,8 +1045,13 @@ func (m *Model) navClearSearchKeepingCursor(cursor int) {
 // The provider must implement both ArtistBrowser and AlbumTrackLoader.
 func (m *Model) fetchNavArtistAllTracksCmd(ab provider.ArtistBrowser, artistID string) tea.Cmd {
 	gen := m.nextNavRequest()
+	ctx, cancel := m.newNavContext()
 	loader, _ := m.navBrowser.prov.(provider.AlbumTrackLoader)
 	return func() tea.Msg {
+		defer cancel()
+		if err := ctx.Err(); err != nil {
+			return navTracksLoadedMsg{gen: gen, err: err}
+		}
 		albums, err := ab.ArtistAlbums(artistID)
 		if err != nil {
 			return navTracksLoadedMsg{gen: gen, err: err}
@@ -1003,6 +1061,9 @@ func (m *Model) fetchNavArtistAllTracksCmd(ab provider.ArtistBrowser, artistID s
 		}
 		var all []playlist.Track
 		for _, album := range albums {
+			if err := ctx.Err(); err != nil {
+				return navTracksLoadedMsg{gen: gen, err: err}
+			}
 			tracks, err := loader.AlbumTracks(album.ID)
 			if err != nil {
 				return navTracksLoadedMsg{gen: gen, err: err}

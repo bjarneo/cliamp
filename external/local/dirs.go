@@ -83,6 +83,10 @@ func parsePlaylistDoc(data []byte) *playlistDoc {
 // their tags (titles fall back to filename parsing), for cheap operations
 // such as counting.
 func (d *playlistDoc) expand(withTags bool) []playlist.Track {
+	return d.expandWithTagReader(withTags, readTags)
+}
+
+func (d *playlistDoc) expandWithTagReader(withTags bool, tagReader func([]string) []playlist.Track) []playlist.Track {
 	explicit := make(map[string]struct{}, len(d.tracks))
 	for _, t := range d.tracks {
 		explicit[t.Path] = struct{}{}
@@ -101,20 +105,27 @@ func (d *playlistDoc) expand(withTags bool) []playlist.Track {
 		if err != nil {
 			continue
 		}
+		var unseen []string
+		for _, f := range files {
+			if _, dup := explicit[f]; dup {
+				continue
+			}
+			explicit[f] = struct{}{}
+			unseen = append(unseen, f)
+		}
+		if len(unseen) == 0 {
+			continue
+		}
 		var dirTracks []playlist.Track
 		if withTags {
-			dirTracks = readTags(files)
+			dirTracks = tagReader(unseen)
 		} else {
-			dirTracks = make([]playlist.Track, len(files))
-			for i, f := range files {
+			dirTracks = make([]playlist.Track, len(unseen))
+			for i, f := range unseen {
 				dirTracks[i] = playlist.TrackFromFilename(f)
 			}
 		}
 		for _, t := range dirTracks {
-			if _, dup := explicit[t.Path]; dup {
-				continue
-			}
-			explicit[t.Path] = struct{}{}
 			t.DirSourced = true
 			out = append(out, t)
 		}
@@ -212,77 +223,85 @@ func rebuildDoc(existing *playlistDoc, explicit []playlist.Track) (tracks []play
 			leftovers = append(leftovers, i)
 		}
 	}
-	if len(leftovers) > 0 {
-		// Map each dir to its section position. dirPos tracks where the next
-		// leftover for that directory must be inserted: directly before the
-		// directory section.
-		dirPos := make(map[int]int, len(existing.dirs))
-		di := 0
-		for si, sec := range sections {
+	if len(leftovers) == 0 {
+		for _, sec := range sections {
 			if sec.kind == itemDir {
-				dirPos[di] = si
-				di++
+				dirs = append(dirs, sec.dir)
+				order = append(order, itemDir)
+			} else {
+				tracks = append(tracks, sec.track)
+				order = append(order, itemTrack)
 			}
 		}
-		// supplierOf returns the first directory (in document order) that would
-		// supply file in a scan. It is a pure path check, so saves never
-		// re-walk the filesystem that the load already scanned.
-		supplierOf := func(file string) (int, bool) {
-			for di, src := range existing.dirs {
-				if dirSuppliesFile(src, file) {
-					return di, true
-				}
-			}
-			return 0, false
-		}
-		// Insert before-dir leftovers in reverse so several targeting the same
-		// directory keep their caller order.
-		for i := len(leftovers) - 1; i >= 0; i-- {
-			ci := leftovers[i]
-			if d, ok := supplierOf(explicit[ci].Path); ok {
-				pos := dirPos[d]
-				sections = append(sections, playlistSection{})
-				copy(sections[pos+1:], sections[pos:])
-				sections[pos] = playlistSection{kind: itemTrack, track: explicit[ci], caller: ci}
-				// The insertion shifted every later section by one; re-align
-				// the map so the next leftover lands in the right slot.
-				for dd, p := range dirPos {
-					if dd != d && p >= pos {
-						dirPos[dd] = p + 1
-					}
-				}
-			}
-		}
-		// A leftover that no directory supplies goes directly before the
-		// next track in caller order that kept its slot, so a track put
-		// between saved tracks stays there. Without such a track, it is
-		// appended in caller order.
-		following := make([]int, len(explicit))
-		next := -1
-		for i := len(explicit) - 1; i >= 0; i-- {
-			following[i] = next
-			if placed[i] {
-				next = i
-			}
-		}
-		for _, ci := range leftovers {
-			if _, ok := supplierOf(explicit[ci].Path); ok {
-				continue
-			}
-			pos := -1
-			if next := following[ci]; next >= 0 {
-				pos = slices.IndexFunc(sections, func(sec playlistSection) bool {
-					return sec.kind == itemTrack && sec.caller == next
-				})
-			}
-			if pos < 0 {
-				pos = len(sections)
-			}
-			sections = slices.Insert(sections, pos, playlistSection{kind: itemTrack, track: explicit[ci], caller: ci})
+		return tracks, dirs, order
+	}
+
+	// Map each dir and each placed caller track to its index in sections.
+	dirSecIdx := make([]int, 0, len(existing.dirs))
+	callerSecIdx := make(map[int]int, len(sections))
+	for si, sec := range sections {
+		if sec.kind == itemDir {
+			dirSecIdx = append(dirSecIdx, si)
+		} else {
+			callerSecIdx[sec.caller] = si
 		}
 	}
 
-	for _, sec := range sections {
+	// Pre-expand directory paths once so each leftover check avoids repeated
+	// environment and home directory lookups.
+	type expandedDir struct {
+		root      string
+		recursive bool
+	}
+	expandedDirs := make([]expandedDir, len(existing.dirs))
+	for i, src := range existing.dirs {
+		expandedDirs[i] = expandedDir{root: ExpandPath(src.Path), recursive: src.Recursive}
+	}
+	supplierOf := func(file string) (int, bool) {
+		if len(expandedDirs) == 0 || !playlist.IsAudioFile(file) {
+			return 0, false
+		}
+		for i, ed := range expandedDirs {
+			if expandedDirSuppliesFile(ed.root, ed.recursive, file) {
+				return i, true
+			}
+		}
+		return 0, false
+	}
+
+	// Compute the next placed caller track for every index in one reverse pass.
+	following := make([]int, len(explicit))
+	next := -1
+	for i := len(explicit) - 1; i >= 0; i-- {
+		following[i] = next
+		if placed[i] {
+			next = i
+		}
+	}
+
+	// Bucket leftovers by target section index in caller order, then merge in
+	// one linear pass.
+	buckets := make([][]playlist.Track, len(sections)+1)
+	for _, ci := range leftovers {
+		pos := len(sections)
+		if d, ok := supplierOf(explicit[ci].Path); ok {
+			pos = dirSecIdx[d]
+		} else if nxt := following[ci]; nxt >= 0 {
+			if idx, ok := callerSecIdx[nxt]; ok {
+				pos = idx
+			}
+		}
+		buckets[pos] = append(buckets[pos], explicit[ci])
+	}
+
+	tracks = make([]playlist.Track, 0, len(explicit))
+	dirs = make([]playlist.DirSource, 0, len(existing.dirs))
+	order = make([]uint8, 0, len(explicit)+len(existing.dirs))
+	for si, sec := range sections {
+		for _, t := range buckets[si] {
+			tracks = append(tracks, t)
+			order = append(order, itemTrack)
+		}
 		if sec.kind == itemDir {
 			dirs = append(dirs, sec.dir)
 			order = append(order, itemDir)
@@ -290,6 +309,10 @@ func rebuildDoc(existing *playlistDoc, explicit []playlist.Track) (tracks []play
 			tracks = append(tracks, sec.track)
 			order = append(order, itemTrack)
 		}
+	}
+	for _, t := range buckets[len(sections)] {
+		tracks = append(tracks, t)
+		order = append(order, itemTrack)
 	}
 	return tracks, dirs, order
 }
@@ -326,7 +349,10 @@ func dirSuppliesFile(dir playlist.DirSource, file string) bool {
 	if !playlist.IsAudioFile(file) {
 		return false
 	}
-	root := ExpandPath(dir.Path)
+	return expandedDirSuppliesFile(ExpandPath(dir.Path), dir.Recursive, file)
+}
+
+func expandedDirSuppliesFile(root string, recursive bool, file string) bool {
 	rel, err := filepath.Rel(root, file)
 	if err != nil {
 		return false
@@ -334,7 +360,7 @@ func dirSuppliesFile(dir playlist.DirSource, file string) bool {
 	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return false
 	}
-	if !dir.Recursive && strings.ContainsRune(rel, filepath.Separator) {
+	if !recursive && strings.ContainsRune(rel, filepath.Separator) {
 		return false
 	}
 	return true

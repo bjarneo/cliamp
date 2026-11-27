@@ -101,6 +101,16 @@ func init() {
 	}
 }
 
+// VisualizerNames returns the display names of the built-in modes, in cycle
+// order. Lua visualizers are appended at runtime and are not part of it.
+func VisualizerNames() []string {
+	names := make([]string, 0, VisCount)
+	for i := range VisCount {
+		names = append(names, visModes[i].name)
+	}
+	return names
+}
+
 // ModeName returns the display name of the current mode.
 func (v *Visualizer) ModeName() string {
 	if v.Mode < VisCount {

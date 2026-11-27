@@ -25,13 +25,19 @@ const (
 // queue. The undo of the last queue edit goes, because it restores the old
 // queue.
 func (m *Model) replacePlaylist(tracks []playlist.Track) {
+	m.replacePlaylistAt(tracks, 0)
+}
+
+// replacePlaylistAt is replacePlaylist with the queue positioned on track
+// start.
+func (m *Model) replacePlaylistAt(tracks []playlist.Track, start int) {
 	nextRequest(&m.requests.queue)
 	m.resetYTDLBatch()
 	m.playlistUndo = playlistUndo{}
 	if m.resumeSaver != nil {
 		tracks = playlist.WithPlaybackContext(tracks)
 	}
-	m.playlist.Replace(tracks)
+	m.playlist.ReplaceAt(tracks, start)
 	m.normalizeQueueOverlay()
 }
 
@@ -229,12 +235,20 @@ func (m *Model) playTrackImmediate(track playlist.Track) tea.Cmd {
 	return m.playCurrentTrack()
 }
 
+// idleForNewTrack reports whether a track that is added now should start
+// playing: nothing plays and no track is still starting. While a stream or file
+// is buffering, the player is not playing yet, and starting the added track
+// would replace the one the user asked for first.
+func (m *Model) idleForNewTrack() bool {
+	return !m.player.IsPlaying() && !m.buffering
+}
+
 // appendTrack appends a track to the playlist; auto-plays if nothing is playing.
 func (m *Model) appendTrack(track playlist.Track) tea.Cmd {
 	wasEmpty := m.playlist.Len() == 0
 	idx := m.appendTracks(track)
 	m.status.Showf(statusTTLMedium, "Added: %s", track.DisplayName())
-	if wasEmpty || !m.player.IsPlaying() {
+	if wasEmpty || m.idleForNewTrack() {
 		m.playlist.SetIndex(idx)
 		m.plCursor = idx
 		m.adjustScroll()
@@ -257,13 +271,48 @@ func (m *Model) playAlbumImmediate(album playlist.Track, tracks []playlist.Track
 	return m.playCurrentTrack()
 }
 
+// replaceWithAlbum replaces the queue with an expanded album and starts it at
+// its first track, for a listener who wants the album alone rather than added
+// to the queue that playAlbumImmediate keeps.
+func (m *Model) replaceWithAlbum(album playlist.Track, tracks []playlist.Track) tea.Cmd {
+	m.replaceQueue(tracks)
+	m.status.Successf(statusTTLMedium, "Replaced queue with album: %s (%d tracks)", album.Title, len(tracks))
+	return m.playCurrentTrack()
+}
+
+// replaceWithTrack replaces the queue with a single track and plays it.
+func (m *Model) replaceWithTrack(track playlist.Track) tea.Cmd {
+	m.replaceQueue([]playlist.Track{track})
+	m.status.Successf(statusTTLMedium, "Replaced queue with: %s", track.DisplayName())
+	return m.playCurrentTrack()
+}
+
+// replaceQueue stops playback, replaces the queue with tracks positioned on
+// the first one and moves focus to the playlist. The replace has no undo
+// snapshot, so callers confirm first when the queue is non-empty. It sets no
+// status and starts nothing: callers set their status before they start
+// playback, so a warning from the start is not overwritten.
+func (m *Model) replaceQueue(tracks []playlist.Track) {
+	m.stopPlayback()
+	m.player.ClearPreload()
+	m.retireTracksPaging()
+	m.replacePlaylist(tracks)
+	m.clearLoadedPlaylist()
+	m.setHeaderStateFromTracks(tracks)
+	m.plCursor = 0
+	m.plScroll = 0 // adjustScroll keeps it when the playlist has no rows yet
+	m.focus = focusPlaylist
+	m.applyHeightMode()
+	m.adjustScroll()
+}
+
 // appendAlbum appends an expanded album to the queue; auto-plays from its first
 // track if nothing is playing.
 func (m *Model) appendAlbum(album playlist.Track, tracks []playlist.Track) tea.Cmd {
 	wasEmpty := m.playlist.Len() == 0
 	idx := m.appendTracks(tracks...)
 	m.status.Showf(statusTTLMedium, "Added album: %s (%d tracks)", album.Title, len(tracks))
-	if wasEmpty || !m.player.IsPlaying() {
+	if wasEmpty || m.idleForNewTrack() {
 		m.playlist.SetIndex(idx)
 		m.plCursor = idx
 		m.adjustScroll()
@@ -280,7 +329,7 @@ func (m *Model) queueAlbumNext(album playlist.Track, tracks []playlist.Track) te
 		m.playlist.Queue(idx + i)
 	}
 	m.status.Showf(statusTTLMedium, "Queued album: %s (%d tracks)", album.Title, len(tracks))
-	if !m.player.IsPlaying() {
+	if m.idleForNewTrack() {
 		return m.nextTrack()
 	}
 	return m.rearmStalePreload()
@@ -331,7 +380,7 @@ func (m *Model) queueTrackNext(track playlist.Track) tea.Cmd {
 	m.playlist.Queue(idx)
 	m.normalizeQueueOverlay()
 	m.status.Showf(statusTTLMedium, "Queued: %s", track.DisplayName())
-	if !m.player.IsPlaying() {
+	if m.idleForNewTrack() {
 		return m.nextTrack()
 	}
 	return m.rearmStalePreload()
@@ -396,8 +445,9 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 	m.pausedAt = time.Time{}
 	if track.Feed || playlist.IsFeed(track.Path) {
 		m.feedLoading = true
+		m.feedRequest = nextRequest(&m.requests.queue)
 		m.status.Activity("Loading feed...", statusTTLLong)
-		return resolveFeedTrackCmd(track.Path, m.requests.stream, nextRequest(&m.requests.queue))
+		return resolveFeedTrackCmd(track.Path, m.requests.stream, m.feedRequest)
 	}
 	// The track that plays now is left, so it can scrobble before the
 	// engine moves on.
@@ -411,7 +461,7 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 	// A stream, a yt-dlp page, a provider URI, or a local file can block
 	// the Update goroutine. A file on a network share can block for minutes.
 	// Start those opens in a command.
-	if track.Stream || playlist.IsYTDL(track.Path) || m.isCustomStreamURI(track.Path) || plainLocalPath(track.Path) {
+	if track.Stream || playlist.IsYTDL(track.Path) || m.isCustomStreamURI(track.Path) || plainLocalPath(track.Path) || strings.HasPrefix(track.Path, "ssh://") {
 		m.buffering = true
 		m.bufferingAt = time.Now()
 		m.err = nil
@@ -433,9 +483,9 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 		// Async starts resume after streamPlayedMsg. A native local file
 		// started at the hint, so applyResume seeks here only when that
 		// start seek failed.
-		m.applyResume()
+		resumeCmd := m.applyResume()
 		m.nowPlaying(track)
-		return tea.Batch(m.preloadNext(), fetchCmd, m.backfillLoadedPlaylistDuration(track))
+		return tea.Batch(resumeCmd, m.preloadNext(), fetchCmd, m.backfillLoadedPlaylistDuration(track))
 	}
 
 	if fetchCmd != nil {
@@ -531,12 +581,101 @@ func (m *Model) backfillLoadedPlaylistDuration(track playlist.Track) tea.Cmd {
 	}
 }
 
+// needsEmbeddedMetaRefresh reports whether track is a local file with empty
+// embedded lyrics or cover art.
+func (m *Model) needsEmbeddedMetaRefresh(track playlist.Track) bool {
+	return !track.Stream && plainLocalPath(track.Path) && !m.isCustomStreamURI(track.Path) &&
+		(track.EmbeddedLyrics == "" || track.AlbumArtURL == "")
+}
+
+// handleEmbeddedMetaRefreshed merges local embedded metadata into the active
+// playing track when the stream generation and path still match.
+func (m *Model) handleEmbeddedMetaRefreshed(msg embeddedMetaRefreshedMsg) tea.Cmd {
+	if msg.gen != m.requests.stream || !m.playingTrackActive || m.playingTrack.Path != msg.path {
+		return nil
+	}
+	prevEmbeddedLyrics := m.playingTrack.EmbeddedLyrics
+	prevArtist := m.playingTrack.Artist
+	prevTitle := m.playingTrack.Title
+	if msg.track.EmbeddedLyrics != "" {
+		m.playingTrack.EmbeddedLyrics = msg.track.EmbeddedLyrics
+	}
+	if msg.track.AlbumArtURL != "" {
+		m.playingTrack.AlbumArtURL = msg.track.AlbumArtURL
+	}
+	if m.playingTrack.Title == "" && msg.track.Title != "" {
+		m.playingTrack.Title = msg.track.Title
+	}
+	if m.playingTrack.Artist == "" && msg.track.Artist != "" {
+		m.playingTrack.Artist = msg.track.Artist
+	}
+	if m.playingTrack.Album == "" && msg.track.Album != "" {
+		m.playingTrack.Album = msg.track.Album
+	}
+	if m.playingTrack.Genre == "" && msg.track.Genre != "" {
+		m.playingTrack.Genre = msg.track.Genre
+	}
+	if m.playingTrack.Year == 0 && msg.track.Year != 0 {
+		m.playingTrack.Year = msg.track.Year
+	}
+	if m.playingTrack.TrackNumber == 0 && msg.track.TrackNumber != 0 {
+		m.playingTrack.TrackNumber = msg.track.TrackNumber
+	}
+
+	lyricsUpdated := m.playingTrack.EmbeddedLyrics != prevEmbeddedLyrics ||
+		(m.lyrics.query == "" && (m.playingTrack.Artist != prevArtist || m.playingTrack.Title != prevTitle))
+	if !m.lyrics.visible || !lyricsUpdated {
+		return nil
+	}
+	if m.lyrics.query != "" && !m.lyrics.loading && len(m.lyrics.lines) > 0 {
+		return nil
+	}
+	q := lyricsLookupKey(m.playingTrack, m.playingTrack.Artist, m.playingTrack.Title)
+	if q == "" {
+		return nil
+	}
+	m.lyrics.query = q
+	m.lyrics.loading = true
+	m.lyrics.lines = nil
+	m.lyrics.err = nil
+	m.lyrics.scroll = 0
+	return m.fetchLyricsForTrack(m.playingTrack, m.playingTrack.Artist, m.playingTrack.Title)
+}
+
+func (m *Model) newLyricsContext() (context.Context, context.CancelFunc) {
+	if m.lyricsCancel == nil {
+		m.lyricsCancel = &cancelSlot{}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.lyricsCancel.replace(cancel)
+	return ctx, cancel
+}
+
+func (m *Model) cancelLyricsRequest() {
+	if m.lyricsCancel != nil {
+		m.lyricsCancel.cancelActive()
+	}
+}
+
+func (m *Model) closeLyrics() {
+	nextRequest(&m.requests.lyrics)
+	m.cancelLyricsRequest()
+	m.lyrics.loading = false
+	m.lyrics.query = ""
+	m.lyrics.visible = false
+}
+
 // beginPlaybackTrack centralizes metadata refresh and model state reset for a
 // new active track. It is used both by explicit playback and by gapless
 // transitions, which advance audio without calling playTrack.
 func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cmd) {
 	m.resetTitleScroll()
+	m.clearArtworkCache()
 	nextRequest(&m.requests.stream)
+	// A stream still starting for the previous track is refused when it
+	// reports back, so it cannot clear the flag. A start that runs in a
+	// command sets it again.
+	m.buffering = false
 	if m.player != nil {
 		m.player.CancelSeekYTDL()
 		m.player.SetPlaybackGeneration(m.requests.stream)
@@ -546,7 +685,11 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 	m.preloading = false
 	m.preloadFailed = ""
 	nextRequest(&m.requests.lyrics)
-	track = playlist.RefreshEmbeddedMetadata(track)
+	m.cancelLyricsRequest()
+	var metaCmd tea.Cmd
+	if m.needsEmbeddedMetaRefresh(track) {
+		metaCmd = refreshEmbeddedMetaCmd(track, m.requests.stream)
+	}
 	context, index := track.PlaybackContext()
 	if index < 0 && m.playlist != nil {
 		context = m.playlist.Tracks()
@@ -562,7 +705,7 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 		positionSec = m.resume.secs
 	}
 	m.persistPlaybackContext(track, positionSec, time.Now())
-	historyCmd := m.recordListenedTrack(track)
+	cmd := tea.Batch(m.recordListenedTrack(track), m.ytdlArtistCmd(track), metaCmd)
 	m.reconnect.attempts = 0
 	m.reconnect.at = time.Time{}
 	m.reconnect.ytdlLiveDrain = false
@@ -575,18 +718,23 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 	if m.lyrics.visible {
 		q := lyricsLookupKey(track, track.Artist, track.Title)
 		if q == "" {
-			return track, historyCmd
+			return track, cmd
 		}
 		m.lyrics.loading = true
 		m.lyrics.query = q
-		return track, tea.Batch(historyCmd, m.fetchLyricsForTrack(track, track.Artist, track.Title))
+		return track, tea.Batch(cmd, m.fetchLyricsForTrack(track, track.Artist, track.Title))
 	}
 	m.lyrics.loading = false
-	return track, historyCmd
+	return track, cmd
 }
 
 func (m *Model) fetchLyricsForTrack(track playlist.Track, artist, title string) tea.Cmd {
-	return fetchTrackLyricsCmd(track, artist, title, m.lyrics.query, nextRequest(&m.requests.lyrics), m.trackLyricsSources())
+	ctx, cancel := m.newLyricsContext()
+	cmd := fetchTrackLyricsCmd(ctx, track, artist, title, m.lyrics.query, nextRequest(&m.requests.lyrics), m.trackLyricsSources())
+	return func() tea.Msg {
+		defer cancel()
+		return cmd()
+	}
 }
 
 // togglePlayPause starts playback if stopped, or toggles pause if playing.

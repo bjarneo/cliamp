@@ -97,21 +97,25 @@ func TestSmoothBarsDriverUsesAnimTick(t *testing.T) {
 	}
 }
 
-func TestFastFrameDriverTracksWallClockAtNormalUICadence(t *testing.T) {
-	v := NewVisualizer(44100)
-	v.Mode = VisScope
-	v.Cols = 80
-	t0 := time.Unix(1, 0)
-	v.Tick(VisTickContext{Now: t0, Playing: true})
+func TestFastFrameDriverTracksWallClock(t *testing.T) {
+	for _, interval := range []time.Duration{TickFast, TickRawSample} {
+		t.Run(interval.String(), func(t *testing.T) {
+			v := NewVisualizer(44100)
+			v.Mode = VisScope
+			v.Cols = 80
+			t0 := time.Unix(1, 0)
+			v.Tick(VisTickContext{Now: t0, Playing: true})
 
-	const ticks = 20
-	for i := 1; i <= ticks; i++ {
-		v.Tick(VisTickContext{Now: t0.Add(time.Duration(i) * TickFast), Playing: true})
-	}
+			const ticks = 20
+			for i := 1; i <= ticks; i++ {
+				v.Tick(VisTickContext{Now: t0.Add(time.Duration(i) * interval), Playing: true})
+			}
 
-	want := uint64(1 + time.Duration(ticks)*TickFast/TickAnim)
-	if got := v.Frame(); got != want {
-		t.Fatalf("Scope frame after %v = %d, want %d", time.Duration(ticks)*TickFast, got, want)
+			want := uint64(1 + time.Duration(ticks)*interval/TickAnim)
+			if got := v.Frame(); got != want {
+				t.Fatalf("Scope frame after %v = %d, want %d", time.Duration(ticks)*interval, got, want)
+			}
+		})
 	}
 }
 
@@ -585,7 +589,7 @@ func TestTerrainTickSkipsAnalyzeUnderOverlay(t *testing.T) {
 }
 
 // The stateful spectrum drivers and the Lua driver take their analysis spec
-// and cadence from spectrumDriverBase.
+// and cadence from spectrumDriverBase. The Lua driver reads the audible tap.
 func TestSpectrumDriverBaseDefaults(t *testing.T) {
 	v := NewVisualizer(44100)
 	v.RegisterLuaVisualizers([]string{"plugin"}, nil)
@@ -598,7 +602,11 @@ func TestSpectrumDriverBaseDefaults(t *testing.T) {
 		driver := v.driverFor(mode)
 		v.Mode = mode
 		t.Run(v.ModeName(), func(t *testing.T) {
-			if got, want := driver.AnalysisSpec(v), spectrumAnalysisSpec(DefaultSpectrumBands); got != want {
+			want := spectrumAnalysisSpec(DefaultSpectrumBands)
+			if mode >= VisCount {
+				want.Tap = VisTapAudible
+			}
+			if got := driver.AnalysisSpec(v); got != want {
 				t.Errorf("AnalysisSpec = %+v, want %+v", got, want)
 			}
 			for _, ctx := range contexts {

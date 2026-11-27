@@ -128,27 +128,35 @@ func (m *Model) loadFBDir() {
 		if strings.HasPrefix(name, ".") {
 			continue
 		}
+		fullPath := filepath.Join(m.fileBrowser.dir, name)
 		// Detect directories and directory-like entries.
 		dirType := "" // Name suffix for directories and some non-regular file types.
+		isAudio := false
 		if e.IsDir() {
 			dirType = "/"
 		} else if !e.Type().IsRegular() {
-			if e.Type()&os.ModeSymlink != 0 && !playlist.IsAudioFile(name) {
-				// Treat symlink as a directory unless it points to media file.
-				// os.DirEntry has no option to test the type of object symlink points to.
-				dirType = "@"
+			if e.Type()&os.ModeSymlink != 0 {
+				if info, statErr := os.Stat(fullPath); statErr == nil {
+					if info.IsDir() {
+						dirType = "@"
+					} else if info.Mode().IsRegular() {
+						isAudio = playlist.IsAudioFile(name)
+					}
+				}
 			} else if os.PathSeparator == '\\' && e.Type()&os.ModeIrregular != 0 {
 				// Try to support directory junctions on Windows (mklink /J).
 				// Go do not support such files, it treats them as os.ModeIrregular (?---------).
 				dirType = "?"
 			}
+		} else {
+			isAudio = playlist.IsAudioFile(name)
 		}
 		// Add entry to m.fileBrowser.entries or to files slice
 		if dirType != "" {
 			full := name + dirType
 			m.fileBrowser.entries = append(m.fileBrowser.entries, fbEntry{
 				name:  full,
-				path:  filepath.Join(m.fileBrowser.dir, name),
+				path:  fullPath,
 				isDir: true,
 			})
 		} else {
@@ -157,8 +165,8 @@ func (m *Model) loadFBDir() {
 			}
 			files = append(files, fbEntry{
 				name:    name,
-				path:    filepath.Join(m.fileBrowser.dir, name),
-				isAudio: playlist.IsAudioFile(name),
+				path:    fullPath,
+				isAudio: isAudio,
 			})
 		}
 	}

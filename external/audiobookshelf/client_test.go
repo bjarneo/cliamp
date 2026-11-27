@@ -2,6 +2,7 @@ package audiobookshelf
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -10,8 +11,10 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/bjarneo/cliamp/internal/httpclient"
 	"github.com/bjarneo/cliamp/internal/netdiag"
@@ -614,5 +617,70 @@ func TestPingRejectsOversizedBody(t *testing.T) {
 
 	if err := NewClient(srv.URL, "token", "", "", nil).Ping(); !errors.Is(err, httpclient.ErrTooLarge) {
 		t.Fatalf("Ping() error = %v, want httpclient.ErrTooLarge", err)
+	}
+}
+
+func TestAuthMuSerializesLoginAndClearTokenIfChecksMatch(t *testing.T) {
+	var logins atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/login" {
+			logins.Add(1)
+			time.Sleep(20 * time.Millisecond)
+			_, _ = w.Write([]byte(`{"user":{"token":"fresh-tok"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"libraries":[]}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "", "alice", "pw", nil)
+	var wg sync.WaitGroup
+	errs := make(chan error, 4)
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- c.ensureAuth(context.Background())
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("ensureAuth() error = %v", err)
+		}
+	}
+	if got := logins.Load(); got != 1 {
+		t.Fatalf("login calls = %d, want 1", got)
+	}
+
+	// Clearing with a stale token must keep the fresh token.
+	c.clearTokenIf("stale-tok")
+	if got := c.authToken(); got != "fresh-tok" {
+		t.Fatalf("authToken() after stale clear = %q, want fresh-tok", got)
+	}
+	// Clearing with the matching token clears it.
+	c.clearTokenIf("fresh-tok")
+	if got := c.authToken(); got != "" {
+		t.Fatalf("authToken() after matching clear = %q, want empty", got)
+	}
+}
+
+func TestSearchTracksThreadsContext(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(5 * time.Second):
+		}
+	}))
+	defer srv.Close()
+
+	p := newProvider(NewClient(srv.URL, "tok", "", "", nil))
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := p.SearchTracks(ctx, "dune", 10)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("SearchTracks() error = %v, want context.DeadlineExceeded", err)
 	}
 }

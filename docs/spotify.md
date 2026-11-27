@@ -2,7 +2,7 @@
 
 Use Cliamp to stream your [Spotify](https://www.spotify.com/) library through its audio pipeline. EQ, the visualizer, and other effects apply. You need a [Spotify Premium](https://www.spotify.com/premium/) account.
 
-> **Windows:** Build cliamp with CGO enabled and a MinGW toolchain for Spotify support. See [Building from source](../README.md#building-from-source) in the README. Pre-built Windows binaries from Releases include Spotify support.
+> **Windows:** Every Windows source build needs CGO enabled and the MSYS2 MinGW64 toolchain because the Spotify provider is compiled in even when it is not configured. See [Building from source](../README.md#building-from-source) in the README. Pre-built Windows binaries from Releases include Spotify support.
 >
 > **Quick start:** Run `cliamp setup`, select Spotify, and follow the prompts. Register a Spotify Developer app and enter its `client_id` to get a private Web API rate-limit quota, including for search. Cliamp authorizes playback separately with the built-in Spotify identity. You can instead use the built-in shared `client_id` without registering an app.
 
@@ -53,6 +53,21 @@ cliamp uses a built-in `client_id`. [librespot](https://github.com/librespot-org
 
 > **Shared rate limit:** The built-in `client_id` is shared by librespot, spotify-player, and cliamp users worldwide. Spotify applies its per-app quota globally. A busy pool can cause `429 Too Many Requests` during search or playlist loading. Cliamp retries with backoff. Persistent 429 errors indicate a busy pool. Your own `client_id` has a separate quota.
 
+### Sign in on a remote machine
+
+The sign-in callback listens on `127.0.0.1:19872` of the machine that runs cliamp. When cliamp runs on a remote machine over SSH, the browser on your computer cannot reach this callback. To sign in, forward the port from your computer to the remote machine:
+
+```sh
+ssh -L 19872:127.0.0.1:19872 user@remote-host
+```
+
+1. Connect with the command above.
+2. In this SSH session, run `cliamp`, select Spotify, and press `Enter`.
+3. Open the sign-in URL from the provider panel in the browser on your computer. The panel wraps a long URL over several rows. In a terminal that supports OSC 8 hyperlinks, click any row of the URL to open the full URL. Some terminals need a modifier key, such as `Ctrl` or `Cmd`. In other terminals, join the rows when you copy them. cliamp also writes the URL to `~/.config/cliamp/cliamp.log` on the remote machine.
+4. Approve the sign-in. Spotify sends the browser to `http://127.0.0.1:19872/login`, and SSH forwards this request to cliamp on the remote machine.
+
+cliamp stores the credentials on the remote machine. You need the forwarded port again only for a new sign-in.
+
 ## Usage
 
 After authentication, Spotify appears in the provider list. Press `Esc`/`b` to open the provider browser and select Spotify.
@@ -85,6 +100,8 @@ Spotify lets apps read the tracks of only the playlists that you own or collabor
 
 Saved albums appear under a **Saved albums** section, labelled `Artist - Album` and sorted alphabetically by artist. These are the albums in **Your Library**. To add one, open the album in Spotify and click **Save**. Selecting a saved album loads all of its tracks in disc and track order.
 
+An album in the <kbd>Ctrl+F</kbd> results is added to the end of the playlist when you press `Enter`, and its first track starts. Press `R` instead to replace the playlist with the album. When the playlist is not empty, `R` asks first, and `Enter` confirms.
+
 ## Add tracks to a playlist
 
 In the <kbd>Ctrl+F</kbd> results, select a track and press `p`. The picker lists only the playlists that you own or collaborate on. Select `+ New Playlist...` to create a private playlist. If the add fails, the error shows on the picker.
@@ -109,12 +126,13 @@ Podcast episodes work as tracks. Press `Ctrl+F` to search Spotify. Matching epis
 
 ## Troubleshooting
 
-- **"OAuth failed"**: Ensure the Spotify dashboard redirect URI is exactly `http://127.0.0.1:19872/login`, without a trailing slash. The temporary callback server listens only on this local address and does not accept connections from the network.
+- **"OAuth failed"**: Ensure the Spotify dashboard redirect URI is exactly `http://127.0.0.1:19872/login`, without a trailing slash. The temporary callback server listens only on this local address and does not accept connections from the network. On a remote machine, see [Sign in on a remote machine](#sign-in-on-a-remote-machine).
 - **Two authorization steps**: This is expected with your own `client_id`. After you approve Web API access, the same browser tab redirects to create a playback credential with the required Spotify built-in identity.
 - **Playlist not showing**: Save or follow the playlist in Spotify. The provider lists only library playlists.
 - **Playback issues**: Spotify integration needs a Premium account. Free accounts cannot stream.
 - **Re-authenticate**: When cliamp asks you to sign in, select Spotify and press `Enter`. If the sign-in fails, the prompt stays, so press `Enter` again to retry. To clear stored credentials, run `cliamp spotify reset`. This is the same as deleting `~/.config/cliamp/spotify_credentials.json`.
 - **Expired or revoked authorization**: When Spotify rejects the access token with `401 Unauthorized` or revokes the refresh token, cliamp asks for a new sign-in. The provider list and playback both show the prompt. Press `Enter` on the prompt to sign in again. You do not need to restart cliamp.
+- **`Spotify refused the audio key for this track`**: Spotify accepted the sign-in but refused the audio key of the track. `cliamp.log` shows `failed retrieving aes key with code 1`. On some accounts, Spotify refuses the key for every track while the official Spotify apps still play. A new sign-in, `cliamp spotify reset`, another `client_id` or another `bitrate` does not fix it. cliamp shows the error and does not ask you to sign in. Other players based on librespot get the same refusal. [go-librespot#279](https://github.com/devgianlu/go-librespot/issues/279) tracks the problem.
 - **`403` when you open a followed playlist**: Spotify lets apps read only the playlists that you own or collaborate on. Add the tracks to your own playlist in Spotify, then open that playlist.
 - **`429 Too Many Requests`, including `rate-limited on /v1/me`**: Spotify accepted the credentials and throttled the *app*, so re-authenticating does not help. With the built-in `client_id`, the quota is shared with librespot- and spotify-player-based clients worldwide, and a busy pool limits every client that uses it. Cliamp retries with exponential backoff, honoring `Retry-After`. If `Retry-After` is longer than 1 minute, cliamp shows the error at once and does not wait. A `Retry-After` of hours (for example `86400`) means the app has no quota left for that window: register a developer app and set `client_id` in `[spotify]`. Your app has a separate quota.
 - **`400 "Invalid limit"` on <kbd>Ctrl+F</kbd>**: Development Mode apps limit `/v1/search` to 10 results per request. Cliamp pages results automatically. This error means the limit is now less than 10. Open an issue.

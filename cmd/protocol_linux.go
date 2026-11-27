@@ -25,7 +25,7 @@ const desktopEntry = `[Desktop Entry]
 Type=Application
 Name=cliamp (URL handler)
 Comment=Open cliamp:// links in cliamp
-Exec=%s open %%u
+Exec=%s open -- %%u
 Icon=cliamp
 Terminal=true
 NoDisplay=true
@@ -35,15 +35,13 @@ Categories=Audio;Music;Player;AudioVideo;
 `
 
 // desktopExecArg renders a path as a single Exec argument.
-//
-// The Desktop Entry spec splits Exec on whitespace, so an unquoted path
-// containing a space becomes two arguments and the link silently fails to
-// open with no diagnostic anywhere. Quoting is valid for any argument, and
-// inside quotes the spec requires ", `, $ and \ to be escaped. Field codes
-// such as %u must stay outside the quotes, which they do.
-func desktopExecArg(path string) string {
-	replacer := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "`", "\\`", `$`, `\$`)
-	return `"` + replacer.Replace(path) + `"`
+// It escapes Desktop Entry reserved characters and percent signs, and rejects newlines.
+func desktopExecArg(path string) (string, error) {
+	if strings.ContainsAny(path, "\r\n") {
+		return "", fmt.Errorf("executable path contains a newline")
+	}
+	replacer := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "`", "\\`", `$`, `\$`, `%`, `%%`)
+	return `"` + replacer.Replace(path) + `"`, nil
 }
 
 func applicationsDir() (string, error) {
@@ -117,8 +115,12 @@ func registerHandler(exe string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("creating %s: %w", dir, err)
 	}
+	execArg, err := desktopExecArg(exe)
+	if err != nil {
+		return "", fmt.Errorf("formatting executable path: %w", err)
+	}
 	path := filepath.Join(dir, desktopFileName)
-	entry := fmt.Sprintf(desktopEntry, desktopExecArg(exe), SchemeName)
+	entry := fmt.Sprintf(desktopEntry, execArg, SchemeName)
 	if err := os.WriteFile(path, []byte(entry), 0o644); err != nil {
 		return "", fmt.Errorf("writing %s: %w", path, err)
 	}

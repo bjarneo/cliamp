@@ -276,5 +276,63 @@ func TestTrackPipelineCloseUnblocksPrefetchDecoder(t *testing.T) {
 	}
 }
 
+func TestLivePrefetchEmptySliceAndWraparoundCopy(t *testing.T) {
+	// Empty destination must return 0 and true even before any data arrives.
+	gate := make(chan struct{})
+	p := newLivePrefetchStreamer(&gatedLiveStreamer{samples: [][2]float64{{1, 1}}, gate: gate}, 1000)
+	if n, ok := p.Stream(nil); n != 0 || !ok {
+		t.Fatalf("Stream(nil) = (%d, %v), want (0, true)", n, ok)
+	}
+	if n, ok := p.Stream([][2]float64{}); n != 0 || !ok {
+		t.Fatalf("Stream(empty) = (%d, %v), want (0, true)", n, ok)
+	}
+	p.Close()
+	close(gate)
+	p.Wait()
+
+	// Exercise multi-wraparound ring reads, writes, and waking a blocked writer.
+	const total = 12000
+	srcSamples := make([][2]float64, total)
+	for i := range srcSamples {
+		v := float64(i + 1)
+		srcSamples[i] = [2]float64{v, -v}
+	}
+	p2 := newLivePrefetchStreamer(&gatedLiveStreamer{samples: srcSamples}, 1000)
+	defer p2.Close()
+	// Wait until the ring buffer fills so the writer parks on p.cond.Wait.
+	waitForLiveSamples(t, p2, len(p2.buf))
+
+	got := make([][2]float64, 0, total)
+	buf := make([][2]float64, 333)
+	for len(got) < total {
+		wantAvail := min(len(buf), total-len(got))
+		waitForLiveSamples(t, p2, wantAvail)
+		n, ok := p2.Stream(buf[:wantAvail])
+		if n > 0 {
+			got = append(got, buf[:n]...)
+		}
+		if !ok {
+			break
+		}
+	}
+	if len(got) != total {
+		t.Fatalf("streamed %d samples across wraparound, want %d", len(got), total)
+	}
+	for i := range total {
+		if got[i] != srcSamples[i] {
+			t.Fatalf("sample[%d] = %v, want %v", i, got[i], srcSamples[i])
+		}
+	}
+
+	// Verify Position does not overflow for multi-day sample counts.
+	p2.mu.Lock()
+	p2.sampleRate = 192000
+	p2.consumed = 100 * 3600 * 192000
+	p2.mu.Unlock()
+	if pos := p2.Position(); pos != 100*time.Hour {
+		t.Fatalf("Position() = %v, want 100h", pos)
+	}
+}
+
 var _ beep.Streamer = (*gatedLiveStreamer)(nil)
 var _ beep.StreamSeekCloser = (*closeUnblocksStreamer)(nil)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -224,6 +225,32 @@ func TestArgsLocalPLS(t *testing.T) {
 	}
 	if got.Tracks[0].Title != "Track 1" {
 		t.Errorf("Title = %q, want Track 1", got.Tracks[0].Title)
+	}
+}
+
+func TestArgsLocalPLSFileURI(t *testing.T) {
+	dir := t.TempDir()
+	audio := filepath.Join(dir, "my song.mp3")
+	if err := os.WriteFile(audio, []byte(""), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	pls := filepath.Join(dir, "pl.pls")
+	uriPath := filepath.ToSlash(audio)
+	if filepath.VolumeName(audio) != "" {
+		uriPath = "/" + uriPath
+	}
+	uri := (&url.URL{Scheme: "file", Path: uriPath}).String()
+	content := "[playlist]\nFile1=" + uri + "\nTitle1=Track 1\nNumberOfEntries=1\nVersion=2\n"
+	if err := os.WriteFile(pls, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got, err := Args([]string{pls})
+	if err != nil {
+		t.Fatalf("Args: %v", err)
+	}
+	if len(got.Tracks) != 1 || got.Tracks[0].Path != audio {
+		t.Fatalf("tracks = %+v, want one track at %s", got.Tracks, audio)
 	}
 }
 

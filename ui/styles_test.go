@@ -54,18 +54,18 @@ func TestPaletteFor(t *testing.T) {
 			name:  "default theme uses terminal colors",
 			theme: theme.Default(),
 			want: Palette{
-				Title:        lipgloss.ANSIColor(10),
-				Text:         lipgloss.ANSIColor(15),
-				Dim:          lipgloss.ANSIColor(7),
+				Title:        lipgloss.ANSIColor(2),
+				Text:         lipgloss.NoColor{},
+				Dim:          lipgloss.ANSIColor(8),
 				Accent:       lipgloss.ANSIColor(11),
-				Playing:      lipgloss.ANSIColor(10),
+				Playing:      lipgloss.ANSIColor(2),
 				SeekBar:      lipgloss.ANSIColor(11),
 				Volume:       lipgloss.ANSIColor(2),
 				Error:        lipgloss.ANSIColor(9),
 				Warning:      lipgloss.ANSIColor(11),
 				KeyBG:        lipgloss.ANSIColor(8),
 				KeyFG:        lipgloss.ANSIColor(15),
-				SpectrumLow:  lipgloss.ANSIColor(10),
+				SpectrumLow:  lipgloss.ANSIColor(2),
 				SpectrumMid:  lipgloss.ANSIColor(11),
 				SpectrumHigh: lipgloss.ANSIColor(9),
 			},
@@ -137,11 +137,13 @@ func TestApplyThemeColors(t *testing.T) {
 				{tag: 2, level: 0.9, want: fg(p.SpectrumHigh)},
 				{tag: 3, level: -1, want: "x"},
 			} {
-				var sb, run strings.Builder
-				run.WriteString("x")
-				flushStyleRun(&sb, &run, tier.tag)
+				var sb strings.Builder
+				w := styleRunWriter{sb: &sb}
+				w.setTag(tier.tag)
+				w.writeString("x")
+				w.flush()
 				if sb.String() != tier.want {
-					t.Errorf("flushStyleRun(tag %d) = %q, want %q", tier.tag, sb.String(), tier.want)
+					t.Errorf("styleRunWriter(tag %d) = %q, want %q", tier.tag, sb.String(), tier.want)
 				}
 				if tier.level >= 0 {
 					if got := specWrap(tier.level, "x"); got != tier.want {
@@ -157,11 +159,13 @@ func TestApplyThemeColors(t *testing.T) {
 				redSectorTagMid:  p.SpectrumMid,
 				redSectorTagHigh: p.SpectrumHigh,
 			} {
-				var sb, run strings.Builder
-				run.WriteString("x")
-				flushRedSectorRun(&sb, &run, tag)
+				var sb strings.Builder
+				w := styleRunWriter{sb: &sb}
+				w.switchStyle(redSectorTierStyle(tag))
+				w.writeString("x")
+				w.flush()
 				if want := fg(c); sb.String() != want {
-					t.Errorf("flushRedSectorRun(tag %d) = %q, want %q", tag, sb.String(), want)
+					t.Errorf("redSectorTierStyle(tag %d) = %q, want %q", tag, sb.String(), want)
 				}
 			}
 		})

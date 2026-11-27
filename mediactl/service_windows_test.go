@@ -3,7 +3,9 @@
 package mediactl
 
 import (
+	"sync/atomic"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -113,4 +115,91 @@ func TestServiceCloseStopsMessageLoopAndIsIdempotent(t *testing.T) {
 	}
 
 	svc.Close() // must not block or panic on a second call
+}
+
+func TestWindowsDispatchIsNonBlockingAndCancellable(t *testing.T) {
+	firstStarted := make(chan struct{})
+	release := make(chan struct{})
+	var sent atomic.Int32
+
+	svc := &Service{
+		send: func(tea.Msg) {
+			if sent.Add(1) == 1 {
+				close(firstStarted)
+				<-release
+			}
+		},
+		wake: make(chan struct{}, 1),
+		done: make(chan struct{}),
+	}
+
+	// Queue multiple hotkeys while send is blocked; dispatch must return immediately.
+	for range maxDispatchQueue + 8 {
+		svc.dispatch(playback.NextMsg{})
+	}
+	exited := make(chan struct{})
+	go func() {
+		svc.forwardMessages()
+		close(exited)
+	}()
+
+	<-firstStarted
+	close(svc.done)
+	close(release)
+
+	select {
+	case <-exited:
+	case <-time.After(2 * time.Second):
+		t.Fatal("forwardMessages did not exit after cancellation")
+	}
+	if got := sent.Load(); got != 1 {
+		t.Fatalf("sent count after cancel = %d, want 1", got)
+	}
+}
+
+func TestStopMessageLoopRetriesUntilPostOrStop(t *testing.T) {
+	tests := []struct {
+		name         string
+		failAttempts int
+		stopEarly    bool
+		wantCalls    int
+	}{
+		{name: "succeeds first try", failAttempts: 0, wantCalls: 1},
+		{name: "retries until post succeeds", failAttempts: 2, wantCalls: 3},
+		{name: "exits when loop stops before post succeeds", failAttempts: 99, stopEarly: true, wantCalls: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stopped := make(chan struct{})
+			var calls atomic.Int32
+			post := func(uint32) bool {
+				n := int(calls.Add(1))
+				if tt.stopEarly && n == 1 {
+					close(stopped)
+					return false
+				}
+				if n > tt.failAttempts {
+					close(stopped)
+					return true
+				}
+				return false
+			}
+
+			done := make(chan struct{})
+			go func() {
+				stopMessageLoop(42, stopped, post)
+				close(done)
+			}()
+
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Fatal("stopMessageLoop timed out")
+			}
+			if got := int(calls.Load()); got < tt.wantCalls {
+				t.Fatalf("post calls = %d, want at least %d", got, tt.wantCalls)
+			}
+		})
+	}
 }

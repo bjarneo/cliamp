@@ -526,3 +526,431 @@ func TestExecBinaryNotOnPath(t *testing.T) {
 		t.Fatalf("err = %q, want PATH mention", s)
 	}
 }
+
+func TestExecBlocksDangerousYTDLPFlags(t *testing.T) {
+	tests := []struct {
+		name    string
+		binary  string
+		args    []string
+		blocked string
+	}{
+		{"--exec", "yt-dlp", []string{"--exec", "id", "https://example.com"}, "--exec"},
+		{"--exec=", "yt-dlp", []string{"--exec=id", "https://example.com"}, "--exec"},
+		{"--exec-before-download", "yt-dlp", []string{"--exec-before-download", "id"}, "--exec-before-download"},
+		{"--exec-before-download=", "yt-dlp", []string{"--exec-before-download=id"}, "--exec-before-download"},
+		{"--config-locations", "yt-dlp", []string{"--config-locations", "/tmp/cfg"}, "--config-locations"},
+		{"--config-locations=", "yt-dlp", []string{"--config-locations=/tmp/cfg"}, "--config-locations"},
+		{"--config-location", "yt-dlp", []string{"--config-location", "/tmp/cfg"}, "--config-location"},
+		{"--config-location=", "yt-dlp", []string{"--config-location=/tmp/cfg"}, "--config-location"},
+		{"--plugin-dirs", "yt-dlp", []string{"--plugin-dirs", "/tmp/plugs"}, "--plugin-dirs"},
+		{"--plugin-dirs=", "yt-dlp", []string{"--plugin-dirs=/tmp/plugs"}, "--plugin-dirs"},
+		{"flag after url", "yt-dlp", []string{"https://example.com", "--exec=id"}, "--exec"},
+		{"allowed flag passes flag check", "yt-dlp", []string{"--version"}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			L := newSandboxedState()
+			defer L.Close()
+			p := &Plugin{Name: "test", L: L, perms: map[string]bool{PermExec: true}}
+			m := newManager([]string{"yt-dlp"}, nil)
+			m.logger = newPluginLogger("")
+			cliamp := L.NewTable()
+			m.registerExecAPI(L, cliamp, p)
+			L.SetGlobal("cliamp", cliamp)
+
+			// Clear PATH so allowed commands stop at LookPath instead of launching yt-dlp.
+			t.Setenv("PATH", t.TempDir())
+			if err := L.DoString(fmt.Sprintf(`
+				_G.h, _G.err = cliamp.exec.run(%q, {%s}, {})
+			`, tt.binary, luaStringList(tt.args))); err != nil {
+				t.Fatal(err)
+			}
+			if L.GetGlobal("h") != lua.LNil {
+				t.Fatal("expected nil handle")
+			}
+			gotErr := L.GetGlobal("err").String()
+			if tt.blocked != "" {
+				if !strings.Contains(gotErr, "flag not allowed") || !strings.Contains(gotErr, tt.blocked) {
+					t.Errorf("err = %q, want flag not allowed for %q", gotErr, tt.blocked)
+				}
+			} else if strings.Contains(gotErr, "flag not allowed") {
+				t.Errorf("allowed flag was blocked: %q", gotErr)
+			}
+		})
+	}
+}
+
+func TestExecArgsIteratedSequentially(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses echo")
+	}
+	L, p, _, cleanup := newExecTestState(t, []string{"exec"})
+	defer cleanup()
+
+	p.mu.Lock()
+	err := L.DoString(`
+		_G.out = nil
+		_G.done = nil
+		local args = {"one", "two", "three", extra = "ignored"}
+		cliamp.exec.run("echo", args, {
+			on_stdout = function(line) _G.out = line end,
+			on_exit = function(code) _G.done = code end,
+		})
+	`)
+	p.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitExec(t, p, L, "done", 10*time.Second)
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if got := strings.TrimSpace(L.GetGlobal("out").String()); got != "one two three" {
+		t.Fatalf("stdout = %q, want %q", got, "one two three")
+	}
+}
+
+func TestExecPipeStreamStopsCallbacksAfterCancel(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses sh")
+	}
+	L, p, em, cleanup := newExecTestState(t, []string{"exec"})
+	defer cleanup()
+
+	p.mu.Lock()
+	err := L.DoString(`
+		_G.lines = 0
+		_G.done = nil
+		_G.h = cliamp.exec.run("sh", {"-c", "i=0; while [ $i -lt 5000 ]; do echo line-$i; i=$((i+1)); done"}, {
+			on_stdout = function()
+				_G.lines = _G.lines + 1
+				if _G.lines == 1 then
+					_G.h:cancel()
+				end
+			end,
+			on_exit = function(code) _G.done = code end,
+		})
+	`)
+	p.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitExec(t, p, L, "done", 10*time.Second)
+	em.stopAll()
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	lines := int(L.GetGlobal("lines").(lua.LNumber))
+	if lines >= 5000 {
+		t.Fatalf("on_stdout ran %d times after cancel, expected early stop", lines)
+	}
+}
+
+func TestExecFFmpegOutputPaths(t *testing.T) {
+	prevRules := activeWriteRules.Load()
+	t.Cleanup(func() { activeWriteRules.Store(prevRules) })
+
+	cfgDir := filepath.Join(t.TempDir(), "cliamp-cfg")
+	if err := os.MkdirAll(filepath.Join(cfgDir, "plugins"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLIAMP_CONFIG_DIR", cfgDir)
+	initWriteRules()
+
+	tmpOut := filepath.Join(os.TempDir(), "out.mp3")
+	if runtime.GOOS != "windows" {
+		tmpOut = "/tmp/out.mp3"
+	}
+	disallowed := execDisallowedCWD()
+	disallowedFile := filepath.Join(disallowed, "evil")
+	if runtime.GOOS != "windows" {
+		disallowedFile = "/etc/evil"
+	}
+
+	tests := []struct {
+		name      string
+		args      []string
+		cwd       string
+		wantAllow bool
+		wantSub   string
+	}{
+		{
+			name:      "stdout dash output",
+			args:      []string{"-i", "in.mp3", "-f", "s16le", "-"},
+			wantAllow: true,
+		},
+		{
+			name:      "stdout pipe output",
+			args:      []string{"-i", "in.mp3", "-f", "s16le", "pipe:1"},
+			wantAllow: true,
+		},
+		{
+			name:      "dev null output",
+			args:      []string{"-i", "in.mp3", "-f", "null", "/dev/null"},
+			wantAllow: true,
+		},
+		{
+			name:      "NUL output",
+			args:      []string{"-i", "in.mp3", "-f", "null", "NUL"},
+			wantAllow: true,
+		},
+		{
+			name:      "temp file output",
+			args:      []string{"-i", "in.mp3", tmpOut},
+			wantAllow: true,
+		},
+		{
+			name:      "file protocol temp output",
+			args:      []string{"-i", "in.mp3", "file:" + tmpOut},
+			wantAllow: true,
+		},
+		{
+			name:      "transcode flags and temp output",
+			args:      []string{"-y", "-hide_banner", "-loglevel", "error", "-i", disallowedFile, "-vn", "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", tmpOut},
+			wantAllow: true,
+		},
+		{
+			name:      "allowed progress and log flags",
+			args:      []string{"-i", "in.mp3", "-progress", "-", "-passlogfile", filepath.Join(os.TempDir(), "pass"), "-vstats_file", filepath.Join(os.TempDir(), "vstats.log"), "-sdp_file", filepath.Join(os.TempDir(), "out.sdp"), "-filter_complex_script", filepath.Join(os.TempDir(), "graph.txt"), tmpOut},
+			wantAllow: true,
+		},
+		{
+			name:      "relative output inside allowed cwd",
+			args:      []string{"-i", "in.mp3", "out.mp3"},
+			cwd:       os.TempDir(),
+			wantAllow: true,
+		},
+		{
+			name:      "version query without output",
+			args:      []string{"-version"},
+			wantAllow: true,
+		},
+		{
+			name:    "blocks system path output",
+			args:    []string{"-i", "in.mp3", disallowedFile},
+			wantSub: "output path not allowed for ffmpeg",
+		},
+		{
+			name:    "blocks output after boolean flag",
+			args:    []string{"-i", "in.mp3", "-y", disallowedFile},
+			wantSub: "output path not allowed for ffmpeg",
+		},
+		{
+			name:    "blocks output after unknown flag",
+			args:    []string{"-i", "in.mp3", "-unknown_flag", disallowedFile},
+			wantSub: "output path not allowed for ffmpeg",
+		},
+		{
+			name:    "blocks second disallowed output",
+			args:    []string{"-i", "in.mp3", tmpOut, disallowedFile},
+			wantSub: "output path not allowed for ffmpeg",
+		},
+		{
+			name:    "blocks config.toml output",
+			args:    []string{"-i", "in.mp3", filepath.Join(cfgDir, "config.toml")},
+			wantSub: "output path not allowed for ffmpeg",
+		},
+		{
+			name:    "blocks trust manifest output",
+			args:    []string{"-i", "in.mp3", filepath.Join(cfgDir, "plugins", ".trust.json")},
+			wantSub: "output path not allowed for ffmpeg",
+		},
+		{
+			name:    "blocks tilde config.toml output",
+			args:    []string{"-i", "in.mp3", "~/.config/cliamp/config.toml"},
+			wantSub: "output path not allowed for ffmpeg",
+		},
+		{
+			name:    "blocks file protocol output",
+			args:    []string{"-i", "in.mp3", "file:" + disallowedFile},
+			wantSub: "output path not allowed for ffmpeg",
+		},
+		{
+			name:    "blocks file triple slash protocol output",
+			args:    []string{"-i", "in.mp3", "file://" + disallowedFile},
+			wantSub: "output path not allowed for ffmpeg",
+		},
+		{
+			name:    "blocks uppercase FILE protocol output",
+			args:    []string{"-i", "in.mp3", "FILE:" + disallowedFile},
+			wantSub: "output path not allowed for ffmpeg",
+		},
+		{
+			name:    "blocks nested protocol wrapper",
+			args:    []string{"-i", "in.mp3", "async:file:" + disallowedFile},
+			wantSub: "output path not allowed for ffmpeg",
+		},
+		{
+			name:    "blocks subfile protocol options",
+			args:    []string{"-i", "in.mp3", "subfile,,start,0,,:file:" + disallowedFile},
+			wantSub: "output path not allowed for ffmpeg",
+		},
+		{
+			name:    "blocks unix socket protocol",
+			args:    []string{"-i", "in.mp3", "unix:/tmp/cliamp.sock"},
+			wantSub: "output path not allowed for ffmpeg",
+		},
+		{
+			name:    "blocks arbitrary pipe descriptor",
+			args:    []string{"-i", "in.mp3", "pipe:3"},
+			wantSub: "output path not allowed for ffmpeg",
+		},
+		{
+			name:    "blocks tee muxer",
+			args:    []string{"-i", "in.mp3", "-f", "tee", tmpOut},
+			wantSub: "output format not allowed for ffmpeg: tee",
+		},
+		{
+			name:    "blocks -progress outside allowlist",
+			args:    []string{"-progress", disallowedFile, "-i", "in.mp3", "-f", "null", "-"},
+			wantSub: "output path not allowed for ffmpeg flag -progress",
+		},
+		{
+			name:    "blocks -progress= outside allowlist",
+			args:    []string{"-progress=" + disallowedFile, "-i", "in.mp3", "-f", "null", "-"},
+			wantSub: "output path not allowed for ffmpeg flag -progress",
+		},
+		{
+			name:    "blocks -vstats_file outside allowlist",
+			args:    []string{"-i", "in.mp3", "-vstats_file", disallowedFile, "-f", "null", "-"},
+			wantSub: "output path not allowed for ffmpeg flag -vstats_file",
+		},
+		{
+			name:    "blocks -sdp_file outside allowlist",
+			args:    []string{"-i", "in.mp3", "-sdp_file", disallowedFile, "-f", "null", "-"},
+			wantSub: "output path not allowed for ffmpeg flag -sdp_file",
+		},
+		{
+			name:    "blocks -passlogfile outside allowlist",
+			args:    []string{"-i", "in.mp3", "-passlogfile", disallowedFile, "-f", "null", "-"},
+			wantSub: "output path not allowed for ffmpeg flag -passlogfile",
+		},
+		{
+			name:    "blocks -passlogfile:v outside allowlist",
+			args:    []string{"-i", "in.mp3", "-passlogfile:v", disallowedFile, "-f", "null", "-"},
+			wantSub: "output path not allowed for ffmpeg flag -passlogfile:v",
+		},
+		{
+			name:    "blocks -filter_complex_script outside allowlist",
+			args:    []string{"-i", "in.mp3", "-filter_complex_script", disallowedFile, "-f", "null", "-"},
+			wantSub: "output path not allowed for ffmpeg flag -filter_complex_script",
+		},
+		{
+			name:    "blocks -/option file loader outside allowlist",
+			args:    []string{"-i", "in.mp3", "-/filter_complex", disallowedFile, "-f", "null", "-"},
+			wantSub: "output path not allowed for ffmpeg flag -/filter_complex",
+		},
+		{
+			name:    "blocks relative config.toml when cwd is config dir",
+			args:    []string{"-i", "in.mp3", "config.toml"},
+			cwd:     cfgDir,
+			wantSub: "output path not allowed for ffmpeg",
+		},
+		{
+			name:    "blocks relative trust file when cwd is config dir",
+			args:    []string{"-i", "in.mp3", filepath.Join("plugins", ".trust.json")},
+			cwd:     cfgDir,
+			wantSub: "output path not allowed for ffmpeg",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			L := newSandboxedState()
+			defer L.Close()
+			p := &Plugin{Name: "test", L: L, perms: map[string]bool{PermExec: true}}
+			m := newManager([]string{"ffmpeg"}, nil)
+			m.logger = newPluginLogger("")
+			cliamp := L.NewTable()
+			m.registerExecAPI(L, cliamp, p)
+			L.SetGlobal("cliamp", cliamp)
+
+			// Clear PATH so allowed invocations stop at LookPath instead of launching ffmpeg.
+			t.Setenv("PATH", t.TempDir())
+			opts := "{}"
+			if tt.cwd != "" {
+				opts = fmt.Sprintf("{cwd = %q}", tt.cwd)
+			}
+			if err := L.DoString(fmt.Sprintf(`
+				_G.h, _G.err = cliamp.exec.run("ffmpeg", {%s}, %s)
+			`, luaStringList(tt.args), opts)); err != nil {
+				t.Fatal(err)
+			}
+			if L.GetGlobal("h") != lua.LNil {
+				t.Fatal("expected nil handle")
+			}
+			gotErr := L.GetGlobal("err").String()
+			if tt.wantAllow {
+				if !strings.Contains(gotErr, "PATH") {
+					t.Fatalf("allowed ffmpeg args were blocked: %q", gotErr)
+				}
+				return
+			}
+			if !strings.Contains(gotErr, tt.wantSub) {
+				t.Fatalf("err = %q, want substring %q", gotErr, tt.wantSub)
+			}
+		})
+	}
+}
+
+func TestValidateFFmpegArgsTildeAndCWD(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	cfg := filepath.Join(home, ".config", "cliamp")
+	music := filepath.Join(home, "Music", "cliamp")
+	t.Setenv("CLIAMP_CONFIG_DIR", cfg)
+
+	rules := loadWriteRules()
+	// Remove temp roots so fakeHome behaves like a real home directory outside /tmp.
+	var tempRoots []string
+	for _, tmp := range []string{"/tmp", os.TempDir()} {
+		if canon, ok := canonicalExistingPath(tmp); ok {
+			tempRoots = append(tempRoots, canon)
+		}
+	}
+	filtered := make([]string, 0, len(rules.allow))
+	for _, dir := range rules.allow {
+		isTemp := false
+		for _, tr := range tempRoots {
+			if dir == tr {
+				isTemp = true
+				break
+			}
+		}
+		if !isTemp {
+			filtered = append(filtered, dir)
+		}
+	}
+	rules.allow = filtered
+
+	tests := []struct {
+		name      string
+		args      []string
+		cwd       string
+		wantAllow bool
+	}{
+		{"tilde bashrc blocked", []string{"-i", "in.mp3", "~/.bashrc"}, "", false},
+		{"tilde config.toml blocked", []string{"-i", "in.mp3", "~/.config/cliamp/config.toml"}, "", false},
+		{"tilde trust.json blocked", []string{"-i", "in.mp3", "~/.config/cliamp/plugins/.trust.json"}, "", false},
+		{"file protocol tilde bashrc blocked", []string{"-i", "in.mp3", "file:~/.bashrc"}, "", false},
+		{"other user tilde blocked", []string{"-i", "in.mp3", "~root/.bashrc"}, "", false},
+		{"tilde music dir allowed", []string{"-i", "in.mp3", "~/Music/cliamp/out.mp3"}, "", true},
+		{"report blocked outside writable cwd", []string{"-report", "-i", "in.mp3", "-f", "null", "-"}, home, false},
+		{"vstats blocked outside writable cwd", []string{"-vstats", "-i", "in.mp3", "-f", "null", "-"}, home, false},
+		{"report allowed inside writable cwd", []string{"-report", "-i", "in.mp3", "-f", "null", "-"}, music, true},
+		{"vstats allowed inside writable cwd", []string{"-vstats", "-i", "in.mp3", "-f", "null", "-"}, music, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reason := validateFFmpegArgsWith(tt.args, tt.cwd, rules.allows)
+			if tt.wantAllow && reason != "" {
+				t.Fatalf("validateFFmpegArgsWith(%v) rejected: %s", tt.args, reason)
+			}
+			if !tt.wantAllow && reason == "" {
+				t.Fatalf("validateFFmpegArgsWith(%v) allowed, want rejection", tt.args)
+			}
+		})
+	}
+}

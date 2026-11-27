@@ -6,39 +6,42 @@ import "strings"
 // with empty space below — a minimal line-graph style visualizer.
 func (v *Visualizer) renderBarsOutline(bands []float64) string {
 	height := v.Rows
-	lines := make([]string, height)
 	bandCount := len(bands)
 	width := v.columns()
 
+	var sb strings.Builder
+	sb.Grow(height * (width*3 + 24))
+
 	for row := range height {
-		var content strings.Builder
+		if row > 0 {
+			sb.WriteByte('\n')
+		}
 		rowBottom := float64(height-1-row) / float64(height)
 		rowTop := float64(height-row) / float64(height)
+		style := specANSI[specTag(rowBottom)]
+		if style.prefix != "" {
+			sb.WriteString(style.prefix)
+		}
 
 		for i, level := range bands {
 			bw := visBandWidth(bandCount, i, width)
-			if level >= rowTop {
-				// Fully below the peak — empty inside.
+			if level < rowTop && level > rowBottom {
 				for range bw {
-					content.WriteByte(' ')
-				}
-			} else if level > rowBottom {
-				// This row contains the peak — draw the outline.
-				for range bw {
-					content.WriteRune('─')
+					sb.WriteRune('─')
 				}
 			} else {
-				// Above the peak — empty.
 				for range bw {
-					content.WriteByte(' ')
+					sb.WriteByte(' ')
 				}
 			}
 			if bandGapAfter(bandCount, i, width) {
-				content.WriteByte(' ')
+				sb.WriteByte(' ')
 			}
 		}
-		lines[row] = specWrap(rowBottom, content.String())
+		if style.prefix != "" {
+			sb.WriteString(style.suffix)
+		}
 	}
 
-	return strings.Join(lines, "\n")
+	return sb.String()
 }

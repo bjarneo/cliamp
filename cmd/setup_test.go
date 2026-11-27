@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/bjarneo/cliamp/config"
 )
 
 // keyPress builds a synthetic key event matching what the runtime sends.
@@ -317,6 +319,30 @@ func TestPasteIntoActiveField(t *testing.T) {
 	}
 }
 
+func TestBandcampSetupBody(t *testing.T) {
+	spec := providerSpec{}
+	for _, p := range providers() {
+		if p.section == "bandcamp" {
+			spec = p
+			break
+		}
+	}
+	if spec.section == "" {
+		t.Fatal("bandcamp spec missing")
+	}
+
+	// Fan Settings copies credentials with a stray space; the Bandcamp spec
+	// trims them itself (the wizard stores other providers' values verbatim).
+	body := spec.body(map[string]string{"user": " fan", "password": "secret "})
+	checkBody(t, body, map[string]string{"user": `"fan"`, "password": `"secret"`})
+
+	// Bandcamp's ping does not validate credentials, so the spec must define
+	// a live validate probe (it uses an authenticated call instead).
+	if spec.validate == nil {
+		t.Fatal("bandcamp spec must define a validate probe")
+	}
+}
+
 func TestNetEaseSetupBody(t *testing.T) {
 	spec := providerSpec{}
 	for _, p := range providers() {
@@ -432,6 +458,357 @@ func TestTidalSetupBody(t *testing.T) {
 	}
 }
 
+func TestTelegramSetupBody(t *testing.T) {
+	var spec providerSpec
+	for _, p := range providers() {
+		if p.section == "telegram" {
+			spec = p
+			break
+		}
+	}
+	if spec.section == "" {
+		t.Fatal("telegram spec missing")
+	}
+
+	// The sign-in needs the terminal, so setup offers it after the wizard
+	// instead of probing here.
+	if spec.validate != nil {
+		t.Fatal("telegram spec should not define a validate probe")
+	}
+	if spec.signIn == nil {
+		t.Fatal("telegram spec should offer the sign-in after saving")
+	}
+
+	const hash = "0123456789abcdef0123456789abcdef"
+	checkBody(t, spec.body(map[string]string{
+		"api_id": "123456", "api_hash": hash, "phone": "+5491100000000",
+		"password": "pw", "chats": "deezload2bot, @mygroup", "buffer_mb": "4",
+	}), map[string]string{
+		"api_id":    "123456",
+		"api_hash":  `"` + hash + `"`,
+		"phone":     `"+5491100000000"`,
+		"password":  `"pw"`,
+		"chats":     `["deezload2bot", "mygroup"]`,
+		"buffer_mb": "4",
+	})
+
+	// An id written by the picker survives as typed.
+	checkBody(t, spec.body(map[string]string{
+		"api_id": "123456", "api_hash": hash, "phone": "+5491100000000",
+		"chats": "ch:1:2, @mygroup",
+	}), map[string]string{"chats": `["ch:1:2", "mygroup"]`})
+
+	// A t.me link is accepted and reduced to the username.
+	checkBody(t, spec.body(map[string]string{
+		"api_id": "123456", "api_hash": hash, "phone": "+5491100000000",
+		"chats": "https://t.me/deezload2bot",
+	}), map[string]string{"chats": `["deezload2bot"]`})
+
+	// The optional keys stay out, and the buffer falls back to 1 MiB.
+	checkBody(t, spec.body(map[string]string{
+		"api_id": "123456", "api_hash": hash, "phone": "+5491100000000",
+	}), map[string]string{
+		"api_id":    "123456",
+		"api_hash":  `"` + hash + `"`,
+		"phone":     `"+5491100000000"`,
+		"buffer_mb": "1",
+	})
+
+	valid := map[string]string{"api_id": "123456", "api_hash": hash, "phone": "+5491100000000"}
+	if err := spec.extraValidate(valid); err != nil {
+		t.Fatalf("extraValidate rejected a valid config: %v", err)
+	}
+	// A number copied with spaces, dashes and parentheses still counts.
+	spaced := map[string]string{"api_id": "123456", "api_hash": hash, "phone": "+54 (9) 11 1234-5678"}
+	if err := spec.extraValidate(spaced); err != nil {
+		t.Fatalf("extraValidate rejected a spaced phone: %v", err)
+	}
+	withChats := map[string]string{"api_id": "123456", "api_hash": hash, "phone": "+5491100000000", "chats": "deezload2bot, @my_group, ch:1:2"}
+	if err := spec.extraValidate(withChats); err != nil {
+		t.Fatalf("extraValidate rejected the chat list: %v", err)
+	}
+	for name, values := range map[string]map[string]string{
+		"api_id is not a number": {"api_id": "abc", "api_hash": hash, "phone": "+1"},
+		"api_id is zero":         {"api_id": "0", "api_hash": hash, "phone": "+1"},
+		"api_hash is short":      {"api_id": "123456", "api_hash": "nope", "phone": "+1"},
+		"buffer is zero":         {"api_id": "123456", "api_hash": hash, "phone": "+5491100000000", "buffer_mb": "0"},
+		"phone is too short":     {"api_id": "123456", "api_hash": hash, "phone": "+1"},
+		"chats has spaces":       {"api_id": "123456", "api_hash": hash, "phone": "+5491100000000", "chats": "my group"},
+	} {
+		if err := spec.extraValidate(values); err == nil {
+			t.Errorf("extraValidate accepted %s", name)
+		}
+	}
+
+	label, action := spec.signIn(map[string]string{
+		"api_id": "123456", "api_hash": hash, "phone": "+5491100000000", "buffer_mb": "4",
+	})
+	if label == "" || action == nil {
+		t.Fatalf("signIn label = %q, action set = %v; want both", label, action != nil)
+	}
+	cfg := telegramConfigFrom(map[string]string{
+		"api_id": "123456", "api_hash": hash, "phone": "+5491100000000", "buffer_mb": "4",
+	})
+	if cfg.AppID != 123456 || cfg.AppHash != hash || cfg.Phone != "+5491100000000" || cfg.BufferMB != 4 {
+		t.Fatalf("telegramConfigFrom = %+v", cfg)
+	}
+}
+
+func TestChatKey(t *testing.T) {
+	tests := map[string]string{
+		"u:123:456":    "u:123",
+		"ch:-100:99":   "ch:-100",
+		"c:42":         "c:42",
+		"c:42:9":       "",
+		"u:123":        "",
+		"deezload2bot": "",
+		"@mygroup":     "",
+	}
+	for in, want := range tests {
+		if got := chatKey(in); got != want {
+			t.Errorf("chatKey(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestCheckedChatsMatchesStaleHashes(t *testing.T) {
+	options := []chatOption{
+		{ID: "ch:1:111", Name: "A"},
+		{ID: "u:2:222", Name: "B"},
+		{ID: "c:3", Name: "C"},
+	}
+	checked := checkedChats(options, []string{"ch:1:999", "c:3"})
+	if !checked[0] || checked[1] || !checked[2] {
+		t.Fatalf("checked = %v, want options 0 and 2", checked)
+	}
+}
+
+func TestApplyChatsAllMeansNoFilter(t *testing.T) {
+	m := newSetupModel()
+	m.pidx = 0
+	m.stage = stageChats
+	m.chatItems = []chatOption{{ID: "ch:1:1", Name: "A"}, {ID: "u:2:2", Name: "B"}}
+
+	m.chatChecked = map[int]bool{0: true}
+	m.chatTouched = true
+	m.applyChats()
+	if got := m.values["chats"]; got != "ch:1:1" {
+		t.Fatalf("chats = %q, want ch:1:1", got)
+	}
+
+	m.chatChecked = map[int]bool{0: true, 1: true}
+	m.chatTouched = true
+	m.applyChats()
+	if got := m.values["chats"]; got != "" {
+		t.Fatalf("chats = %q, want empty for every chat", got)
+	}
+}
+
+// TestApplyChatsWithoutSelectionKeepsTheList covers the trap of opening the
+// checklist and pressing enter on a row: it must not clear the saved chats.
+func TestApplyChatsWithoutSelectionKeepsTheList(t *testing.T) {
+	m := newSetupModel()
+	m.pidx = 0
+	m.stage = stageChats
+	m.chatItems = []chatOption{{ID: "ch:1:1", Name: "A"}, {ID: "u:2:2", Name: "B"}}
+	m.values = map[string]string{"chats": "ch:1:1"}
+
+	m.applyChats()
+
+	if got := m.values["chats"]; got != "ch:1:1" {
+		t.Fatalf("chats = %q, want the saved list untouched", got)
+	}
+	if m.chatNote == "" {
+		t.Fatal("a no-op apply should explain that space selects")
+	}
+	if m.stage != stageChats {
+		t.Fatalf("stage = %v; an apply with nothing picked should stay in the checklist", m.stage)
+	}
+}
+
+func TestTypedReplacesPrefilledSecret(t *testing.T) {
+	secret := fieldSpec{key: "api_hash", secret: true}
+	prefilled := map[string]string{"api_hash": "old"}
+	if got := typed(secret, "old", "x", prefilled); got != "x" {
+		t.Fatalf("first keystroke = %q, want the new value only", got)
+	}
+	if got := typed(secret, "x", "y", prefilled); got != "xy" {
+		t.Fatalf("second keystroke = %q, want the value appended", got)
+	}
+	plain := fieldSpec{key: "phone"}
+	if got := typed(plain, "+54", "9", map[string]string{"phone": "+54"}); got != "+549" {
+		t.Fatalf("plain field = %q, want the value appended", got)
+	}
+}
+
+func TestTelegramSetupPrefill(t *testing.T) {
+	t.Setenv("CLIAMP_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+	path, err := config.Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const hash = "0123456789abcdef0123456789abcdef"
+	if err := os.WriteFile(path, []byte(`
+[telegram]
+api_id = 123456
+api_hash = "`+hash+`"
+phone = "+5491100000000"
+password = "pw"
+chats = ["ch:1:2"]
+buffer_mb = 4
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m := newSetupModel()
+	idx := -1
+	for i, p := range m.provs {
+		if p.section == "telegram" {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatal("telegram spec missing")
+	}
+	m.startProvider(idx)
+
+	want := map[string]string{
+		"api_id":    "123456",
+		"api_hash":  hash,
+		"phone":     "+5491100000000",
+		"password":  "pw",
+		"chats":     "ch:1:2",
+		"buffer_mb": "4",
+	}
+	for key, value := range want {
+		if got := m.values[key]; got != value {
+			t.Errorf("prefill %s = %q, want %q", key, got, value)
+		}
+	}
+}
+
+func TestEscapeWithChangesAsksToSave(t *testing.T) {
+	t.Setenv("CLIAMP_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+
+	m := newSetupModel()
+	m.pidx = -1
+	for i, p := range m.provs {
+		if p.section == "telegram" {
+			m.pidx = i
+			break
+		}
+	}
+	if m.pidx < 0 {
+		t.Fatal("telegram spec missing")
+	}
+	m.values = map[string]string{
+		"api_id": "123456", "api_hash": "0123456789abcdef0123456789abcdef",
+		"phone": "+5491100000000", "buffer_mb": "1",
+	}
+	m.prefilled = map[string]string{}
+	m.refreshVisibleFields()
+
+	m.formKey(keyPress(tea.KeyEscape, ""))
+	if m.stage != stageConfirm {
+		t.Fatalf("stage = %v, want the save question", m.stage)
+	}
+	if view := m.viewConfirm(); !strings.Contains(view, "Save the changes") {
+		t.Fatalf("confirm view = %q", view)
+	}
+
+	// n throws the edits away and goes back to the menu.
+	m.confirmKey(keyPress('n', "n"))
+	if m.stage != stageMenu {
+		t.Fatalf("stage = %v, want the menu after discard", m.stage)
+	}
+}
+
+func TestEscapeWithChangesSavesOnYes(t *testing.T) {
+	t.Setenv("CLIAMP_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+
+	m := newSetupModel()
+	m.pidx = -1
+	for i, p := range m.provs {
+		if p.section == "telegram" {
+			m.pidx = i
+			break
+		}
+	}
+	if m.pidx < 0 {
+		t.Fatal("telegram spec missing")
+	}
+	m.values = map[string]string{
+		"api_id": "123456", "api_hash": "0123456789abcdef0123456789abcdef",
+		"phone": "+5491100000000", "buffer_mb": "1",
+	}
+	m.prefilled = map[string]string{}
+	m.refreshVisibleFields()
+
+	m.formKey(keyPress(tea.KeyEscape, ""))
+	m.confirmKey(keyPress('y', "y"))
+
+	if m.stage != stageResult {
+		t.Fatalf("stage = %v, want the result screen", m.stage)
+	}
+	if m.resultErr != nil || m.saveFailed != nil {
+		t.Fatalf("save failed: resultErr=%v saveFailed=%v", m.resultErr, m.saveFailed)
+	}
+	if !strings.Contains(m.resultText, "Saved [telegram]") {
+		t.Fatalf("resultText = %q", m.resultText)
+	}
+}
+
+func TestEscapeWithoutChangesGoesToTheMenu(t *testing.T) {
+	m := newSetupModel()
+	m.pidx = 0
+	m.values = map[string]string{"api_id": "123456"}
+	m.prefilled = map[string]string{"api_id": "123456"}
+	m.refreshVisibleFields()
+
+	m.formKey(keyPress(tea.KeyEscape, ""))
+	if m.stage != stageMenu {
+		t.Fatalf("stage = %v, want the menu for an untouched form", m.stage)
+	}
+}
+
+// TestTelegramSetupOffersSignInAfterSave checks the success screen offers the
+// sign-in and that pressing s asks Setup to run it once the wizard exits.
+func TestTelegramSetupOffersSignInAfterSave(t *testing.T) {
+	t.Setenv("CLIAMP_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+
+	m := newSetupModel()
+	m.pidx = -1
+	for i, p := range m.provs {
+		if p.section == "telegram" {
+			m.pidx = i
+			break
+		}
+	}
+	if m.pidx < 0 {
+		t.Fatal("telegram spec missing")
+	}
+	m.values = map[string]string{
+		"api_id": "123456", "api_hash": "0123456789abcdef0123456789abcdef",
+		"phone": "+5491100000000", "buffer_mb": "1",
+	}
+	m.persistAndDone(false)
+	if m.signInAction == nil {
+		t.Fatal("a successful save should offer the sign-in")
+	}
+	if view := m.viewResult(); !strings.Contains(view, "Press s to sign in now") {
+		t.Fatalf("result view missing the sign-in hint: %q", view)
+	}
+
+	m.resultKey(keyPress('s', "s"))
+	if !m.signInRequested {
+		t.Fatal("pressing s should request the sign-in after the wizard exits")
+	}
+}
+
 func TestPlexSetupBody(t *testing.T) {
 	var spec providerSpec
 	for _, p := range providers() {
@@ -516,10 +893,10 @@ func TestMixcloudSetupBody(t *testing.T) {
 // and docs/cli.md name as checked during setup.
 func TestSetupValidateMatchesDocs(t *testing.T) {
 	want := map[string]bool{
-		"navidrome": true, "lyrion": true, "plex": true, "jellyfin": true,
+		"navidrome": true, "lyrion": true, "bandcamp": true, "plex": true, "jellyfin": true,
 		"emby": true, "audiobookshelf": true, "netease": true,
 		"spotify": false, "qobuz": false, "tidal": false, "mixcloud": false,
-		"ytmusic": false,
+		"ytmusic": false, "telegram": false,
 	}
 	specs := providers()
 	if len(specs) != len(want) {
@@ -610,4 +987,72 @@ func TestYTMusicCustomModeIncludesOptionalCookies(t *testing.T) {
 	}
 
 	checkBody(t, spec.body(values), map[string]string{"cookies_from": `"firefox"`})
+}
+
+func TestChatsLoadedIgnoresStaleGeneration(t *testing.T) {
+	m := newSetupModel()
+	tgIdx := -1
+	for i, p := range m.provs {
+		if p.section == "telegram" {
+			tgIdx = i
+			break
+		}
+	}
+	if tgIdx < 0 {
+		t.Fatal("telegram spec missing")
+	}
+	m.pidx = tgIdx
+
+	// Open picker (gen 1), cancel with esc (gen 2), reopen (gen 3).
+	m.openChats()
+	gen1 := m.chatLoadGen
+	m.chatsKey(keyPress(tea.KeyEscape, ""))
+	m.openChats()
+	genCurrent := m.chatLoadGen
+	if genCurrent <= gen1 {
+		t.Fatalf("reopened generation = %d, want > %d", genCurrent, gen1)
+	}
+
+	tests := []struct {
+		name        string
+		msg         chatsLoadedMsg
+		wantLoading bool
+		wantCount   int
+		wantFirstID string
+	}{
+		{
+			name:        "stale generation is ignored",
+			msg:         chatsLoadedMsg{gen: gen1, options: []chatOption{{ID: "ch:1:1", Name: "Stale"}}},
+			wantLoading: true,
+			wantCount:   0,
+		},
+		{
+			name:        "wrong future generation is ignored",
+			msg:         chatsLoadedMsg{gen: genCurrent + 1, options: []chatOption{{ID: "ch:2:2", Name: "Future"}}},
+			wantLoading: true,
+			wantCount:   0,
+		},
+		{
+			name:        "current generation populates picker",
+			msg:         chatsLoadedMsg{gen: genCurrent, options: []chatOption{{ID: "ch:3:3", Name: "Fresh"}}},
+			wantLoading: false,
+			wantCount:   1,
+			wantFirstID: "ch:3:3",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m.Update(tt.msg)
+			if m.chatLoading != tt.wantLoading {
+				t.Fatalf("chatLoading = %v, want %v", m.chatLoading, tt.wantLoading)
+			}
+			if len(m.chatItems) != tt.wantCount {
+				t.Fatalf("len(chatItems) = %d, want %d", len(m.chatItems), tt.wantCount)
+			}
+			if tt.wantFirstID != "" && m.chatItems[0].ID != tt.wantFirstID {
+				t.Fatalf("chatItems[0].ID = %q, want %q", m.chatItems[0].ID, tt.wantFirstID)
+			}
+		})
+	}
 }

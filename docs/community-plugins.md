@@ -7,7 +7,7 @@ These plugins are maintained by the community. To add a plugin, open a PR.
 | [cliamp-lastfm](https://github.com/tetsuo76/cliamp-lastfm) | Last.fm scrobbling | [@tetsuo76](https://github.com/tetsuo76) |
 | [cliamp-plugin-led-burst](https://github.com/AlexZeitler/cliamp-plugin-led-burst) | Stereo LED matrix visualizer | [@AlexZeitler](https://github.com/AlexZeitler) |
 | [cliamp-plugin-block-burst](https://github.com/AlexZeitler/cliamp-plugin-block-burst) | Stereo LED block matrix visualizer | [@AlexZeitler](https://github.com/AlexZeitler) |
-| [cliamp-plugin-block-burst](https://github.com/AlexZeitler/cliamp-plugin-vu-meter) | Analog multi VU meter style visualizer | [@AlexZeitler](https://github.com/AlexZeitler) |
+| [cliamp-plugin-vu-meter](https://github.com/AlexZeitler/cliamp-plugin-vu-meter) | Analog multi VU meter style visualizer | [@AlexZeitler](https://github.com/AlexZeitler) |
 | [cliamp-plugin-nightrider](https://github.com/HANCORE-linux/cliamp-plugin-nightrider) | Nightrider style visualizer | [@HANCORE-linux](https://github.com/HANCORE-linux) |
 | [cliamp-plugin-tubeamp](https://github.com/8bit64k/cliamp-plugin-tubeamp) | Vacuum-tube amplifier visualizer | [@8bit64k](https://github.com/8bit64k) |
 | [cliamp-plugin-nova](https://github.com/8bit64k/cliamp-plugin-nova) | Concentric-ring spectrum visualizer | [@8bit64k](https://github.com/8bit64k) |
@@ -19,3 +19,6 @@ These plugins are maintained by the community. To add a plugin, open a PR.
 | [cliamp-plugin-pomodoro](https://github.com/gaurabxkc/cliamp-plugin-pomodoro) | Focus timer that pauses playback during breaks, with a countdown clock visualizer | [@gaurabxkc](https://github.com/gaurabxkc) |
 | [cliamp-plugin-save-song](https://github.com/dorobica/cliamp-plugin-save-song) | One key saves the playing song, including the live title on radio streams, to a dated list you can search and replay | [@dorobica](https://github.com/dorobica) |
 | [cliamp-plugin-mac-notify](https://github.com/dbarrerap/cliamp-plugin-mac-notify) | macOS Now Playing desktop notifications with local cover art and YouTube thumbnails | [@dbarrerap](https://github.com/dbarrerap) |
+| [cliamp-plugin-hanami](https://github.com/niteover/cliamp-plugin-hanami) | Pixel cherry blossom visualizer: petals pile up in drifts that glow with the spectrum and jump on the beat | [@niteover](https://github.com/niteover) |
+| [cliamp-plugin-wormhole](https://github.com/konstantindenerz/cliamp-plugin-wormhole) | Wireframe tunnel visualizer in Braille dots: flies with the music and reacts to kick, snare and hi-hat | [@konstantindenerz](https://github.com/konstantindenerz) |
+| [cliamp-plugin-hack-the-gibson](https://github.com/konstantindenerz/cliamp-plugin-hack-the-gibson) | Flight through a city of glass towers in Braille dots: pulses on the beat and reacts to kick, snare and hi-hat, with switchable themes | [@konstantindenerz](https://github.com/konstantindenerz) |

@@ -16,6 +16,12 @@ import (
 // provider shortcut helpers through shortcutKeys.
 var mainKeyPath = []string{"handleKey", "handleGlobalKey", "handleMainKey"}
 
+// modalKeyHandlers own the keys while their modal is open. They are not part of
+// a command mode, so the registry drift guard does not apply to them.
+var modalKeyHandlers = map[string]bool{
+	"handleLuaSelectKey": true,
+}
+
 // focusKeyHandlers maps the handlers that handleKey calls for a focused area
 // to the command mode of that area.
 var focusKeyHandlers = map[string]commandMode{
@@ -52,6 +58,9 @@ func TestReservedKeysCoversHandleKey(t *testing.T) {
 		// Each handler that the function calls is on the main key path or
 		// owns the command mode of a focused area.
 		for _, callee := range handlerCalls(fd) {
+			if modalKeyHandlers[callee] {
+				continue
+			}
 			if !slices.Contains(mainKeyPath, callee) && focusKeyHandlers[callee] == 0 {
 				t.Errorf("%s calls %s. Add it to mainKeyPath or focusKeyHandlers.", name, callee)
 			}

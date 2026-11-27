@@ -70,9 +70,16 @@ func buildHannWindow(size int) []float64 {
 	return window
 }
 
+// maxVisCacheEntries caps width-keyed caches so repeated terminal resizes do
+// not grow maps without bound.
+const maxVisCacheEntries = 16
+
 func (v *Visualizer) prevBands(spec VisAnalysisSpec) []float64 {
 	if prev, ok := v.prevBySpec[spec]; ok {
 		return prev
+	}
+	if len(v.prevBySpec) >= maxVisCacheEntries {
+		clear(v.prevBySpec)
 	}
 	prev := make([]float64, spec.BandCount)
 	v.prevBySpec[spec] = prev
@@ -82,6 +89,9 @@ func (v *Visualizer) prevBands(spec VisAnalysisSpec) []float64 {
 func (v *Visualizer) spectrumEdges(count int) []float64 {
 	if edges, ok := v.edgeCache[count]; ok {
 		return edges
+	}
+	if len(v.edgeCache) >= maxVisCacheEntries {
+		clear(v.edgeCache)
 	}
 	edges := buildSpectrumEdges(count)
 	v.edgeCache[count] = edges
@@ -122,6 +132,9 @@ func (v *Visualizer) resultBufFor(spec VisAnalysisSpec) []float64 {
 	if buf, ok := v.resultBufCache[spec]; ok {
 		clear(buf)
 		return buf
+	}
+	if len(v.resultBufCache) >= maxVisCacheEntries {
+		clear(v.resultBufCache)
 	}
 	buf := make([]float64, spec.BandCount)
 	v.resultBufCache[spec] = buf
@@ -177,19 +190,13 @@ func (v *Visualizer) Analyze(samples []float64, spec VisAnalysisSpec) []float64 
 	prev := v.prevBands(spec)
 	bands := v.resultBufFor(spec)
 
-	// Silence gate: skip the FFT pipeline when input is empty or effectively
-	// silent. A quick max-abs scan is two orders of magnitude cheaper than the
-	// FFT and fires whenever playback is paused, between tracks, or quiet.
-	silent := len(samples) == 0
-	if !silent {
-		maxAbs := 0.0
-		for _, s := range samples {
-			a := math.Abs(s)
-			if a > maxAbs {
-				maxAbs = a
-			}
+	// Silence gate skips the FFT pipeline when input is empty or quiet.
+	silent := true
+	for _, s := range samples {
+		if s >= 1e-5 || s <= -1e-5 {
+			silent = false
+			break
 		}
-		silent = maxAbs < 1e-5
 	}
 	if silent {
 		for b := range spec.BandCount {
@@ -199,31 +206,44 @@ func (v *Visualizer) Analyze(samples []float64, spec VisAnalysisSpec) []float64 
 		return bands
 	}
 
-	// Window samples into the reusable complex FFT buffer. Any tail beyond the
-	// provided samples stays zero from the previous run-through — we always
-	// overwrite the first `have` entries and explicitly zero the rest below.
-	cbuf := v.fftComplexBuffer(spec.FFTSize)
+	// Pack real windowed samples into N/2 complex pairs and compute the power
+	// spectrum through a half-size FFT.
+	halfLen := spec.FFTSize / 2
 	window := v.hannWindow(spec.FFTSize)
 	have := min(len(samples), spec.FFTSize)
-	for i := range have {
-		cbuf[i] = complex(samples[i]*window[i], 0)
-	}
-	for i := have; i < spec.FFTSize; i++ {
-		cbuf[i] = 0
-	}
-
-	fftInPlace(cbuf, v.fftTwiddles(spec.FFTSize))
-
-	// Power spectrum |X|^2 into the reusable float buffer. Skipping the sqrt
-	// per bin halves the work compared to magnitudes; the log10 below absorbs
-	// the factor of two so band values stay in the same [0,1] range.
-	halfLen := spec.FFTSize / 2
 	powers := v.fftBuffer(spec.FFTSize)[:halfLen]
-	powers[0] = 0
-	for i := 1; i < halfLen; i++ {
-		re := real(cbuf[i])
-		im := imag(cbuf[i])
-		powers[i] = re*re + im*im
+	if spec.FFTSize >= 4 && spec.FFTSize&(spec.FFTSize-1) == 0 {
+		cbuf := v.fftComplexBuffer(halfLen)
+		pairs := have / 2
+		for k := range pairs {
+			i := k * 2
+			cbuf[k] = complex(samples[i]*window[i], samples[i+1]*window[i+1])
+		}
+		if have%2 == 1 {
+			cbuf[pairs] = complex(samples[have-1]*window[have-1], 0)
+			pairs++
+		}
+		for k := pairs; k < halfLen; k++ {
+			cbuf[k] = 0
+		}
+		realFFTPowers(powers, cbuf, v.fftTwiddles(halfLen), v.fftTwiddles(spec.FFTSize))
+	} else {
+		cbuf := v.fftComplexBuffer(spec.FFTSize)
+		for i := range have {
+			cbuf[i] = complex(samples[i]*window[i], 0)
+		}
+		for i := have; i < spec.FFTSize; i++ {
+			cbuf[i] = 0
+		}
+		fftInPlace(cbuf, v.fftTwiddles(spec.FFTSize))
+		if halfLen > 0 {
+			powers[0] = 0
+		}
+		for i := 1; i < halfLen; i++ {
+			re := real(cbuf[i])
+			im := imag(cbuf[i])
+			powers[i] = re*re + im*im
+		}
 	}
 
 	binHz := v.sr / float64(spec.FFTSize)

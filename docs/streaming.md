@@ -50,8 +50,9 @@ You can also play a podcast by passing its RSS feed URL:
 cliamp https://example.com/podcast/feed.xml
 ```
 
-cliamp loads the first 300 playable episodes in feed order, retaining episode
-titles, show names, durations, artwork, and episode numbers when available.
+cliamp loads the newest 300 playable episodes, newest first by publication
+date, retaining episode titles, show names, durations, artwork, and episode
+numbers when available.
 
 ### Xiaoyuzhou (小宇宙)
 
@@ -72,6 +73,8 @@ tag index with `/`. See [radio.md](radio.md).
 ## Track Info
 
 For live radio, cliamp shows the current track from inline ICY metadata (`StreamTitle`). This works for most stations and codecs, including MP3, AAC, and Opus.
+
+iHeartRadio stations send a full cart record in `StreamTitle`, such as `Olivia Dean - text="So Easy" song_spot="M" ...`. cliamp shows only the artist and the title from it: `Olivia Dean - So Easy`.
 
 Some broadcasters do not send inline metadata. They publish now-playing data through a separate API. cliamp reads these APIs automatically:
 

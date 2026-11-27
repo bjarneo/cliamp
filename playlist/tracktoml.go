@@ -45,6 +45,9 @@ func WriteTrackTOML(w io.Writer, t Track) {
 	if t.DurationSecs != 0 {
 		fmt.Fprintf(w, "duration_secs = %d\n", t.DurationSecs)
 	}
+	if t.UserRating != 0 {
+		fmt.Fprintf(w, "user_rating = %d\n", t.UserRating)
+	}
 	// An HTTP path is always a stream. A provider URI, such as a qobuz://
 	// track, keeps the flag in the file.
 	if t.Stream && !IsURL(t.Path) {
@@ -116,6 +119,9 @@ func TrackFromTOML(f map[string]string) Track {
 	}
 	if n, err := strconv.Atoi(f["duration_secs"]); err == nil {
 		t.DurationSecs = n
+	}
+	if n, err := strconv.Atoi(f["user_rating"]); err == nil {
+		t.UserRating = n
 	}
 	for k, v := range f {
 		if metaKey, ok := strings.CutPrefix(k, tomlMetaPrefix); ok {

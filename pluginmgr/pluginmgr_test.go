@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -738,5 +739,129 @@ func TestApprovalRecordsShownPermissions(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestValidateNameRejectsControlChars(t *testing.T) {
+	tests := []struct {
+		name    string
+		wantErr bool
+	}{
+		{"valid-plugin_1.0", false},
+		{"", true},
+		{".", true},
+		{"..", true},
+		{"a/b", true},
+		{"a\\b", true},
+		{"evil\x1b[31m", true},
+		{"evil\nname", true},
+		{"evil\rname", true},
+	}
+	for _, tt := range tests {
+		err := validateName(tt.name)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("validateName(%q) err = %v, wantErr = %v", tt.name, err, tt.wantErr)
+		}
+	}
+}
+
+func TestInstallAndRemoveHandleDanglingSymlinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks require elevated privileges on Windows")
+	}
+
+	t.Run("Install refuses to overwrite dangling symlink", func(t *testing.T) {
+		home := withTempHome(t)
+		plugDir := filepath.Join(home, ".config", "cliamp", "plugins")
+		if err := os.MkdirAll(plugDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(home, "outside-target.lua")
+		link := filepath.Join(plugDir, "dangling.lua")
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`plugin.register({name = "dangling", type = "hook"})`))
+		}))
+		defer srv.Close()
+		installTestClient(t, srv.URL)
+		silenceOutput(t)
+
+		err := Install(srv.URL+"/dangling.lua", true)
+		if err == nil || !strings.Contains(err.Error(), "already exists") {
+			t.Fatalf("Install over dangling symlink = %v, want already exists error", err)
+		}
+		if _, statErr := os.Stat(target); !os.IsNotExist(statErr) {
+			t.Fatalf("Install created symlink target %s", target)
+		}
+	})
+
+	t.Run("Remove deletes dangling symlink and directory symlink safely", func(t *testing.T) {
+		home := withTempHome(t)
+		plugDir := filepath.Join(home, ".config", "cliamp", "plugins")
+		if err := os.MkdirAll(plugDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+
+		// Dangling file symlink.
+		fileLink := filepath.Join(plugDir, "ghost.lua")
+		if err := os.Symlink(filepath.Join(home, "missing.lua"), fileLink); err != nil {
+			t.Fatal(err)
+		}
+		silenceOutput(t)
+		if err := Remove("ghost"); err != nil {
+			t.Fatalf("Remove dangling symlink: %v", err)
+		}
+		if _, err := os.Lstat(fileLink); !os.IsNotExist(err) {
+			t.Fatalf("dangling symlink still exists: %v", err)
+		}
+
+		// Symlink to external directory: Remove must delete the link without
+		// touching files inside the target directory.
+		extDir := filepath.Join(home, "keep-dir")
+		if err := os.MkdirAll(extDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		keepFile := filepath.Join(extDir, "important.txt")
+		if err := os.WriteFile(keepFile, []byte("keep"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		dirLink := filepath.Join(plugDir, "linkeddir")
+		if err := os.Symlink(extDir, dirLink); err != nil {
+			t.Fatal(err)
+		}
+		if err := Remove("linkeddir"); err != nil {
+			t.Fatalf("Remove dir symlink: %v", err)
+		}
+		if _, err := os.Lstat(dirLink); !os.IsNotExist(err) {
+			t.Fatalf("dir symlink still exists: %v", err)
+		}
+		if _, err := os.Stat(keepFile); err != nil {
+			t.Fatalf("target directory file was deleted: %v", err)
+		}
+	})
+}
+
+func TestInstallShowsResolvedURLOnRedirect(t *testing.T) {
+	withTempHome(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/short.lua" {
+			http.Redirect(w, r, "/final/real-plugin.lua", http.StatusFound)
+			return
+		}
+		_, _ = w.Write([]byte(`plugin.register({name = "short", type = "hook"})`))
+	}))
+	defer srv.Close()
+	installTestClient(t, srv.URL)
+	out := silenceOutput(t)
+
+	if err := Install(srv.URL+"/short.lua", true); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	wantLine := "Resolved URL: " + srv.URL + "/final/real-plugin.lua"
+	if !strings.Contains(out.String(), wantLine) {
+		t.Errorf("Install output = %q, want %q", out.String(), wantLine)
 	}
 }

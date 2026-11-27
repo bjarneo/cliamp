@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"testing"
 	"time"
@@ -415,5 +416,45 @@ func TestWritesCreateMissingConfigDir(t *testing.T) {
 				t.Fatalf("%s: %v", tt.name, err)
 			}
 		})
+	}
+}
+
+func TestSummaryCacheInvalidatesOnExternalWriteAndFilePerms(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "favorites.toml")
+	s1 := NewAt(path)
+	s2 := NewAt(path)
+
+	if s1.Count() != 0 || s1.IsFavorited("/a.mp3") {
+		t.Fatal("empty store should report 0 favorites")
+	}
+
+	if _, err := s1.Toggle(playlist.Track{Path: "/a.mp3", Title: "A"}); err != nil {
+		t.Fatal(err)
+	}
+	if !s1.IsFavorited("/a.mp3") || s1.Count() != 1 {
+		t.Fatalf("after Toggle: favorited=%v count=%d", s1.IsFavorited("/a.mp3"), s1.Count())
+	}
+	if runtime.GOOS != "windows" {
+		if info, err := os.Stat(path); err != nil {
+			t.Fatal(err)
+		} else if info.Mode().Perm()&0o077 != 0 {
+			t.Errorf("favorites.toml mode = %o, want 0600", info.Mode().Perm())
+		}
+	}
+
+	// The second store updates the file. The first store refreshes its cache.
+	if _, err := s2.Toggle(playlist.Track{Path: "/b.mp3", Title: "B"}); err != nil {
+		t.Fatal(err)
+	}
+	if !s1.IsFavorited("/b.mp3") || s1.Count() != 2 {
+		t.Fatalf("after external Toggle: favorited(/b.mp3)=%v count=%d, want true/2", s1.IsFavorited("/b.mp3"), s1.Count())
+	}
+
+	// External removal invalidates cache back to empty.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if s1.Count() != 0 || s1.IsFavorited("/a.mp3") {
+		t.Fatalf("after external Remove: count=%d favorited=%v, want 0/false", s1.Count(), s1.IsFavorited("/a.mp3"))
 	}
 }

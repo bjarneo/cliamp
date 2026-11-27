@@ -1,14 +1,17 @@
 package plex
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bjarneo/cliamp/internal/httpclient"
 )
@@ -20,8 +23,11 @@ func newTestClient(srv *httptest.Server) *Client {
 
 func TestPing_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("X-Plex-Token") != "test-token" {
-			t.Errorf("expected token in query, got %q", r.URL.Query().Get("X-Plex-Token"))
+		if r.Header.Get("X-Plex-Token") != "test-token" {
+			t.Errorf("expected X-Plex-Token header, got %q", r.Header.Get("X-Plex-Token"))
+		}
+		if r.URL.Query().Get("X-Plex-Token") != "" {
+			t.Errorf("X-Plex-Token must not appear in query, got %q", r.URL.RawQuery)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -622,7 +628,7 @@ func TestTracks_MissingMedia(t *testing.T) {
 func TestStreamURL_Format(t *testing.T) {
 	c := NewClient("http://192.168.1.10:32400", "mytoken")
 	got := c.StreamURL("/library/parts/100/111/file.flac")
-	want := "http://192.168.1.10:32400/library/parts/100/111/file.flac?X-Plex-Token=mytoken"
+	want := "http://192.168.1.10:32400/library/parts/100/111/file.flac?download=1&X-Plex-Token=mytoken"
 	if got != want {
 		t.Errorf("StreamURL:\n got  %q\n want %q", got, want)
 	}
@@ -718,5 +724,93 @@ func TestPingRejectsOversizedBody(t *testing.T) {
 
 	if err := newTestClient(srv).Ping(); !errors.Is(err, httpclient.ErrTooLarge) {
 		t.Fatalf("Ping() error = %v, want httpclient.ErrTooLarge", err)
+	}
+}
+
+func TestScrubURLErrorStripsQuery(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantSubs []string
+		banSubs  []string
+	}{
+		{
+			name:     "strips query params",
+			err:      &url.Error{Op: "Get", URL: "http://plex.local/library/search?query=secret&X-Plex-Token=tok", Err: errors.New("dial failed")},
+			wantSubs: []string{"http://plex.local/library/search", "dial failed"},
+			banSubs:  []string{"secret", "tok", "X-Plex-Token"},
+		},
+		{
+			name:     "leaves non-url error intact",
+			err:      errors.New("plain error"),
+			wantSubs: []string{"plain error"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := scrubURLError(tt.err).Error()
+			for _, sub := range tt.wantSubs {
+				if !strings.Contains(got, sub) {
+					t.Errorf("error %q missing %q", got, sub)
+				}
+			}
+			for _, ban := range tt.banSubs {
+				if strings.Contains(got, ban) {
+					t.Errorf("error %q leaked %q", got, ban)
+				}
+			}
+		})
+	}
+}
+
+func TestSearchTracksRespectsContextCancel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(5 * time.Second):
+		}
+	}))
+	defer srv.Close()
+
+	p := newProvider(NewClient(srv.URL, "super-secret-token"))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := p.SearchTracks(ctx, "miles", 10)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("SearchTracks() error = %v, want context.Canceled", err)
+	}
+	if strings.Contains(err.Error(), "super-secret-token") || strings.Contains(err.Error(), "query=miles") {
+		t.Fatalf("SearchTracks() error leaked secret or query: %v", err)
+	}
+}
+
+// A part whose analyzed stream fails Plex's generic client profile answers
+// 500 to a plain request; the original file request with download=1, as
+// Plexamp sends it, plays.
+func TestStreamURLPlaysAnalyzedFLAC(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("download") != "1" {
+			http.Error(w, "No direct play music profile exists for protocol http, with container flac", http.StatusInternalServerError)
+			return
+		}
+		if got := r.URL.Query().Get("X-Plex-Token"); got != "tok" {
+			t.Errorf("token = %q", got)
+		}
+		w.Header().Set("Content-Type", "audio/flac")
+		_, _ = w.Write([]byte("fLaC"))
+	}))
+	defer srv.Close()
+
+	resp, err := http.Get(NewClient(srv.URL, "tok").StreamURL("/library/parts/60716/1793101096/file.flac"))
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if !IsStreamURL(resp.Request.URL.String()) {
+		t.Fatal("stream URL no longer routes through the buffered pipeline")
 	}
 }

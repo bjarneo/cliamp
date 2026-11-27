@@ -1,6 +1,7 @@
 package embyapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,11 +15,11 @@ import (
 // dialect captures the handful of behaviors that differ between Emby and
 // Jellyfin. Everything else in Client is shared.
 type dialect interface {
-	name() string                                                // error-wrapping prefix
-	ping(c *Client) error                                        // reachability and token check
-	metaKey() string                                             // playlist.Track ProviderMeta key
-	applyAuth(req *http.Request, token, userID, deviceID string) // set auth headers
-	discoverUserID(c *Client) (string, error)                    // user-id discovery strategy
+	name() string                                                  // error-wrapping prefix
+	ping(c *Client) error                                          // reachability and token check
+	metaKey() string                                               // playlist.Track ProviderMeta key
+	applyAuth(req *http.Request, token, userID, deviceID string)   // set auth headers
+	discoverUserID(ctx context.Context, c *Client) (string, error) // user-id discovery strategy
 }
 
 // embyDialect speaks Emby's `Authorization: Emby ...` scheme and discovers the
@@ -43,16 +44,16 @@ func (embyDialect) applyAuth(req *http.Request, token, userID, deviceID string) 
 	}
 }
 
-func (embyDialect) discoverUserID(c *Client) (string, error) {
+func (embyDialect) discoverUserID(ctx context.Context, c *Client) (string, error) {
 	// Try /Users/Me first (works for session tokens from password auth).
 	var me userDTO
-	if err := c.get("/Users/Me", nil, &me); err == nil && me.ID != "" {
+	if err := c.getContext(ctx, "/Users/Me", nil, &me); err == nil && me.ID != "" {
 		c.setUserID(me.ID)
 		return me.ID, nil
 	}
 
 	// Fall back to /Users for API key auth (server-level key has no "me").
-	return c.userIDFromList()
+	return c.userIDFromList(ctx)
 }
 
 // unauthHeader / authHeader build Emby's Authorization header values.
@@ -112,10 +113,10 @@ func (jellyfinDialect) applyAuth(req *http.Request, token, _, deviceID string) {
 
 // discoverUserID resolves the user id via /Users/Me, falling back to the
 // /Users listing only for the API-key case where /Users/Me returns 400.
-func (jellyfinDialect) discoverUserID(c *Client) (string, error) {
+func (jellyfinDialect) discoverUserID(ctx context.Context, c *Client) (string, error) {
 	// Try /Users/Me first (works for session tokens from password auth).
 	var me userDTO
-	meErr := c.get("/Users/Me", nil, &me)
+	meErr := c.getContext(ctx, "/Users/Me", nil, &me)
 	if meErr == nil {
 		if me.ID != "" {
 			c.setUserID(me.ID)
@@ -133,16 +134,16 @@ func (jellyfinDialect) discoverUserID(c *Client) (string, error) {
 
 	// Fall back to /Users for API key auth (a key isn't owned by a user, so
 	// /Users/Me returns 400).
-	return c.userIDFromList()
+	return c.userIDFromList(ctx)
 }
 
 // userIDFromList discovers the user id from the /Users listing, which is the
 // API-key fallback of both dialects. It prefers the user that matches the
 // configured user name. Without a configured name it takes the first entry.
-func (c *Client) userIDFromList() (string, error) {
+func (c *Client) userIDFromList(ctx context.Context) (string, error) {
 	name := c.dialect.name()
 	var users []userDTO
-	if err := c.get("/Users", nil, &users); err != nil {
+	if err := c.getContext(ctx, "/Users", nil, &users); err != nil {
 		return "", fmt.Errorf("%s: could not discover user id (set user_id in config): %w", name, err)
 	}
 	for _, u := range users {

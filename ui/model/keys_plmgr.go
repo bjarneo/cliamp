@@ -210,6 +210,8 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.plManager.inputErr = ""
 		m.plManager.screen = plMgrScreenRename
 	case "d":
+		return m.openDevicePicker()
+	case "x":
 		idx := m.plMgrPlaylistRealIndex(m.plManager.cursor)
 		if idx < 0 {
 			break
@@ -312,7 +314,7 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 	count := m.plMgrTracksViewCount()
 	switch msg.String() {
 	case "ctrl+h":
-		m.toggleAlbumHeadersManual()
+		m.plManager.showAlbumHeaders = !m.plManager.showAlbumHeaders
 		m.plMgrTracksMaybeAdjustScroll(m.effectivePlaylistVisible())
 		return nil
 	case "/":
@@ -431,6 +433,8 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 			}
 		}
 	case "d":
+		return m.openDevicePicker()
+	case "x":
 		m.plMgrRemoveSelectedTracks()
 	case "u":
 		return m.plMgrUndoLast()
@@ -554,6 +558,8 @@ func (m *Model) handlePlMgrDirsKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.openFileBrowserForPlaylist(m.plManager.selPlaylist)
 		return nil
 	case "d":
+		return m.openDevicePicker()
+	case "x":
 		if count == 0 {
 			return nil
 		}

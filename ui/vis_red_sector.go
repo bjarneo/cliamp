@@ -371,16 +371,15 @@ func (d *redSectorDriver) drawLine(dotRows, dotCols int, x0, y0, x1, y1 float64,
 // stars have somewhere to sit below the bars. A blank cell keeps the colour
 // that runs.
 func newRedSectorGrid() brailleGrid {
-	return brailleGrid{flush: flushRedSectorRun, keepRunOnEmpty: true}
+	return brailleGrid{styleFor: redSectorTierStyle, keepRunOnEmpty: true}
 }
 
-// flushRedSectorRun colours a run by its Red Sector tag. Tag 0 is unstyled.
-func flushRedSectorRun(sb *strings.Builder, run *strings.Builder, tag int) {
-	var style styleANSI
+// redSectorTierStyle maps a Red Sector tag to its cached style. Tag 0 is unstyled.
+func redSectorTierStyle(tag int) styleANSI {
 	if tag >= 1 && tag <= redSectorTagCount {
-		style = redSectorANSI[tag-1]
+		return redSectorANSI[tag-1]
 	}
-	writeStyledRun(sb, run, style)
+	return styleANSI{}
 }
 
 // redSectorANSI holds the ANSI of the seven tags, cached the way specANSI is.
@@ -392,18 +391,25 @@ func refreshRedSectorANSI() {
 	// twins of the spectrum plus the dim foreground, the bars the spectrum
 	// itself. That is the contrast the Amiga original draws between its
 	// starfield and its vector object.
-	tags := [redSectorTagCount]color.Color{
-		ColorDim,
-		redSectorDim(SpectrumLow),
-		redSectorDim(SpectrumMid),
-		redSectorDim(SpectrumHigh),
-		SpectrumLow,
-		SpectrumMid,
-		SpectrumHigh,
+	redSectorANSI = [redSectorTagCount]styleANSI{
+		foregroundANSI(ColorDim),
+		redSectorStarANSI(SpectrumLow),
+		redSectorStarANSI(SpectrumMid),
+		redSectorStarANSI(SpectrumHigh),
+		foregroundANSI(SpectrumLow),
+		foregroundANSI(SpectrumMid),
+		foregroundANSI(SpectrumHigh),
 	}
-	for i, c := range tags {
-		redSectorANSI[i] = foregroundANSI(c)
+}
+
+// redSectorStarANSI is the style of a star in the quiet twin of c. A plain
+// ANSI colour (0 to 7) has no darker twin in the palette, so it is drawn
+// faint instead.
+func redSectorStarANSI(c color.Color) styleANSI {
+	if ansi, ok := c.(lipgloss.ANSIColor); ok && ansi < 8 {
+		return colorANSI(lipgloss.NewStyle().Foreground(c).Faint(true))
 	}
+	return foregroundANSI(redSectorDim(c))
 }
 
 // redSectorDim returns the quieter twin of a colour. The sixteen ANSI colours

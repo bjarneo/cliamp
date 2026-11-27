@@ -34,9 +34,10 @@ func TestAppendYTDLCookieArgsSelectsBrowserByURLHost(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		got := appendYTDLCookieArgs([]string{"yt-dlp"}, test.url)
-		if !slices.Equal(got, test.want) {
-			t.Errorf("appendYTDLCookieArgs(%q) = %v, want %v", test.url, got, test.want)
+		got, cleanup, err := appendYTDLCookieArgs([]string{"yt-dlp"}, test.url)
+		cleanup()
+		if err != nil || !slices.Equal(got, test.want) {
+			t.Errorf("appendYTDLCookieArgs(%q) = %v, %v; want %v", test.url, got, err, test.want)
 		}
 	}
 }

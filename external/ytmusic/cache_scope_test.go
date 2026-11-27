@@ -1,6 +1,7 @@
 package ytmusic
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/bjarneo/cliamp/playlist"
@@ -70,5 +71,33 @@ func TestOAuthCacheScopeBoundToProvider(t *testing.T) {
 	}
 	if loadedScope == storedOAuthCacheScope("client") {
 		t.Fatal("provider rebound its cache to credentials written by another session")
+	}
+}
+
+func TestSaveSnapshotAndClassificationConcurrentAtomic(t *testing.T) {
+	t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
+	cache := newYTCache("scope-1")
+	cache.setPlaylists([]playlistEntry{{ID: "p1", Name: "Mix"}})
+	snap := cache.snapshot()
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			saveSnapshot(snap)
+		}()
+		go func() {
+			defer wg.Done()
+			saveClassification("scope-1", map[string]bool{"p1": true})
+		}()
+	}
+	wg.Wait()
+
+	if loaded := loadYTCache("scope-1"); !loaded.playlistsFresh() {
+		t.Fatal("snapshot not readable after concurrent writes")
+	}
+	if got := loadClassification("scope-1"); !got["p1"] {
+		t.Fatalf("classification = %v, want p1=true", got)
 	}
 }

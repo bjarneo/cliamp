@@ -64,6 +64,11 @@ func (m *Model) searchOverlayResultsMaybeAdjustScroll(visible int) {
 
 // handleSearchOverlayResultsKey handles navigation through search results.
 func (m *Model) handleSearchOverlayResultsKey(msg tea.KeyPressMsg) tea.Cmd {
+	// The replace prompt owns the keys until it is answered, like the prompt
+	// of the provider browser.
+	if m.searchOverlay.confirmReplace {
+		return m.handleSearchOverlayReplacePromptKey(msg)
+	}
 	count := len(m.searchOverlay.results)
 
 	switch msg.String() {
@@ -99,7 +104,9 @@ func (m *Model) handleSearchOverlayResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 			if track.IsAlbum() {
 				return m.expandSearchOverlayAlbum(track, searchOverlayAlbumAppend)
 			}
-			m.closeSearchOverlay()
+			if !m.keepSearchOpen {
+				m.closeSearchOverlay()
+			}
 			return m.appendTrack(track)
 		}
 	case "q":
@@ -108,8 +115,21 @@ func (m *Model) handleSearchOverlayResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 			if track.IsAlbum() {
 				return m.expandSearchOverlayAlbum(track, searchOverlayAlbumQueueNext)
 			}
-			m.closeSearchOverlay()
+			if !m.keepSearchOpen {
+				m.closeSearchOverlay()
+			}
 			return m.queueTrackNext(track)
+		}
+	case "R":
+		if count > 0 && !m.searchOverlayBusy() {
+			// The replace has no undo snapshot, so a non-empty queue is
+			// confirmed first.
+			if m.playlist.Len() > 0 {
+				m.searchOverlay.err = ""
+				m.searchOverlay.confirmReplace = true
+				return nil
+			}
+			return m.replaceFromSearchOverlay()
 		}
 	case "p":
 		if count > 0 && !m.searchOverlayBusy() {
@@ -164,6 +184,36 @@ func (m *Model) handleSearchOverlayResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.searchOverlayResultsMaybeAdjustScroll(m.searchOverlayResultsVisible())
 	}
 	return nil
+}
+
+// handleSearchOverlayReplacePromptKey answers the "Replace current queue?"
+// prompt. Enter replaces the queue, Esc or R cancels, and other keys do nothing.
+func (m *Model) handleSearchOverlayReplacePromptKey(msg tea.KeyPressMsg) tea.Cmd {
+	switch msg.String() {
+	case "enter":
+		m.searchOverlay.confirmReplace = false
+		return m.replaceFromSearchOverlay()
+	case "esc", "R":
+		m.searchOverlay.confirmReplace = false
+	default:
+		m.status.Show("Enter confirms replace, Esc cancels.", statusTTLShort)
+	}
+	return nil
+}
+
+// replaceFromSearchOverlay replaces the queue with the selected result. An
+// album is expanded first and replaces the queue when its tracks arrive.
+func (m *Model) replaceFromSearchOverlay() tea.Cmd {
+	cursor := m.searchOverlay.cursor
+	if cursor < 0 || cursor >= len(m.searchOverlay.results) {
+		return nil
+	}
+	track := m.searchOverlay.results[cursor]
+	if track.IsAlbum() {
+		return m.expandSearchOverlayAlbum(track, searchOverlayAlbumReplace)
+	}
+	m.closeSearchOverlay()
+	return m.replaceWithTrack(track)
 }
 
 // searchOverlayBusy reports whether a request for the results screen is in flight,
@@ -249,6 +299,10 @@ func (m *Model) handleSearchOverlayPlaylistKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.searchOverlay.cursor = 0
 		m.searchOverlay.scroll = 0
 	case "esc", "backspace":
+		m.cancelSearchOverlayRequest()
+		nextRequest(&m.requests.searchOverlayLists)
+		nextRequest(&m.requests.searchOverlayMutation)
+		m.searchOverlay.loading = false
 		m.searchOverlay.screen = searchOverlayResults
 		m.searchOverlay.cursor = 0
 		m.searchOverlay.scroll = 0
@@ -261,6 +315,9 @@ func (m *Model) handleSearchOverlayPlaylistKey(msg tea.KeyPressMsg) tea.Cmd {
 func (m *Model) handleSearchOverlayNewNameKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.Code {
 	case tea.KeyEscape:
+		m.cancelSearchOverlayRequest()
+		nextRequest(&m.requests.searchOverlayMutation)
+		m.searchOverlay.loading = false
 		m.searchOverlay.screen = searchOverlayPlaylist
 		m.searchOverlay.cursor = len(m.searchOverlay.playlists)
 		m.searchOverlayPlaylistMaybeAdjustScroll(m.effectivePlaylistVisible())

@@ -68,8 +68,11 @@ func (p *Provider) Genres() ([]provider.GenreInfo, error) {
 	pinned := p.pinnedIDs()
 
 	out := make([]provider.GenreInfo, 0, len(countries))
-	if home.Code != "" && countryName(countries, home.Code) != "" {
-		out = append(out, p.homeRegionGenres(home, pinned)...)
+	if home.Code != "" {
+		if c, ok := findCountry(countries, home.Code); ok && c.Name != "" {
+			home.Name = c.Name
+			out = append(out, p.homeRegionGenres(home, c.apiName(), pinned)...)
+		}
 	}
 	for _, c := range countries {
 		if c.StationCount <= 0 {
@@ -100,8 +103,8 @@ func (p *Provider) pinnedIDs() map[string]bool {
 // homeRegionGenres returns the home country's regions, grouped under its name
 // so they sort and read as one block at the top of the list. A directory that
 // knows no regions for the country contributes nothing.
-func (p *Provider) homeRegionGenres(home Place, pinned map[string]bool) []provider.GenreInfo {
-	states, err := p.stateIndex(home)
+func (p *Provider) homeRegionGenres(home Place, apiCountry string, pinned map[string]bool) []provider.GenreInfo {
+	states, err := p.stateIndex(home.Code, apiCountry)
 	if err != nil || len(states) == 0 {
 		// Regions are a convenience; losing them must not cost the country list.
 		return nil
@@ -301,10 +304,10 @@ func (p *Provider) countryIndex() ([]Country, error) {
 // stateIndex returns the regions of the home country, fetching them once per
 // process and country. Refresh drops the cache. A generation check prevents
 // an in-flight request from undoing Refresh.
-func (p *Provider) stateIndex(home Place) ([]State, error) {
+func (p *Provider) stateIndex(code, apiCountry string) ([]State, error) {
 	p.mu.Lock()
 	cached := p.states
-	if p.statesCode != home.Code {
+	if p.statesCode != code {
 		cached = nil
 	}
 	generation := p.indexGeneration
@@ -313,7 +316,7 @@ func (p *Provider) stateIndex(home Place) ([]State, error) {
 		return cached, nil
 	}
 
-	states, err := FetchStates(home.Name)
+	states, err := FetchStates(apiCountry)
 	if err != nil {
 		return nil, err
 	}
@@ -325,18 +328,26 @@ func (p *Provider) stateIndex(home Place) ([]State, error) {
 
 	p.mu.Lock()
 	if p.indexGeneration == generation {
-		p.states, p.statesCode = states, home.Code
+		p.states, p.statesCode = states, code
 	}
 	p.mu.Unlock()
 	return states, nil
 }
 
-func countryName(countries []Country, code string) string {
+func findCountry(countries []Country, code string) (Country, bool) {
 	i := slices.IndexFunc(countries, func(c Country) bool { return c.Code == code })
 	if i < 0 {
+		return Country{}, false
+	}
+	return countries[i], true
+}
+
+func countryName(countries []Country, code string) string {
+	c, ok := findCountry(countries, code)
+	if !ok {
 		return ""
 	}
-	return countries[i].Name
+	return c.Name
 }
 
 // stationTracks converts directory entries into playable stream tracks.

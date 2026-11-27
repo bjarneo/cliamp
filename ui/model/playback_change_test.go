@@ -161,6 +161,11 @@ func TestPlaybackChangesNotifyAndScrobbleOnce(t *testing.T) {
 				return searchOverlayAlbumTracksMsg{gen: 1, action: searchOverlayAlbumPlay, album: playlist.Track{Title: "Album"},
 					tracks: []playlist.Track{{Title: "D", Path: "d.mp3"}}}
 			}, notify: true, scrobble: true},
+		{name: "album replace", setup: func(c *playbackChange) { c.m.requests.searchOverlayAlbum = 1 },
+			msg: func(*testing.T) tea.Msg {
+				return searchOverlayAlbumTracksMsg{gen: 1, action: searchOverlayAlbumReplace, album: playlist.Track{Title: "Album"},
+					tracks: []playlist.Track{{Title: "D", Path: "d.mp3"}}}
+			}, notify: true, scrobble: true},
 		{name: "enter on a browser track", setup: func(c *playbackChange) { c.m.navBrowser = playbackChangeNav(false) },
 			msg: func(*testing.T) tea.Msg { return tea.KeyPressMsg{Code: tea.KeyEnter} }, notify: true, scrobble: true},
 		{name: "a browser replace", setup: func(c *playbackChange) { c.m.navBrowser = playbackChangeNav(true) },

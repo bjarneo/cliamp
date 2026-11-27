@@ -8,6 +8,20 @@ package model
 // shuffleMoveWarning tells the user why Shift+Up and Shift+Down do not move
 // a track while shuffle is on.
 const shuffleMoveWarning = "Turn off shuffle to move tracks"
+const shuffleReverseWarning = "Turn off shuffle to reverse the playlist"
+const pagingReverseWarning = "Wait for the playlist to finish loading"
+
+// shuffleHeadersWarning tells the user why Ctrl+H does not show the album
+// headers while shuffle is on.
+const shuffleHeadersWarning = "Turn off shuffle to show album headers"
+
+// plShowsAlbumHeaders reports whether the playlist view draws album headers.
+// In the shuffled play order, the tracks of one album are not next to each
+// other, so the headers would split the album. The headers come back when
+// shuffle is off.
+func (m Model) plShowsAlbumHeaders() bool {
+	return m.showAlbumHeaders && !m.playlist.Shuffled()
+}
 
 // plCursorRow returns the view row of the playlist cursor.
 func (m Model) plCursorRow() int {

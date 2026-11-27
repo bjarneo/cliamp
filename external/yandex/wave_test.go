@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
@@ -266,9 +268,113 @@ func TestBuildStreamURLEndToEnd(t *testing.T) {
 	// include the secret hash, ts, and path from the JSON download info.
 	info := downloadInfo{Codec: "mp3", DownloadInfoURL: "https://api.example/dl?sign=x"}
 	full := fullDownloadInfo{Host: "api.example", Path: "/get-mp3/abc", Ts: "42", S: "zz"}
-	got := buildStreamURL(info, full)
+	got, err := buildStreamURL(info, full)
+	if err != nil {
+		t.Fatalf("buildStreamURL() error = %v", err)
+	}
 	want := "https://api.example/get-mp3/" + md5Hex(trackURISecret+"get-mp3/abc"+"zz") + "/42/get-mp3/abc"
 	if got != want {
 		t.Errorf("buildStreamURL() = %q, want %q", got, want)
+	}
+}
+
+func TestDownloadInfoClientRedirectGuard(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"host":"evil.example","path":"/x.mp3","ts":"1","s":"2"}`))
+	}))
+	defer target.Close()
+
+	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/secret", http.StatusFound)
+	}))
+	defer redirector.Close()
+
+	origGuard := fullDownloadInfoGuard
+	t.Cleanup(func() { fullDownloadInfoGuard = origGuard })
+	// Allow initial test server URL, reject redirect to target.
+	fullDownloadInfoGuard = func(infoURL string) error {
+		if strings.HasPrefix(infoURL, redirector.URL) {
+			return nil
+		}
+		return origGuard(infoURL)
+	}
+
+	c := newClient("tok")
+	_, err := c.fullDownloadInfo(t.Context(), redirector.URL+"/dl?sign=x")
+	if err == nil || !strings.Contains(err.Error(), "untrusted download info URL") {
+		t.Fatalf("fullDownloadInfo redirect error = %v, want untrusted download info URL", err)
+	}
+}
+
+func TestDecodeCapsResponseBody(t *testing.T) {
+	t.Run("api response body cap", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"result":{"title":"` + strings.Repeat("x", maxResponseBody) + `"}}`))
+		}))
+		defer srv.Close()
+
+		c := newClient("tok")
+		c.apiBase = srv.URL
+		if _, err := c.accountStatus(t.Context()); err == nil || !strings.Contains(err.Error(), "response too large") {
+			t.Fatalf("accountStatus() error = %v, want response too large", err)
+		}
+	})
+
+	t.Run("download info body cap", func(t *testing.T) {
+		origGuard := fullDownloadInfoGuard
+		fullDownloadInfoGuard = func(string) error { return nil }
+		t.Cleanup(func() { fullDownloadInfoGuard = origGuard })
+
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"host":"` + strings.Repeat("a", maxDownloadInfoBody) + `"}`))
+		}))
+		defer srv.Close()
+
+		c := newClient("tok")
+		if _, err := c.fullDownloadInfo(t.Context(), srv.URL+"/dl?sign=x"); err == nil || !strings.Contains(err.Error(), "response too large") {
+			t.Fatalf("fullDownloadInfo() error = %v, want response too large", err)
+		}
+	})
+}
+
+func TestURLCacheEvictsExpiredEntries(t *testing.T) {
+	origGuard := fullDownloadInfoGuard
+	fullDownloadInfoGuard = func(string) error { return nil }
+	t.Cleanup(func() { fullDownloadInfoGuard = origGuard })
+
+	var tsURL string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/tracks/2/download-info":
+			writeResult(w, []map[string]any{{
+				"codec":           "mp3",
+				"bitrateInKbps":   320,
+				"downloadInfoUrl": tsURL + "/dl?sign=x",
+			}})
+		case "/dl":
+			_ = json.NewEncoder(w).Encode(map[string]any{"host": r.Host, "path": "/get-mp3/x", "ts": "1", "s": "abc"})
+		}
+	}))
+	tsURL = ts.URL
+	defer ts.Close()
+
+	p := New("tok")
+	p.api.apiBase = ts.URL
+	p.urlCache["expired"] = urlEntry{url: "https://old", at: time.Now().Add(-2 * urlTTL)}
+	p.urlCache["fresh"] = urlEntry{url: "https://fresh", at: time.Now()}
+
+	if _, err := p.resolveStreamURL("2", false); err != nil {
+		t.Fatalf("resolveStreamURL error = %v", err)
+	}
+	p.mu.Lock()
+	_, hasExpired := p.urlCache["expired"]
+	_, hasFresh := p.urlCache["fresh"]
+	_, hasNew := p.urlCache["2"]
+	p.mu.Unlock()
+	if hasExpired {
+		t.Error("expired urlCache entry was not evicted")
+	}
+	if !hasFresh || !hasNew {
+		t.Errorf("fresh=%v new=%v, want both kept", hasFresh, hasNew)
 	}
 }

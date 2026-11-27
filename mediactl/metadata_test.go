@@ -20,6 +20,7 @@ func TestMakeMetadataMapsPlaybackTrackToMPRISFields(t *testing.T) {
 		URL:         "file:///tmp/song.mp3",
 		ArtURL:      "file:///tmp/cover.jpg",
 		Duration:    3*time.Minute + 15*time.Second,
+		UserRating:  4,
 	}
 
 	got := makeMetadata(track, trackPath(1))
@@ -32,6 +33,7 @@ func TestMakeMetadataMapsPlaybackTrackToMPRISFields(t *testing.T) {
 		"xesam:genre":       dbus.MakeVariant([]string{"Ambient"}),
 		"xesam:trackNumber": dbus.MakeVariant(7),
 		"xesam:url":         dbus.MakeVariant("file:///tmp/song.mp3"),
+		"xesam:userRating":  dbus.MakeVariant(0.8),
 		"mpris:artUrl":      dbus.MakeVariant("file:///tmp/cover.jpg"),
 		"mpris:length":      dbus.MakeVariant(track.Duration.Microseconds()),
 	}
@@ -58,6 +60,9 @@ func TestMakeMetadataOmitsEmptyOptionalFields(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got["mpris:trackid"], dbus.MakeVariant(dbus.ObjectPath("/org/mpris/MediaPlayer2/Track/1"))) {
 		t.Fatalf("track id = %#v, want default track id", got["mpris:trackid"])
+	}
+	if _, ok := got["xesam:userRating"]; ok {
+		t.Fatal("metadata unexpectedly included xesam:userRating for an unrated track")
 	}
 	for _, key := range []string{
 		"xesam:title",
@@ -133,6 +138,35 @@ func TestMakeMetadataCoercesInvalidArtURL(t *testing.T) {
 			gotArtURL := got["mpris:artUrl"].Value().(string)
 			if gotArtURL != tt.want {
 				t.Fatalf("artURL = %q, want %q", gotArtURL, tt.want)
+			}
+		})
+	}
+}
+
+func TestMakeMetadataUserRating(t *testing.T) {
+	tests := []struct {
+		name   string
+		rating int
+		want   float64
+	}{
+		{name: "four stars", rating: 4, want: 0.8},
+		{name: "five stars", rating: 5, want: 1.0},
+		{name: "clamped high", rating: 9, want: 1.0},
+		{name: "clamped low", rating: -2, want: 0.0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := makeMetadata(playback.Track{UserRating: tt.rating}, trackPath(1))
+			v, ok := got["xesam:userRating"]
+			if !ok {
+				t.Fatal("metadata missing xesam:userRating")
+			}
+			f, ok := v.Value().(float64)
+			if !ok {
+				t.Fatalf("xesam:userRating type = %T, want float64", v.Value())
+			}
+			if f != tt.want {
+				t.Fatalf("xesam:userRating = %v, want %v", f, tt.want)
 			}
 		})
 	}

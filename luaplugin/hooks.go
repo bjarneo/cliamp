@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"sync"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
@@ -45,6 +47,9 @@ const (
 const (
 	PermControl = "control"
 	PermExec    = "exec"
+	PermImage   = "image"
+	PermLayout  = "layout"
+	PermUI      = "ui"
 	PermKeymap  = "keymap"
 )
 
@@ -98,12 +103,29 @@ func (m *Manager) callLocked(parent context.Context, p *Plugin, label string, ti
 	if fn == nil {
 		return lua.LNil, nil
 	}
+	return m.callFnLocked(parent, p, label, timeout, nret, fn, args)
+}
+
+// callFnLocked runs fn with args under parent and timeout while the caller
+// holds p.mu. RenderVis uses this directly to avoid allocating a callBuilder.
+func (m *Manager) callFnLocked(parent context.Context, p *Plugin, label string, timeout time.Duration, nret int, fn *lua.LFunction, args []lua.LValue) (lua.LValue, error) {
+	if p.closed {
+		return lua.LNil, errClosed
+	}
+	if parent.Err() != nil {
+		return lua.LNil, context.Cause(parent)
+	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	p.L.SetContext(ctx)
 	defer p.L.RemoveContext()
 
 	if err := p.L.CallByParam(lua.P{Fn: fn, NRet: nret, Protect: true}, args...); err != nil {
+		// Read ctx first. A cancel ends parent before ctx, so when ctx has
+		// ended and parent has not, ctx hit its own limit. In the other
+		// order a Close between the two reads turns a Lua error into a
+		// timeout, which logs it again under the timeout key.
+		ctxErr := ctx.Err()
 		if parent.Err() != nil {
 			return lua.LNil, context.Cause(parent)
 		}
@@ -111,8 +133,8 @@ func (m *Manager) callLocked(parent context.Context, p *Plugin, label string, ti
 		// the context error and not by the Lua message. A render timeout has
 		// its own slot, so one slow frame does not hide a later Lua error.
 		slot, key := label, err.Error()
-		if ctx.Err() != nil {
-			key = ctx.Err().Error()
+		if ctxErr != nil {
+			key = ctxErr.Error()
 			err = fmt.Errorf("did not finish in %v: %w", timeout, err)
 			if label == renderLabel {
 				slot = renderLabel + " timeout"
@@ -194,6 +216,17 @@ func (m *Manager) enqueue(p *Plugin, label string, fn func()) bool {
 	}
 }
 
+// enqueueSafe acquires m.mu for reading, verifies that the manager is not
+// closing, and queues fn for p.
+func (m *Manager) enqueueSafe(p *Plugin, label string, fn func()) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.closing {
+		return false
+	}
+	return m.enqueue(p, label, fn)
+}
+
 // runQueue runs the queued calls of p one at a time until Close closes the
 // queue. Thus the events and key presses of one plugin keep their order. When
 // Close sets dropQueued, it drops the calls that still wait.
@@ -207,16 +240,43 @@ func (m *Manager) runQueue(p *Plugin) {
 }
 
 // EmitSync dispatches an event synchronously, blocking until all callbacks
-// finish or time out. Close uses it for app.quit before it closes the VMs.
+// finish or time out. Different plugins run concurrently while hooks on one
+// plugin keep registration order.
 func (m *Manager) EmitSync(event string, data map[string]any) {
 	m.mu.RLock()
-	hooks := m.hooks[event]
+	hooks := slices.Clone(m.hooks[event])
 	m.mu.RUnlock()
+	if len(hooks) == 0 {
+		return
+	}
+
+	byPlugin := make(map[*Plugin][]*luaHook)
+	var plugins []*Plugin
+	for _, h := range hooks {
+		if _, seen := byPlugin[h.plugin]; !seen {
+			plugins = append(plugins, h.plugin)
+		}
+		byPlugin[h.plugin] = append(byPlugin[h.plugin], h)
+	}
 
 	label := event + " handler"
-	for _, h := range hooks {
-		m.fire(h, label, data)
+	if len(plugins) == 1 {
+		for _, h := range byPlugin[plugins[0]] {
+			m.fire(h, label, data)
+		}
+		return
 	}
+
+	var wg sync.WaitGroup
+	for _, p := range plugins {
+		plugHooks := byPlugin[p]
+		wg.Go(func() {
+			for _, h := range plugHooks {
+				m.fire(h, label, data)
+			}
+		})
+	}
+	wg.Wait()
 }
 
 // fire calls an event hook with data as its table argument.

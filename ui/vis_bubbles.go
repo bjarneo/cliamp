@@ -21,11 +21,14 @@ func (v *Visualizer) renderBubbles(bands []float64) string {
 
 	grid := v.dotMaskFor(dotRows * dotCols)
 
-	var totalEnergy float64
-	for _, e := range bands {
-		totalEnergy += e
+	var avgEnergy float64
+	if len(bands) > 0 {
+		var totalEnergy float64
+		for _, e := range bands {
+			totalEnergy += e
+		}
+		avgEnergy = totalEnergy / float64(len(bands))
 	}
-	avgEnergy := totalEnergy / float64(len(bands))
 
 	// Fixed count — changing this per frame makes bubbles spawn/vanish mid-air.
 	const numBubbles = 18
@@ -66,13 +69,16 @@ func (v *Visualizer) renderBubbles(bands []float64) string {
 			popFade = math.Max(0, float64(y)/float64(popZone))
 		}
 
-		// Draw hollow ring.
+		// Draw hollow ring using squared distances to skip per-dot sqrt.
 		rInner := radius - 0.9
+		rOuterSq := radius * radius
+		rInnerSq := rInner * rInner
 		bbox := int(radius) + 1
 		for dy := -bbox; dy <= bbox; dy++ {
+			dy2 := dy * dy
 			for dx := -bbox; dx <= bbox; dx++ {
-				dist := math.Sqrt(float64(dx*dx + dy*dy))
-				if dist > radius || dist < rInner {
+				d2 := float64(dx*dx + dy2)
+				if d2 > rOuterSq || d2 < rInnerSq {
 					continue
 				}
 				// Stable per-bubble pop pattern (no frame dependency) so the

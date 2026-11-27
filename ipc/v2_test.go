@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -55,6 +57,10 @@ func TestOperationRegistryValidation(t *testing.T) {
 		want   string
 	}{
 		{name: "valid", params: `{"value":1.5,"index":0,"batch":[{"path":"song.flac"}]}`},
+		{name: "valid tracks batch", params: `{"tracks":[{"path":"song.flac"}]}`},
+		{name: "empty tracks batch", params: `{"tracks":[]}`, want: V2ErrorCodeInvalidParams},
+		{name: "malformed tracks", params: `{"tracks":{}}`, want: V2ErrorCodeInvalidParams},
+		{name: "oversized tracks batch", params: `{"tracks":[` + strings.Repeat(`{},`, maxOperationBatchSize) + `{}]}`, want: V2ErrorCodeInvalidParams},
 		{name: "string number", params: `{"value":"1"}`, want: V2ErrorCodeInvalidParams},
 		{name: "fractional index", params: `{"index":1.5}`, want: V2ErrorCodeInvalidParams},
 		{name: "string index", params: `{"index":"1"}`, want: V2ErrorCodeInvalidParams},
@@ -72,6 +78,42 @@ func TestOperationRegistryValidation(t *testing.T) {
 	}
 	if got := errorCode(registry.Validate("runtime.missing", nil)); got != V2ErrorCodeUnknownOperation {
 		t.Fatalf("unknown operation code = %q", got)
+	}
+}
+
+// capabilities lists the parameters of each operation, so a client can tell
+// that provider.load takes an index.
+func TestCapabilitiesListParameters(t *testing.T) {
+	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
+	server, err := NewServer(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+
+	response, err := SendV2(sock, V2Request{Method: "capabilities"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var operations []Operation
+	if err := json.Unmarshal(response.Result, &operations); !response.OK || err != nil {
+		t.Fatalf("capabilities = %#v, decode error %v", response, err)
+	}
+	parameters := make(map[string][]string, len(operations))
+	for _, operation := range operations {
+		parameters[operation.Name] = operation.Parameters
+	}
+	for _, test := range []struct {
+		operation string
+		want      []string
+	}{
+		{operation: "provider.load", want: []string{"provider", "playlist", "index"}},
+		{operation: "provider.load_album", want: []string{"provider", "album"}},
+		{operation: "load", want: []string{"playlist"}},
+	} {
+		if got := parameters[test.operation]; !slices.Equal(got, test.want) {
+			t.Errorf("%s parameters = %v, want %v", test.operation, got, test.want)
+		}
 	}
 }
 
@@ -360,4 +402,53 @@ func errorCode(err *V2Error) string {
 		return ""
 	}
 	return err.Code
+}
+
+func TestDecodeV2RequestSinglePass(t *testing.T) {
+	tests := []struct {
+		name     string
+		line     string
+		wantCode string
+		wantID   string
+		wantMeth string
+	}{
+		{name: "valid v2", line: `{"version":2,"id":"r1","method":"state.get"}`, wantID: `"r1"`, wantMeth: "state.get"},
+		{name: "missing version", line: `{"id":1,"cmd":"status"}`, wantCode: V2ErrorCodeInvalidVersion, wantID: `1`},
+		{name: "wrong version", line: `{"version":1,"id":"old"}`, wantCode: V2ErrorCodeInvalidVersion, wantID: `"old"`},
+		{name: "string version", line: `{"version":"2","id":"str"}`, wantCode: V2ErrorCodeInvalidVersion, wantID: `"str"`},
+		{name: "wrong version with bad field", line: `{"version":7,"id":"bad","method":123}`, wantCode: V2ErrorCodeInvalidVersion, wantID: `"bad"`},
+		{name: "v2 with bad field type", line: `{"version":2,"id":"bad","method":123}`, wantCode: V2ErrorCodeInvalidRequest, wantID: `"bad"`},
+		{name: "malformed json", line: `{bad`, wantCode: V2ErrorCodeInvalidRequest},
+		{name: "non-object json", line: `[1,2,3]`, wantCode: V2ErrorCodeInvalidRequest},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, protoErr := decodeV2Request([]byte(tt.line))
+			if got := errorCode(protoErr); got != tt.wantCode {
+				t.Fatalf("error code = %q, want %q", got, tt.wantCode)
+			}
+			if string(req.ID) != tt.wantID {
+				t.Fatalf("id = %q, want %q", string(req.ID), tt.wantID)
+			}
+			if tt.wantCode == "" && (req.Version != protocolVersion2 || req.Method != tt.wantMeth) {
+				t.Fatalf("req = %#v, want version 2 and method %q", req, tt.wantMeth)
+			}
+		})
+	}
+}
+
+func TestServerRejectsInvalidDispatcherJSONResult(t *testing.T) {
+	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
+	server, err := NewServerWithOptions(sock, WithV2Dispatcher(V2DispatcherFunc(func(_ context.Context, _ V2Request) (V2Result, *V2Error) {
+		return V2Result{Result: json.RawMessage(`{broken`)}, nil
+	})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+
+	response := sendV2Request(t, sock, V2Request{ID: json.RawMessage(`"bad-result"`), Method: "state.get"})
+	if response.OK || string(response.ID) != `"bad-result"` || errorCode(response.Error) != V2ErrorCodeInternal {
+		t.Fatalf("response = %#v, want internal error", response)
+	}
 }

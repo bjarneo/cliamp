@@ -10,6 +10,20 @@ list first. The keymap cannot run key pairs such as `Left` `Right`, the `N`
 then `j` seek, or a player command while another screen is open. For these
 entries, a status message tells you which key to press.
 
+## Non-Latin keyboard layouts
+
+The keys also work from a layout that does not type Latin letters, such as
+Russian, Greek, Arabic or Hebrew, in a terminal with the full
+[Kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/)
+(for example kitty, foot or Ghostty). A key that types a non-Latin character
+runs the command of the key in the same place on a US layout: `й` is `q`,
+`Ctrl+л` is `Ctrl+K`, and `Shift+؟` is `?`. Search and filter fields still get
+the characters of your layout. Other terminals send keys as before.
+
+Keys that type ASCII characters or Latin letters keep their meaning, so
+AZERTY, QWERTZ and Dvorak work as before. On a Russian layout, `?` is
+`Shift+7`, where that layout types it.
+
 ## Playback
 
 | Key | Action |
@@ -36,6 +50,7 @@ entries, a status message tells you which key to press.
 | `PageUp` `PageDown` / `Ctrl+U` `Ctrl+D` | Scroll playlist/file browser by page (outside text input) |
 | `Home` `End` / `g` `G` | Go to top/end of playlist/file browser |
 | `Shift+Up` `Shift+Down` | Move track up/down in playlist/queue. Turn off shuffle to move a playlist track. |
+| `Ctrl+O` | Reverse the playlist order, for example to play the newest added tracks first. The playing track keeps playing. A loaded local playlist saves the new order. Tracks from its directory source keep their scan order. Turn off shuffle first, and wait until a provider playlist has finished loading. |
 | `h` `l` | Adjust the focused setting (EQ: select band) |
 | `Enter` | Play selected track |
 | `/` | Filter the playlist (navigate results with `↑` `↓` / `Ctrl+N` `Ctrl+P`; `Ctrl+U` clears the query; `Tab` toggles the queue for the selected result) |
@@ -104,10 +119,11 @@ list.
 | Key | Action |
 |---|---|
 | `e` | Cycle EQ preset, including the saved Custom curve |
+| `Alt+E` | Cycle to the previous EQ preset, including the saved Custom curve |
 | `t` | Choose theme |
 | `v` | Cycle visualizer and save the choice in `config.toml` |
 | `Ctrl+V` | Pick visualizer from a list (live preview) |
-| `V` | Full screen visualizer. Inside it, `v` cycles modes and saves the choice, `<`/`>` change track, `+`/`-` change volume, and `t` hides the episode name, leaving only the bracketed source. `q` or `Esc` exits back to the player; `Ctrl+C` quits. |
+| `V` | Full screen visualizer. Inside it, `v` cycles modes and saves the choice, `<`/`>` change track, `+`/`-` change volume, and `t` hides the episode name, leaving only the bracketed source. `f` toggles a pure mode that draws only the visualizer, edge to edge: no track line, time, seek bar or frame padding. Useful on a dedicated screen or CRT. `q` or `Esc` exits back to the player; `Ctrl+C` quits. |
 | `Ctrl+H` | Toggle album headers |
 | `Ctrl+G` | Toggle the key-binding hint bar (remembered in `hide_help_bar`) |
 | `Ctrl+B` | Open/close the settings pane (remembered in `hide_settings_pane`) |
@@ -121,8 +137,9 @@ and `Esc` clears it.
 
 | Key | Action |
 |---|---|
-| `f` | Toggle the favorite ♥ on the selected track. Favorites appear in the "Favorites" virtual playlist, and cliamp also saves them on Spotify and Navidrome. For directory radio stations outside saved local playlists, toggle Radio Favorites from the browser or playback playlist, including country and genre results. In the country browser, pin the selected country or region. On a podcast show, subscribe or unsubscribe. |
-| `Ctrl+F` | Search with the active provider (Podcasts, Spotify, Qobuz, Tidal, Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, SoundCloud, Yandex Music, Local), or search YouTube. Available in playlist and provider-browser views. The search line names the source. See [Search and filter modes](#search-and-filter-modes). |
+| `f` | Toggle the favorite ♥ on the selected track. Favorites appear in the "Favorites" virtual playlist, and cliamp also saves them on Spotify, Navidrome, and Yandex Music. For directory radio stations outside saved local playlists, toggle Radio Favorites from the browser or playback playlist, including country and genre results. In the country browser, pin the selected country or region. On a podcast show, subscribe or unsubscribe. |
+| `*` then `0`-`5` | Set the selected Navidrome track's rating. `0` clears it. The playing track shows `★N`, and Linux MPRIS reports the normalized rating. |
+| `Ctrl+F` | Search with the active provider (Podcasts, Spotify, Qobuz, Tidal, Bandcamp, Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, SoundCloud, Yandex Music, Local), or search YouTube. Available in playlist and provider-browser views. The search line names the source. See [Search and filter modes](#search-and-filter-modes). |
 | `u` | Load URL (stream/playlist) |
 | `d` | Open the audio device picker |
 | `y` | Show or close lyrics |
@@ -140,12 +157,14 @@ and `Esc` clears it.
 | `P` | Open Plex provider |
 | `J` | Open Jellyfin provider |
 | `E` | Open Emby provider |
-| `Y` | Open YouTube provider |
+| `Y` | Open YouTube (All). Press `Y` again to open YouTube, then YouTube Music |
 | `C` | Open SoundCloud provider |
 | `X` | Open Mixcloud provider |
 | `M` | Open NetEase provider |
 | `Q` | Open Qobuz provider |
 | `T` | Open Tidal provider |
+| `K` | Open Bandcamp provider |
+| `U` | Open Telegram provider |
 | `B` | Open Audiobookshelf provider |
 
 Metadata belongs to the main playback view, not provider browsers, and follows
@@ -161,7 +180,8 @@ preference remains saved for a wider layout. See
 | `a` | Toggle the queue (play next) |
 | `A` | Queue manager |
 | `c` | In the queue manager: clear the queue (press again to confirm when more than one track) |
-| `d` | In the queue manager: remove the highlighted track |
+| `d` | In the queue manager: open the audio device picker |
+| `x` | In the queue manager: remove the highlighted track |
 | `F` | Subscribed shows overlay (any provider that keeps subscriptions) |
 | `x` | Remove the highlighted track from the current playlist |
 | `p` | Playlist |
@@ -170,9 +190,9 @@ preference remains saved for a wider layout. See
 
 While shuffle is on, the playlist lists tracks in play order. The tracks that
 played before the current track are above it. The tracks that play next are
-below it. Each row keeps its original track number. When you turn off shuffle,
-the playlist returns to the original order and the cursor stays on the same
-track.
+below it. Each row keeps its original track number. The album headers stay
+hidden until you turn off shuffle. When you turn off shuffle, the playlist
+returns to the original order and the cursor stays on the same track.
 
 ### Inside the subscribed shows overlay
 
@@ -186,7 +206,7 @@ the queue survive.
 | `/` | Filter by show title or author; `Enter` applies, `Esc` clears |
 | `Enter` | Append the show's episodes and play the first appended |
 | `a` | Append the show's episodes, leaving playback alone |
-| `q` | Append the show's episodes and queue them in feed order |
+| `q` | Append the show's episodes and queue them newest first |
 | `l` | Append only the newest episode and add it to the end of the queue |
 | `L` | Append the newest episode of every subscribed show |
 | `Esc` `F` | Close |
@@ -226,7 +246,8 @@ reordered, so `p` leaves them alone and reports them as skipped.
 | `D` | List: open the file browser to add `[[dir]]` sources to the selected playlist. Tracks: open the directory-sources screen. |
 | `a` | List: create a playlist. After naming it, the file browser opens at `~`. Use `Enter` to enter a directory, `Space` to select folders or files, `Enter` to confirm, or `Esc` to finish. Tracks: mark or unmark all visible tracks. |
 | `r` | List: rename the playlist (`Recently Played` cannot be renamed) |
-| `d` | List: delete playlist (confirms; `Recently Played` cannot be deleted). Tracks: remove marked tracks, or highlighted track when none are marked |
+| `d` | Open the audio device picker |
+| `x` | List: delete playlist (confirms; `Recently Played` cannot be deleted). Tracks: remove marked tracks, or highlighted track when none are marked |
 | `A` | List: append the selected playlist to the current one, keeping what is loaded. Tracks: append the marked tracks, or the highlighted one. |
 | `u` | Undo the last manager edit |
 | `←` `Backspace` `h` `q` | Tracks screen: go back to the list |
@@ -243,7 +264,8 @@ other key cancels. The Shift-letter keys do not switch providers then.
 |---|---|
 | `↑` `↓` / `j` `k` | Navigate directory sources |
 | `a` | Open the file browser to add a directory as a `[[dir]]` source |
-| `d` then `y` | Remove the selected source. `y` confirms; any other key cancels. |
+| `d` | Open the audio device picker |
+| `x` then `y` | Remove the selected source. `y` confirms; any other key cancels. |
 | `r` | Toggle `recursive` on the highlighted source |
 | `←` `Backspace` `h` `Esc` | Back to the tracks screen |
 
@@ -272,12 +294,12 @@ commits pending selections before it closes the browser.
 
 Press `N` to open a provider. These providers share the browser keys below:
 Navidrome, Lyrion, Plex, Jellyfin, Emby, Audiobookshelf, Spotify, Qobuz,
-Tidal, Mixcloud, Podcasts, and YouTube Music. Artist and album screens exist
-only where the provider implements them: Navidrome, Lyrion, Jellyfin, Emby,
-Audiobookshelf, Qobuz, Tidal, and Mixcloud. Podcasts reuses those screens for
-categories and shows. Plex, Spotify, and YouTube Music have no artist or album
-screens; their playlists — and, for Plex and Spotify, saved albums — appear in
-the provider pane.
+Tidal, Bandcamp, Mixcloud, Podcasts, and YouTube Music. Artist and album
+screens exist only where the provider implements them: Navidrome, Lyrion,
+Jellyfin, Emby, Audiobookshelf, Qobuz, Tidal, Bandcamp, and Mixcloud. Podcasts
+reuses those screens for categories and shows. Plex, Spotify, and YouTube Music
+have no artist or album screens; their playlists — and, for Plex and Spotify,
+saved albums — appear in the provider pane.
 
 | Key | Action |
 |---|---|
@@ -291,8 +313,9 @@ the provider pane.
 | `R` | Replace the queue with all visible tracks (start from the top, confirm when non-empty) |
 | `q` | Queue the highlighted track to play next |
 | `s` | Cycle album sort (album list only) |
-| `S` `P` `J` `E` `B` `Y` `C` `X` `M` `Q` `T` `L` `R` `O` | Switch to that provider without opening the main pane. On the track screen, `R` replaces the queue instead. |
+| `S` `P` `J` `E` `B` `Y` `C` `X` `M` `Q` `T` `K` `U` `L` `R` `O` | Switch to that provider without opening the main pane. `Y` opens the next YouTube provider, as in the main view. On the track screen, `R` replaces the queue instead. |
 | `N` | In Jellyfin, reopen the browse-mode chooser. Elsewhere, switch to Navidrome. |
+| `Ctrl+P` | In Telegram, pick the chats, groups and bots that show up in the list. |
 | `Esc` `b` | Go back one level; close the browser |
 
 While you type in the `/` filter, the Shift+letter switches and `N` do not
@@ -328,7 +351,7 @@ Navidrome, Podcasts, or Local Playlists:
 | `Ctrl+F` | Run the provider online or server search (Spotify, Navidrome, NetEase, and others). |
 | `Ctrl+R` | Refresh the provider: reload the currently open playlist or starting wave in place (e.g. a fresh Yandex "Моя волна" batch), or return to the playlist list. For Mixcloud, also clear the cached `/me/` identity. |
 | `p` | Open the playlist as an overlay (the Local source shows it directly; create, rename, delete, add dirs/tracks) |
-| `S` `P` `J` `E` `B` `Y` `C` `X` `M` `Q` `T` `L` `R` `O` | Switch to that provider |
+| `S` `P` `J` `E` `B` `Y` `C` `X` `M` `Q` `T` `K` `U` `L` `R` `O` | Switch to that provider |
 | `N` | Open the browser of the provider on screen |
 | `Tab` | Leave the provider pane and focus Source, or the first visible playback control |
 | `Shift+Tab` | Leave the provider pane and focus the last visible playback control (Speed, or Repeat with Settings closed) |
@@ -356,8 +379,9 @@ search and the results list is open:
 | `↑` `↓` / `j` `k` / `Ctrl+N` `Ctrl+P` | Move cursor (single item) |
 | `Ctrl+U` `Ctrl+D` | Scroll results by page |
 | `Enter` | Play the selected track now |
-| `a` | Append the selected track to the playlist |
-| `q` | Queue the selected track to play next |
+| `a` | Append the selected track to the playlist (the results close unless `keep_search_open = true`) |
+| `q` | Queue the selected track to play next (the results close unless `keep_search_open = true`) |
+| `R` | (Provider search only) Replace the playlist with the selected track or album and play it |
 | `f` | Toggle the favorite ♥ on the selected track. On a podcast show, subscribe or unsubscribe. |
 | `p` | (Spotify only) Save the selected track to a Spotify playlist |
 | `Esc` `Backspace` | Back to the search input |
@@ -365,25 +389,43 @@ search and the results list is open:
 Podcasts returns show collections (up to 20), not episodes. `Enter` appends the
 feed's episodes and starts the first; `a` appends them and starts the first if
 the playlist was empty or nothing is playing. `q` appends and queues the
-episodes in feed order after any already queued tracks, starting queued
+episodes newest first after any already queued tracks, starting queued
 playback if nothing is playing.
+
+On an album result, `Enter` appends the album's tracks to the playlist and
+starts the first one, so the playlist you built up stays. `R` replaces the
+playlist with the album instead. When the playlist is not empty, `R` asks first:
+`Enter` confirms and `Esc` cancels, because the replace cannot be undone.
 
 ## Fuzzy search
 
-Local search boxes use fuzzy matching. Query characters must appear in order but
-do not need to be next to each other. Results are ranked by relevance, with the
-best match first. For example, `skr` and `saku` both find a track named "Sakura".
+Local search boxes use fuzzy matching. Every word of the query must match, in
+any order. The characters of a query word must appear in order but do not need
+to be next to each other, and the match enters each word of the name at its
+first letter. Results are ranked by relevance, with the best match first. For
+example, `skr` and `saku` both find a track named "Sakura", `lst` finds "Love
+Story", and `mtlc rld` finds "Metallica - Reload". A query word that appears
+inside a word, such as `allica`, also matches, ranked lower. Chinese, Japanese
+and Korean names have no spaces, so each of their characters starts a word:
+`天使テーゼ` finds "残酷な天使のテーゼ".
+
+Start the query with `^` or `'` to match one literal phrase instead, spaces
+included and case ignored. `^queens of the stone age` finds the names that
+start with that phrase, and `'stone age` the names that contain it anywhere.
 
 This applies to:
 
 - `/` playlist search
 - `/` file browser filter
+- `/` provider playlist list filter, such as `metallica reload` for the
+  album "Metallica — Reload"
+- `/` subscribed shows filter, which matches the title or the author
 - `Ctrl+F` when the active provider is Local (your saved playlists)
 
-Other `Ctrl+F` providers, including Spotify, Qobuz, Tidal, Navidrome, Lyrion,
-Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, SoundCloud, Yandex
-Music, Podcasts, and YouTube, send the query to their search API. Their
-services control matching rules.
+Other `Ctrl+F` providers, including Spotify, Qobuz, Tidal, Bandcamp,
+Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase,
+SoundCloud, Yandex Music, Podcasts, and YouTube, send the query to their
+search API. Their services control matching rules.
 
 ## General
 

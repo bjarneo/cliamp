@@ -140,13 +140,17 @@ func Install(source string, assumeYes ...bool) error {
 		return fmt.Errorf("securing plugins directory: %w", err)
 	}
 
-	// Check if already installed (file or directory).
+	// Check if already installed using Lstat so dangling symlinks are detected.
 	dest := filepath.Join(dir, name+".lua")
-	if _, err := os.Stat(dest); err == nil {
+	if _, err := os.Lstat(dest); err == nil {
 		return fmt.Errorf("plugin %q already exists at %s (remove it first with: cliamp plugins remove %s)", name, dest, name)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("checking destination %s: %w", dest, err)
 	}
-	if info, err := os.Stat(filepath.Join(dir, name)); err == nil && info.IsDir() {
+	if info, err := os.Lstat(filepath.Join(dir, name)); err == nil && (info.IsDir() || info.Mode()&os.ModeSymlink != 0) {
 		return fmt.Errorf("plugin %q already exists as directory (remove it first with: cliamp plugins remove %s)", name, name)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("checking destination %s: %w", filepath.Join(dir, name), err)
 	}
 	// Approve needs the manifest. Check it before the download and the prompt.
 	if _, err := plugintrust.Load(dir); err != nil {
@@ -155,11 +159,14 @@ func Install(source string, assumeYes ...bool) error {
 
 	// Try each candidate URL.
 	var body []byte
+	var requestedURL, finalURL string
 	for _, u := range urls {
-		fmt.Fprintf(output, "Trying %s...\n", u)
-		b, err := download(u)
+		fmt.Fprintf(output, "Trying %s...\n", printable(u))
+		b, resolved, err := downloadWithURL(u)
 		if err == nil {
 			body = b
+			requestedURL = u
+			finalURL = resolved
 			break
 		}
 	}
@@ -172,8 +179,12 @@ func Install(source string, assumeYes ...bool) error {
 		return fmt.Errorf("inspect plugin metadata: %w", err)
 	}
 	hash := plugintrust.Hash(body)
-	fmt.Fprintf(output, "Source: %s\nSHA-256: %s\nDeclared permissions: %s\nImplicit access: unrestricted reads; allowlisted writes; public HTTP\n",
-		source, hash, displayPermissions(md.Permissions))
+	fmt.Fprintf(output, "Source: %s\n", printable(source))
+	if finalURL != "" && finalURL != requestedURL {
+		fmt.Fprintf(output, "Resolved URL: %s\n", printable(finalURL))
+	}
+	fmt.Fprintf(output, "SHA-256: %s\nDeclared permissions: %s\nImplicit access: unrestricted reads; allowlisted writes; public HTTP\n",
+		hash, displayPermissions(md.Permissions))
 	yes := len(assumeYes) > 0 && assumeYes[0]
 	if !yes {
 		fmt.Fprint(output, "Trust and install this plugin? [y/N] ")
@@ -195,7 +206,7 @@ func Install(source string, assumeYes ...bool) error {
 		return fmt.Errorf("recording plugin trust: %w", err)
 	}
 
-	fmt.Fprintf(output, "Installed %s → %s\n", name, dest)
+	fmt.Fprintf(output, "Installed %s → %s\n", printable(name), printable(dest))
 	return nil
 }
 
@@ -232,7 +243,7 @@ func Trust(name string, assumeYes bool) error {
 	}
 	hash := plugintrust.Hash(data)
 	fmt.Fprintf(output, "Plugin: %s\nSHA-256: %s\nDeclared permissions: %s\nImplicit access: unrestricted reads; allowlisted writes; public HTTP\n",
-		name, hash, displayPermissions(md.Permissions))
+		printable(name), hash, displayPermissions(md.Permissions))
 	if !assumeYes {
 		fmt.Fprint(output, "Trust this plugin content? [y/N] ")
 		answer, readErr := bufio.NewReader(input).ReadString('\n')
@@ -254,8 +265,11 @@ func Trust(name string, assumeYes bool) error {
 }
 
 func validateName(name string) error {
-	if name == "" || name == "." || name == ".." || filepath.Base(name) != name || strings.ContainsAny(name, `/\\`) {
+	if name == "" || name == "." || name == ".." || filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
 		return fmt.Errorf("invalid plugin name %q", name)
+	}
+	if strings.IndexFunc(name, unicode.IsControl) >= 0 {
+		return fmt.Errorf("invalid plugin name %q", printable(name))
 	}
 	return nil
 }
@@ -281,24 +295,31 @@ func Remove(name string) error {
 		return manifestError(dir, err)
 	}
 
-	// Try single file first, then directory.
+	// Try single file first, then directory. Use Lstat so dangling symlinks
+	// are removed without following them.
 	filePath := filepath.Join(dir, name+".lua")
 	dirPath := filepath.Join(dir, name)
 	var removed string
-	if _, err := os.Stat(filePath); err == nil {
+	if _, err := os.Lstat(filePath); err == nil {
 		if err := os.Remove(filePath); err != nil {
 			return fmt.Errorf("removing plugin: %w", err)
 		}
 		removed = filePath
-	} else if info, err := os.Stat(dirPath); err == nil && info.IsDir() {
-		if err := os.RemoveAll(dirPath); err != nil {
-			return fmt.Errorf("removing plugin directory: %w", err)
+	} else if info, err := os.Lstat(dirPath); err == nil && (info.IsDir() || info.Mode()&os.ModeSymlink != 0) {
+		if info.Mode()&os.ModeSymlink != 0 {
+			if err := os.Remove(dirPath); err != nil {
+				return fmt.Errorf("removing plugin: %w", err)
+			}
+		} else {
+			if err := os.RemoveAll(dirPath); err != nil {
+				return fmt.Errorf("removing plugin directory: %w", err)
+			}
 		}
 		removed = dirPath
 	} else {
 		return fmt.Errorf("plugin %q not found", name)
 	}
-	fmt.Fprintf(output, "Removed %s\n", removed)
+	fmt.Fprintf(output, "Removed %s\n", printable(removed))
 
 	// A stale approval would trust a later file with the same content.
 	if err := plugintrust.Revoke(dir, name); err != nil {
@@ -307,28 +328,40 @@ func Remove(name string) error {
 	return nil
 }
 
-func download(url string) ([]byte, error) {
-	resp, err := httpClient.Get(url)
+func download(rawURL string) ([]byte, error) {
+	body, _, err := downloadWithURL(rawURL)
+	return body, err
+}
+
+// downloadWithURL fetches rawURL and returns the body along with the final
+// resolved URL after redirects.
+func downloadWithURL(rawURL string) ([]byte, string, error) {
+	resp, err := httpClient.Get(rawURL)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer resp.Body.Close()
 
+	finalURL := rawURL
+	if resp.Request != nil && resp.Request.URL != nil {
+		finalURL = resp.Request.URL.String()
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %s", resp.Status)
+		return nil, finalURL, fmt.Errorf("HTTP %s", resp.Status)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxPluginSize+1))
 	if err != nil {
-		return nil, err
+		return nil, finalURL, err
 	}
 	if len(body) > maxPluginSize {
-		return nil, fmt.Errorf("plugin too large (max %d bytes)", maxPluginSize)
+		return nil, finalURL, fmt.Errorf("plugin too large (max %d bytes)", maxPluginSize)
 	}
 	if len(body) == 0 {
-		return nil, fmt.Errorf("empty response body")
+		return nil, finalURL, fmt.Errorf("empty response body")
 	}
-	return body, nil
+	return body, finalURL, nil
 }
 
 // scanPlugins lists the plugins that luaplugin.Discover finds in dir, with

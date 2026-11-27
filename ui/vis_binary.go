@@ -7,17 +7,23 @@ import "strings"
 // data) and brighter coloring, creating a raw data-stream aesthetic.
 func (v *Visualizer) renderBinary(bands []float64) string {
 	height := v.Rows
-	lines := make([]string, height)
 	bandCount := len(bands)
 	width := v.columns()
 
+	var sb strings.Builder
+	sb.Grow(height * (width*5 + 16))
+	w := styleRunWriter{sb: &sb}
+
 	for row := range height {
-		var sb, run strings.Builder
+		if row > 0 {
+			sb.WriteByte('\n')
+		}
 		tag := -1
+		w.setTag(-1)
 		col := 0
 		for b := range bandCount {
-			w := visBandWidth(bandCount, b, width)
-			for range w {
+			bw := visBandWidth(bandCount, b, width)
+			for range bw {
 				energy := bands[b]
 
 				// Scroll speed per column: higher energy = faster data flow.
@@ -45,23 +51,22 @@ func (v *Visualizer) renderBinary(bands []float64) string {
 					newTag = 0
 				}
 				if newTag != tag {
-					flushStyleRun(&sb, &run, tag)
 					tag = newTag
+					w.setTag(tag)
 				}
-				run.WriteByte(ch)
+				w.writeByte(ch)
 				col++
 			}
 			if bandGapAfter(bandCount, b, width) {
 				if tag != -1 {
-					flushStyleRun(&sb, &run, tag)
 					tag = -1
+					w.setTag(-1)
 				}
-				run.WriteByte(' ')
+				w.writeByte(' ')
 				col++
 			}
 		}
-		flushStyleRun(&sb, &run, tag)
-		lines[row] = sb.String()
+		w.flush()
 	}
-	return strings.Join(lines, "\n")
+	return sb.String()
 }

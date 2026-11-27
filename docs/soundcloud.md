@@ -16,7 +16,7 @@ enabled = true
 After you enable it:
 
 - **Search** with `Ctrl+F` while SoundCloud is active. cliamp runs `scsearch:` against the SoundCloud public index.
-- **Paste a URL** (`u`). Any `soundcloud.com/<artist>/<track>` URL plays.
+- **Paste a URL** (`u`). Any `soundcloud.com` or `on.soundcloud.com` URL plays.
 - **Browse list with curated genres**. Without a configured profile, the playlists pane lists **Trending**, **Hip-Hop**, **Electronic**, **House**, **Lo-Fi**, **Indie**, and **Pop**. These are virtual playlists backed by real-time scsearch results, not editorial charts. SoundCloud official chart endpoints currently return 404 through yt-dlp.
 
 ## Browse a profile
@@ -36,6 +36,8 @@ This replaces the curated Browse list with three playlists from `soundcloud.com/
 - **Reposts**: Tracks the user reposted.
 
 This works for any public profile. It does not require SoundCloud sign-in.
+
+yt-dlp lists these playlists without the artist of each track. When a track from them starts, cliamp looks up its artist with one more yt-dlp call. The artist then appears in the player, the media controls (MPRIS) and scrobblers that read them, about a second after playback starts.
 
 ## Sign in via browser cookies
 
@@ -60,11 +62,12 @@ profiles in one cliamp process.
 cliamp https://soundcloud.com/forss/flickermood   # play a track
 cliamp https://soundcloud.com/forss/sets/album    # play a set / playlist
 cliamp https://soundcloud.com/forss               # play a profile's tracks
+cliamp https://on.soundcloud.com/xxxxxx           # play a shared link
 cliamp --provider soundcloud                      # start with SoundCloud as the active provider
 cliamp search-sc "lofi beats"                     # legacy: SoundCloud search from the shell
 ```
 
-URL playback works whether or not `[soundcloud]` is enabled. yt-dlp resolves any SoundCloud link passed by cliamp. The `enabled` flag controls only the in-app provider entry.
+URL playback works whether or not `[soundcloud]` is enabled. yt-dlp resolves any SoundCloud link (including `on.soundcloud.com` short links) passed by cliamp. The `enabled` flag controls only the in-app provider entry.
 
 ## When playback fails
 

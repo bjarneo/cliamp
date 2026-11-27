@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeLuaHost records the calls that the Visualizer makes to a LuaVisHost.
@@ -217,5 +218,29 @@ func TestRegisterLuaVisualizersKeepsNames(t *testing.T) {
 	}
 	if names := v.AllModeNames(); names[VisCount] != "Bars" {
 		t.Errorf("AllModeNames()[VisCount] = %q, want the Lua Bars in the cycle", names[VisCount])
+	}
+}
+
+// A Lua mode gets the bands of the sound that plays now, on every tick, as
+// the built-in modes on the audible tap do.
+func TestLuaVisualizerReadsAudibleTap(t *testing.T) {
+	v := newLuaTestVisualizer(t, &fakeLuaHost{})
+	v.Mode = VisCount
+	var taps []VisTap
+	v.Tick(VisTickContext{
+		Now:     time.Unix(1, 0),
+		Playing: true,
+		Analyze: func(spec VisAnalysisSpec) []float64 {
+			taps = append(taps, NormalizeAnalysisSpec(spec).Tap)
+			return nil
+		},
+	})
+	if len(taps) == 0 {
+		t.Fatal("Tick did not call Analyze")
+	}
+	for _, tap := range taps {
+		if tap != VisTapAudible {
+			t.Errorf("Analyze tap = %v, want %v", tap, VisTapAudible)
+		}
 	}
 }

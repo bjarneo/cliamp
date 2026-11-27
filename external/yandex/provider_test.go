@@ -47,8 +47,34 @@ func TestBuildStreamURL(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := buildStreamURL(tc.info, tc.full); got != tc.want {
+			got, err := buildStreamURL(tc.info, tc.full)
+			if err != nil {
+				t.Fatalf("buildStreamURL() error = %v", err)
+			}
+			if got != tc.want {
 				t.Errorf("buildStreamURL() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBuildStreamURLValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		full fullDownloadInfo
+	}{
+		{name: "empty host", full: fullDownloadInfo{Host: "", Path: "/a.mp3"}},
+		{name: "host with userinfo", full: fullDownloadInfo{Host: "user@evil.example", Path: "/a.mp3"}},
+		{name: "host with slash", full: fullDownloadInfo{Host: "a.yandex.net/evil", Path: "/a.mp3"}},
+		{name: "host with query", full: fullDownloadInfo{Host: "a.yandex.net?x=1", Path: "/a.mp3"}},
+		{name: "empty path", full: fullDownloadInfo{Host: "s1.music.yandex.ru", Path: ""}},
+		{name: "root-only path", full: fullDownloadInfo{Host: "s1.music.yandex.ru", Path: "/"}},
+		{name: "path without leading slash", full: fullDownloadInfo{Host: "s1.music.yandex.ru", Path: "no-slash.mp3"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got, err := buildStreamURL(downloadInfo{Codec: "mp3"}, tt.full); err == nil {
+				t.Fatalf("buildStreamURL(%+v) = %q, want error", tt.full, got)
 			}
 		})
 	}

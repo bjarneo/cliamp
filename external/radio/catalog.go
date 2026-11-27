@@ -3,6 +3,7 @@
 package radio
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/http"
@@ -34,8 +35,17 @@ type CatalogStation struct {
 // Country is one entry of the directory's country index.
 type Country struct {
 	Name         string `json:"name"`
+	APIName      string `json:"-"`
 	Code         string `json:"iso_3166_1"`
 	StationCount int    `json:"stationcount"`
+}
+
+// apiName returns the raw directory name for state queries.
+func (c Country) apiName() string {
+	if c.APIName != "" {
+		return c.APIName
+	}
+	return c.Name
 }
 
 // State is a region within a country. Only about 44% of stations carry one, so
@@ -153,22 +163,28 @@ func FetchCountries() ([]Country, error) {
 		if code == "" {
 			continue
 		}
+		rawName := strings.TrimSpace(c.Name)
 		if existing, ok := byCode[code]; ok {
 			existing.StationCount += c.StationCount
+			if existing.APIName == "" && rawName != "" {
+				existing.Name = displayCountryName(rawName)
+				existing.APIName = rawName
+			}
 			continue
 		}
 		merged = append(merged, Country{
-			Name:         displayCountryName(c.Name),
+			Name:         displayCountryName(rawName),
+			APIName:      rawName,
 			Code:         code,
 			StationCount: c.StationCount,
 		})
 		byCode[code] = &merged[len(merged)-1]
 	}
 	slices.SortFunc(merged, func(a, b Country) int {
-		if a.StationCount != b.StationCount {
-			return b.StationCount - a.StationCount
-		}
-		return strings.Compare(a.Name, b.Name)
+		return cmp.Or(
+			cmp.Compare(b.StationCount, a.StationCount),
+			strings.Compare(a.Name, b.Name),
+		)
 	})
 	return merged, nil
 }
@@ -233,7 +249,11 @@ func FetchTags() ([]Tag, error) {
 		return nil, fmt.Errorf("fetch tags: %w", err)
 	}
 
-	tags := make([]Tag, 0, len(raw))
+	type keyedTag struct {
+		tag   Tag
+		lower string
+	}
+	entries := make([]keyedTag, 0, len(raw))
 	byName := make(map[string]int, len(raw))
 	for _, tag := range raw {
 		name := strings.TrimSpace(tag.Name)
@@ -242,18 +262,25 @@ func FetchTags() ([]Tag, error) {
 		}
 		key := strings.ToLower(name)
 		if i, seen := byName[key]; seen {
-			tags[i].StationCount += tag.StationCount
+			entries[i].tag.StationCount += tag.StationCount
 			continue
 		}
-		byName[key] = len(tags)
-		tags = append(tags, Tag{Name: name, StationCount: tag.StationCount})
+		byName[key] = len(entries)
+		entries = append(entries, keyedTag{
+			tag:   Tag{Name: name, StationCount: tag.StationCount},
+			lower: key,
+		})
 	}
-	slices.SortFunc(tags, func(a, b Tag) int {
-		if a.StationCount != b.StationCount {
-			return b.StationCount - a.StationCount
-		}
-		return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+	slices.SortFunc(entries, func(a, b keyedTag) int {
+		return cmp.Or(
+			cmp.Compare(b.tag.StationCount, a.tag.StationCount),
+			strings.Compare(a.lower, b.lower),
+		)
 	})
+	tags := make([]Tag, len(entries))
+	for i, e := range entries {
+		tags[i] = e.tag
+	}
 	return tags, nil
 }
 

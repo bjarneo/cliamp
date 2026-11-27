@@ -35,6 +35,39 @@ func TestParseStreamTitle(t *testing.T) {
 	}
 }
 
+func TestCleanStreamTitle(t *testing.T) {
+	// The tail of the record in issue #383.
+	const tail = `TAID="0" TPID="234523735" cartcutId="0439470001" amgArtworkURL="..." length="00:04:15"`
+	tests := []struct {
+		name  string
+		title string
+		want  string
+	}{
+		{"iheart record from the issue", `Olivia Dean - text="So Easy" song_spot="M" ` + tail, "Olivia Dean - So Easy"},
+		{"iheart record with every field", `Olivia Dean - text="So Easy" song_spot="M" MediaBaseId="0" itunesTrackId="0" amgTrackId="0" amgArtistId="0" TAID="0" TPID="234523735" cartcutId="0439470001" amgArtworkURL="http://image.iheart.com/a/b.jpg" length="00:04:15" unsID="-1" spotInstanceId="-1"`, "Olivia Dean - So Easy"},
+		{"iheart cut record from the issue", `0" ` + tail + ` unsID=`, `0" ` + tail + ` unsID=`},
+		{"iheart empty text", `Z100 - text="" song_spot="T" ` + tail, "Z100"},
+		{"iheart empty artist", `- text="Spot Block End" song_spot="T" ` + tail, "Spot Block End"},
+		{"iheart empty artist and text", ` - text="" song_spot="T" ` + tail, ""},
+		{"iheart hyphen in artist", `Jay-Z - text="Empire State of Mind" song_spot="M" ` + tail, "Jay-Z - Empire State of Mind"},
+		{"iheart separator in title", `Artist - text="Song - Radio Edit" song_spot="M" ` + tail, "Artist - Song - Radio Edit"},
+		{"iheart quote in title", `Artist - text="12" Single" song_spot="M" ` + tail, `Artist - 12" Single`},
+		{"artist and title", "Daft Punk - Aerodynamic", "Daft Punk - Aerodynamic"},
+		{"title only", "Some Show", "Some Show"},
+		{"empty", "", ""},
+		{"text without pairs", `Artist - text="Title"`, `Artist - text="Title"`},
+		{"text with prose after it", `Band - text="Quoted" and more`, `Band - text="Quoted" and more`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := cleanStreamTitle(tt.title); got != tt.want {
+				t.Errorf("cleanStreamTitle(%q) = %q, want %q", tt.title, got, tt.want)
+			}
+		})
+	}
+}
+
 // icyBlock encodes one metadata block: a 1-byte length prefix (size/16) followed
 // by the null-padded metadata, matching the SHOUTcast/Icecast wire format.
 func icyBlock(meta string) []byte {
@@ -57,7 +90,9 @@ func TestIcyReaderStripsMetadataAndReportsTitles(t *testing.T) {
 	raw.Write(icyBlock(""))     // empty metadata block (no change)
 	raw.WriteString("CCCCCCCC") // audio block 3
 	raw.Write(icyBlock("StreamTitle='Song Two';"))
-	raw.WriteString("DDDDDDDD") // audio block 4 (partial, no trailing meta)
+	raw.WriteString("DDDDDDDD") // audio block 4
+	raw.Write(icyBlock(`StreamTitle='Olivia Dean - text="So Easy" song_spot="M" length="00:04:15"';`))
+	raw.WriteString("EEEEEEEE") // audio block 5 (partial, no trailing meta)
 
 	var titles []string
 	r := newIcyReader(io.NopCloser(&raw), metaInt, func(s string) {
@@ -70,12 +105,12 @@ func TestIcyReaderStripsMetadataAndReportsTitles(t *testing.T) {
 		t.Fatalf("ReadAll: %v", err)
 	}
 
-	const wantAudio = "AAAAAAAABBBBBBBBCCCCCCCCDDDDDDDD"
+	const wantAudio = "AAAAAAAABBBBBBBBCCCCCCCCDDDDDDDDEEEEEEEE"
 	if string(got) != wantAudio {
 		t.Errorf("audio = %q, want %q", got, wantAudio)
 	}
 
-	wantTitles := []string{"Song One", "Song Two"}
+	wantTitles := []string{"Song One", "Song Two", "Olivia Dean - So Easy"}
 	if len(titles) != len(wantTitles) {
 		t.Fatalf("titles = %v, want %v", titles, wantTitles)
 	}

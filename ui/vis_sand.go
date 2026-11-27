@@ -361,6 +361,7 @@ func (d *sandDriver) tickExplosion() {
 	}
 	if len(d.particles) == 0 {
 		d.explosionTTL = 0
+		d.particles = nil
 	}
 }
 

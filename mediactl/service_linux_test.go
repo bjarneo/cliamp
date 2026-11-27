@@ -3,8 +3,12 @@
 package mediactl
 
 import (
+	"errors"
 	"io"
 	"math"
+	"os"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -378,6 +382,7 @@ func TestServiceTrackIDFollowsTrackIdentity(t *testing.T) {
 	}{
 		{name: "duration", change: func(tr *playback.Track) { tr.Duration = 3*time.Minute + 2*time.Second }},
 		{name: "art url", change: func(tr *playback.Track) { tr.ArtURL = "file:///tmp/cover.jpg" }},
+		{name: "user rating", change: func(tr *playback.Track) { tr.UserRating = 5 }},
 		{name: "title", change: func(tr *playback.Track) { tr.Title = "Other" }, wantNewID: true},
 		{name: "url", change: func(tr *playback.Track) { tr.URL = "https://example.com/other" }, wantNewID: true},
 	}
@@ -401,5 +406,202 @@ func TestServiceTrackIDFollowsTrackIdentity(t *testing.T) {
 				t.Fatalf("mpris:artUrl = %v, want %v", got, next.ArtURL)
 			}
 		})
+	}
+}
+
+func TestSameTrackUserRatingPreservesIdentity(t *testing.T) {
+	const playerName = "org.mpris.MediaPlayer2.Player"
+	first := playback.Track{Title: "Song", Artist: "Artist", URL: "https://example.com/song", Duration: 3 * time.Minute}
+	svc := newTestService(t, func(tea.Msg) {})
+	svc.Update(playback.State{Track: first})
+	firstID := svc.props.GetMust(playerName, "Metadata").(map[string]dbus.Variant)["mpris:trackid"].Value()
+
+	next := first
+	next.UserRating = 4
+	svc.Update(playback.State{Track: next})
+	metadata := svc.props.GetMust(playerName, "Metadata").(map[string]dbus.Variant)
+	if id := metadata["mpris:trackid"].Value(); id != firstID {
+		t.Fatalf("mpris:trackid changed on rating-only update: got %v, want %v", id, firstID)
+	}
+	if got := metadata["xesam:userRating"].Value().(float64); got != 0.8 {
+		t.Fatalf("xesam:userRating = %v, want 0.8", got)
+	}
+	if !sameTrack(first, next) {
+		t.Fatal("sameTrack returned false for rating-only change")
+	}
+}
+
+func TestInstanceNameFollowsTheSpecification(t *testing.T) {
+	got := instanceName(4242)
+	want := "org.mpris.MediaPlayer2.cliamp.instance4242"
+	if got != want {
+		t.Fatalf("instanceName(4242) = %q, want %q", got, want)
+	}
+	if !strings.HasPrefix(got, busName+".") {
+		t.Fatalf("%q is not below the well known name %q", got, busName)
+	}
+}
+
+func TestInstanceNameIsUniquePerProcess(t *testing.T) {
+	// Two cliamps on one bus have to ask for two different names, or the
+	// second one is left without media controls again.
+	if instanceName(os.Getpid()) == instanceName(os.Getpid()+1) {
+		t.Fatal("two processes would ask for the same name")
+	}
+}
+
+// fakeBus answers RequestName from a table and records what was asked for.
+type fakeBus struct {
+	replies map[string]dbus.RequestNameReply
+	err     error
+	asked   []string
+}
+
+func (f *fakeBus) RequestName(name string, _ dbus.RequestNameFlags) (dbus.RequestNameReply, error) {
+	f.asked = append(f.asked, name)
+	if f.err != nil {
+		return 0, f.err
+	}
+	reply, ok := f.replies[name]
+	if !ok {
+		return dbus.RequestNameReplyExists, nil
+	}
+	return reply, nil
+}
+
+func TestRequestNameTakesTheWellKnownNameWhenItIsFree(t *testing.T) {
+	bus := &fakeBus{replies: map[string]dbus.RequestNameReply{
+		busName: dbus.RequestNameReplyPrimaryOwner,
+	}}
+	got, err := requestName(bus)
+	if err != nil {
+		t.Fatalf("requestName: %v", err)
+	}
+	if got != busName {
+		t.Fatalf("got %q, want %q", got, busName)
+	}
+	if len(bus.asked) != 1 {
+		t.Fatalf("asked for %v, want only the well known name", bus.asked)
+	}
+}
+
+func TestRequestNameFallsBackWhenAnotherCliampHoldsIt(t *testing.T) {
+	mine := instanceName(os.Getpid())
+	bus := &fakeBus{replies: map[string]dbus.RequestNameReply{
+		busName: dbus.RequestNameReplyExists,
+		mine:    dbus.RequestNameReplyPrimaryOwner,
+	}}
+	got, err := requestName(bus)
+	if err != nil {
+		t.Fatalf("requestName: %v", err)
+	}
+	if got != mine {
+		t.Fatalf("got %q, want the instance name %q", got, mine)
+	}
+	want := []string{busName, mine}
+	if len(bus.asked) != 2 || bus.asked[0] != want[0] || bus.asked[1] != want[1] {
+		t.Fatalf("asked for %v, want %v in that order", bus.asked, want)
+	}
+}
+
+func TestRequestNameGivesUpWhenNeitherNameIsFree(t *testing.T) {
+	bus := &fakeBus{replies: map[string]dbus.RequestNameReply{}}
+	if _, err := requestName(bus); err == nil {
+		t.Fatal("both names taken should be an error")
+	}
+}
+
+func TestRequestNameReportsABusError(t *testing.T) {
+	boom := errors.New("no bus")
+	bus := &fakeBus{err: boom}
+	_, err := requestName(bus)
+	if !errors.Is(err, boom) {
+		t.Fatalf("got %v, want it to wrap %v", err, boom)
+	}
+	if len(bus.asked) != 1 {
+		t.Fatalf("asked for %v, want it to stop at the first error", bus.asked)
+	}
+}
+
+// The concrete connection has to keep satisfying the interface the fallback
+// takes, or New would stop compiling for a reason a test should catch first.
+var _ nameClaimer = (*dbus.Conn)(nil)
+
+type countingCloseTransport struct {
+	discardTransport
+	closes atomic.Int32
+}
+
+func (c *countingCloseTransport) Close() error {
+	c.closes.Add(1)
+	return nil
+}
+
+func TestServiceCloseIsIdempotentAndClearsConn(t *testing.T) {
+	transport := &countingCloseTransport{}
+	conn, err := dbus.NewConn(transport)
+	if err != nil {
+		t.Fatalf("dbus.NewConn() error = %v", err)
+	}
+	svc, err := newService(conn, func(tea.Msg) {})
+	if err != nil {
+		t.Fatalf("newService() error = %v", err)
+	}
+
+	svc.Close()
+	svc.Close()
+
+	if got := transport.closes.Load(); got != 1 {
+		t.Fatalf("transport Close count = %d, want 1", got)
+	}
+	svc.mu.Lock()
+	connAfter := svc.conn
+	svc.mu.Unlock()
+	if connAfter != nil {
+		t.Fatal("svc.conn was not cleared by Close")
+	}
+
+	// Calls after Close must not panic.
+	svc.Update(playback.State{Status: playback.StatusPlaying, Track: playback.Track{Title: "After"}})
+	svc.Seeked(time.Second)
+}
+
+func TestServiceForwardMessagesStopsMidDrainOnClose(t *testing.T) {
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	var sent atomic.Int32
+
+	svc := &Service{
+		send: func(tea.Msg) {
+			if sent.Add(1) == 1 {
+				close(firstStarted)
+				<-releaseFirst
+			}
+		},
+		wake: make(chan struct{}, 1),
+		done: make(chan struct{}),
+	}
+
+	// Enqueue multiple messages before forwardMessages starts so one batch holds all of them.
+	for range 5 {
+		svc.dispatch(playback.NextMsg{})
+	}
+	exited := make(chan struct{})
+	go func() {
+		svc.forwardMessages()
+		close(exited)
+	}()
+
+	<-firstStarted
+	svc.Close()
+	close(releaseFirst)
+
+	select {
+	case <-exited:
+	case <-time.After(2 * time.Second):
+		t.Fatal("forwardMessages did not exit after Close")
+	}
+	if got := sent.Load(); got != 1 {
+		t.Fatalf("sent count after Close = %d, want 1", got)
 	}
 }

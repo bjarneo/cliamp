@@ -148,6 +148,35 @@ func TestLookup(t *testing.T) {
 			want: []Line{{Text: "Line one"}, {Text: "Line two"}},
 		},
 		{
+			name:   "LRCLIB skips unparseable synced lyrics to use later synced result",
+			artist: "Artist", title: "Song",
+			api: lyricsAPI{lrclib: reply(`[
+				{"syncedLyrics":"[ti:Only metadata]\nno timestamps","plainLyrics":"Ignored plain"},
+				{"syncedLyrics":"[00:08.00]Second synced","plainLyrics":""}
+			]`)},
+			want: []Line{{Start: 8 * time.Second, Text: "Second synced"}},
+		},
+		{
+			name:   "LRCLIB scans all results for plain lyrics fallback",
+			artist: "Artist", title: "Song",
+			api: lyricsAPI{lrclib: reply(`[
+				{"syncedLyrics":"not lrc","plainLyrics":"   "},
+				{"syncedLyrics":"","plainLyrics":"Later line one\nLater line two"}
+			]`)},
+			want: []Line{{Text: "Later line one"}, {Text: "Later line two"}},
+		},
+		{
+			name:   "NetEase runs when LRCLIB synced lyrics have no timestamps and no plain fallback",
+			artist: "Artist", title: "Song",
+			api: lyricsAPI{
+				lrclib: reply(`[{"syncedLyrics":"[ar:Artist]","plainLyrics":""}]`),
+				search: neteaseSongs,
+				lyric:  reply(`{"lrc":{"lyric":"[00:12.00]NetEase fallback"}}`),
+			},
+			want:      []Line{{Start: 12 * time.Second, Text: "NetEase fallback"}},
+			wantPaths: []string{"/api/search", "/api/search/get/web", "/api/song/lyric"},
+		},
+		{
 			name:   "NetEase after an empty LRCLIB answer",
 			artist: "Artist", title: "Song",
 			api: lyricsAPI{
@@ -301,10 +330,104 @@ func TestLookupLimitsEachSource(t *testing.T) {
 
 // A canceled lookup stops and reports the cancel.
 func TestLookupStopsWhenCanceled(t *testing.T) {
-	serveLyrics(t, lyricsAPI{lrclib: reply(`[{"syncedLyrics":"[00:01.00]ok"}]`)}, false)
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if _, err := Lookup(ctx, "", "Artist", "Song"); !errors.Is(err, context.Canceled) {
-		t.Fatalf("err = %v, want context.Canceled", err)
+	tests := []struct {
+		name           string
+		cancelBefore   bool
+		cancelInSource int // 1-based index of source that cancels ctx, 0 for none
+		artist, title  string
+		sourceCount    int
+		wantCalls      int
+	}{
+		{
+			name:         "canceled before sources skips all sources and fetch",
+			cancelBefore: true,
+			artist:       "Artist",
+			title:        "Song",
+			sourceCount:  2,
+			wantCalls:    0,
+		},
+		{
+			name:           "canceled in first source skips remaining sources and fetch",
+			cancelInSource: 1,
+			artist:         "Artist",
+			title:          "Song",
+			sourceCount:    2,
+			wantCalls:      1,
+		},
+		{
+			name:           "canceled in last source skips fetch even with empty metadata",
+			cancelInSource: 1,
+			artist:         "",
+			title:          "",
+			sourceCount:    1,
+			wantCalls:      1,
+		},
+		{
+			name:         "canceled with no sources skips fetch",
+			cancelBefore: true,
+			artist:       "Artist",
+			title:        "Song",
+			sourceCount:  0,
+			wantCalls:    0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			log := serveLyrics(t, lyricsAPI{lrclib: reply(`[{"syncedLyrics":"[00:01.00]ok"}]`)}, false)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if tt.cancelBefore {
+				cancel()
+			}
+
+			calls := 0
+			sources := make([]Source, tt.sourceCount)
+			for i := range tt.sourceCount {
+				idx := i + 1
+				sources[i] = func(context.Context) ([]Line, error) {
+					calls++
+					if idx == tt.cancelInSource {
+						cancel()
+					}
+					return nil, ErrNotFound
+				}
+			}
+
+			if _, err := Lookup(ctx, "", tt.artist, tt.title, sources...); !errors.Is(err, context.Canceled) {
+				t.Fatalf("err = %v, want context.Canceled", err)
+			}
+			if calls != tt.wantCalls {
+				t.Errorf("source calls = %d, want %d", calls, tt.wantCalls)
+			}
+			log.mu.Lock()
+			gotPaths := slices.Clone(log.paths)
+			log.mu.Unlock()
+			if len(gotPaths) != 0 {
+				t.Errorf("API requests = %v, want none", gotPaths)
+			}
+		})
+	}
+}
+
+func TestNetEaseUsesHTTPSDefaultAndReferer(t *testing.T) {
+	if neteaseBaseURL != "https://music.163.com" {
+		t.Fatalf("neteaseBaseURL = %q, want https://music.163.com", neteaseBaseURL)
+	}
+	var gotReferer string
+	serveLyrics(t, lyricsAPI{
+		lrclib: reply(`[]`),
+		search: func(w http.ResponseWriter, r *http.Request) {
+			gotReferer = r.Header.Get("Referer")
+			reply(`{"result":{"songs":[{"id":1}]}}`)(w, r)
+		},
+		lyric: reply(`{"lrc":{"lyric":"[00:01.00]ok"}}`),
+	}, false)
+
+	lines, err := Lookup(context.Background(), "", "Artist", "Song")
+	if err != nil || len(lines) != 1 {
+		t.Fatalf("Lookup() = %+v, %v", lines, err)
+	}
+	if gotReferer != "https://music.163.com" {
+		t.Fatalf("Referer = %q, want https://music.163.com", gotReferer)
 	}
 }

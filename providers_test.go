@@ -14,6 +14,7 @@ import (
 	"github.com/gopxl/beep/v2"
 
 	"github.com/bjarneo/cliamp/config"
+	"github.com/bjarneo/cliamp/external/bandcamp"
 	"github.com/bjarneo/cliamp/external/emby"
 	"github.com/bjarneo/cliamp/external/jellyfin"
 	"github.com/bjarneo/cliamp/external/navidrome"
@@ -67,6 +68,14 @@ func TestBuildProviders(t *testing.T) {
 			},
 			want: append(slices.Clone(always), "navidrome", "plex"),
 		},
+		{
+			name: "navidrome and bandcamp",
+			cfg: config.Config{
+				Navidrome: config.NavidromeConfig{URL: "https://nd.example.com", User: "user", Password: "secret"},
+				Bandcamp:  config.BandcampConfig{User: "fan", Password: "secret"},
+			},
+			want: append(slices.Clone(always), "navidrome", "bandcamp"),
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			isolateProviderEnv(t)
@@ -98,6 +107,9 @@ func TestBuildProviders(t *testing.T) {
 			for _, e := range set.entries {
 				if nav, ok := e.Provider.(*navidrome.NavidromeClient); ok && nav.SaveSort == nil {
 					t.Error("the Navidrome album sort is not saved to the config")
+				}
+				if bc, ok := e.Provider.(*bandcamp.Provider); ok && bc.SaveSort == nil {
+					t.Error("the Bandcamp album sort is not saved to the config")
 				}
 			}
 		})
@@ -221,12 +233,14 @@ func TestPlayerHooksSendYTDLPagesToYTDLP(t *testing.T) {
 	}}
 	engine := &player.Player{}
 	set.registerPlayerHooks(engine)
+	engine.SetPlaybackGeneration(1)
+	preloadGen := engine.BeginPreload()
 	for _, op := range []struct {
 		name string
 		open func(path string) error
 	}{
 		{name: "play", open: func(path string) error { return engine.PlayAtForGeneration(path, time.Minute, 0, 1) }},
-		{name: "preload", open: func(path string) error { return engine.PreloadForGeneration(path, time.Minute, 1) }},
+		{name: "preload", open: func(path string) error { return engine.PreloadForGeneration(path, time.Minute, preloadGen) }},
 	} {
 		t.Run(op.name, func(t *testing.T) {
 			err := op.open("https://www.youtube.com/watch?v=abc")

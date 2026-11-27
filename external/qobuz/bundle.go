@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"io"
 	"maps"
 	"net/http"
 	"regexp"
@@ -15,8 +14,12 @@ import (
 	"github.com/bjarneo/cliamp/internal/httpclient"
 )
 
-// bundleBaseURL is the Qobuz web player origin that ships the JS bundle.
-const bundleBaseURL = "https://play.qobuz.com"
+const (
+	// bundleBaseURL is the Qobuz web player origin that ships the JS bundle.
+	bundleBaseURL    = "https://play.qobuz.com"
+	maxLoginPageBody = 2 << 20
+	maxBundleBody    = 20 << 20
+)
 
 // fallbackPrivateKey is the static OAuth code-exchange private_key documented
 // for the production environment. It is used only when the value cannot be
@@ -71,7 +74,7 @@ func fetchBundle(ctx context.Context, baseURL string) (*bundle, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("qobuz: get login page: HTTP %s", resp.Status)
 	}
-	page, err := io.ReadAll(resp.Body)
+	page, err := httpclient.ReadBody(resp.Body, maxLoginPageBody)
 	if err != nil {
 		return nil, fmt.Errorf("qobuz: read login page: %w", err)
 	}
@@ -94,7 +97,7 @@ func fetchBundle(ctx context.Context, baseURL string) (*bundle, error) {
 	if resp2.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("qobuz: get bundle.js: HTTP %s", resp2.Status)
 	}
-	body, err := io.ReadAll(resp2.Body)
+	body, err := httpclient.ReadBody(resp2.Body, maxBundleBody)
 	if err != nil {
 		return nil, fmt.Errorf("qobuz: read bundle.js: %w", err)
 	}

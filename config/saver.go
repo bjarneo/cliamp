@@ -1,6 +1,8 @@
 package config
 
 import (
+	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -43,15 +45,23 @@ func SaveBool(key string, value bool) error {
 
 // SaveFloat saves a top-level number key with prec digits after the decimal
 // point. A prec of -1 writes the fewest digits that Load reads back as value.
+// It returns an error when value is NaN or infinite.
 func SaveFloat(key string, value float64, prec int) error {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return fmt.Errorf("save %s: value is not a finite number", key)
+	}
 	return save(key, strconv.FormatFloat(value, 'f', prec, 64))
 }
 
 // SaveFloats saves a top-level list of numbers, such as the eq bands, as
 // [a, b, c]. Each number has the fewest digits that Load reads back.
+// It returns an error when any element is NaN or infinite.
 func SaveFloats(key string, values []float64) error {
 	parts := make([]string, len(values))
 	for i, v := range values {
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return fmt.Errorf("save %s: element %d is not a finite number", key, i)
+		}
 		parts[i] = strconv.FormatFloat(v, 'f', -1, 64)
 	}
 	return save(key, "["+strings.Join(parts, ", ")+"]")

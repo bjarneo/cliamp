@@ -22,6 +22,11 @@ type geyserParticle struct {
 	life   int
 }
 
+const (
+	geyserMaxParticles = 512
+	geyserMaxIdleCap   = 256
+)
+
 func newGeyserDriver() visModeDriver { return &geyserDriver{rng: 0xFEED5EED} }
 
 func (d *geyserDriver) Tick(v *Visualizer, ctx VisTickContext) {
@@ -34,7 +39,6 @@ func (d *geyserDriver) Tick(v *Visualizer, ctx VisTickContext) {
 		return
 	}
 	d.grid.ensure(dotRows, dotCols)
-	d.grid.clear()
 
 	bands := v.SmoothedBands()
 	if len(bands) == 0 {
@@ -87,11 +91,17 @@ func (d *geyserDriver) Tick(v *Visualizer, ctx VisTickContext) {
 		live = append(live, p)
 	}
 	d.particles = live
+	if len(d.particles) == 0 && cap(d.particles) > geyserMaxIdleCap {
+		d.particles = nil
+	}
 }
 
 // spawn launches one particle. Its tier is drawn from the bass and mid shares,
 // and the rest of the draws stay on the low tier.
 func (d *geyserDriver) spawn(x, y, spread int, vy, bass, mid float64) {
+	if len(d.particles) >= geyserMaxParticles {
+		return
+	}
 	jx := x + int(rng64(&d.rng)*float64(2*spread+1)) - spread
 	vyJitter := vy * (0.6 + rng64(&d.rng)*0.5)
 	vxJitter := (rng64(&d.rng) - 0.5) * (1.0 + vy*0.4)

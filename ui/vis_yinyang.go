@@ -6,8 +6,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"charm.land/lipgloss/v2"
 )
 
 // YinYang draws two koi circling a lily pad, or following an S-curve in a
@@ -35,6 +33,13 @@ const (
 
 // yinYangRadii is a koi's half-width at each joint, head to tail.
 var yinYangRadii = [yinYangJoints]float64{2.5, 2.9, 2.9, 2.7, 2.4, 2.05, 1.75, 1.45, 1.2, 1.0, 0.85, 0.7, 0.6}
+
+// Precomputed lily pad notch geometry.
+var (
+	yinYangNotchX   = math.Cos(0.9)
+	yinYangNotchY   = math.Sin(0.9)
+	yinYangNotchTan = math.Tan(0.28)
+)
 
 const (
 	yinYangWater int8 = iota
@@ -463,14 +468,33 @@ func (d *yinYangDriver) Render(v *Visualizer) string {
 		d.koi[i].sprite = k.sprite
 	}
 	// The pad floats over the koi.
-	notchX, notchY, notchTan := math.Cos(0.9), math.Sin(0.9), math.Tan(0.28)
-	d.disc(d.cx, d.cy, d.pad, func(dx, dy float64) int8 {
-		ahead, aside := dx*notchX+dy*notchY, dx*notchY-dy*notchX
-		if ahead > 0 && math.Abs(aside) < notchTan*ahead && dx*dx+dy*dy > 0.04 {
-			return -1
+	if d.pad > 0 {
+		r := d.pad
+		yMin := max(0, int(math.Floor(d.cy-r)))
+		yMax := min(d.h-1, int(math.Ceil(d.cy+r)))
+		xMin := max(0, int(math.Floor(d.cx-r)))
+		xMax := min(d.w-1, int(math.Ceil(d.cx+r)))
+		for y := yMin; y <= yMax; y++ {
+			dy := (float64(y) + 0.5 - d.cy) / r
+			dy2 := dy * dy
+			if dy2 > 1 {
+				continue
+			}
+			rowOff := y * d.w
+			for x := xMin; x <= xMax; x++ {
+				dx := (float64(x) + 0.5 - d.cx) / r
+				d2 := dx*dx + dy2
+				if d2 > 1 {
+					continue
+				}
+				ahead, aside := dx*yinYangNotchX+dy*yinYangNotchY, dx*yinYangNotchY-dy*yinYangNotchX
+				if ahead > 0 && math.Abs(aside) < yinYangNotchTan*ahead && d2 > 0.04 {
+					continue
+				}
+				d.px[rowOff+x] = yinYangPad
+			}
 		}
-		return yinYangPad
-	})
+	}
 	d.drawLotus(d.lotusReach())
 	return d.encode(rows, cols)
 }
@@ -498,20 +522,42 @@ func yinYangPetalWidth(along float64) float64 {
 
 func (d *yinYangDriver) drawLotus(outer, inner float64) {
 	const petals = 6
+	const sector = 2 * math.Pi / petals
 	for _, ring := range [2]struct {
 		length, turn float64
 		tag          int8
 	}{{d.pad * outer, 0, yinYangInk}, {d.pad * inner, math.Pi / petals, yinYangRed}} {
-		d.disc(d.cx, d.cy, ring.length, func(dx, dy float64) int8 {
-			a := math.Atan2(dy, dx) - ring.turn
-			a -= math.Round(a/(2*math.Pi/petals)) * 2 * math.Pi / petals
-			r := math.Hypot(dx, dy)
-			along, across := r*math.Cos(a), r*math.Sin(a)
-			if along > 0 && along < 1 && math.Abs(across) <= yinYangPetalWidth(along) {
-				return ring.tag
+		if ring.length <= 0 {
+			continue
+		}
+		r := ring.length
+		yMin := max(0, int(math.Floor(d.cy-r)))
+		yMax := min(d.h-1, int(math.Ceil(d.cy+r)))
+		xMin := max(0, int(math.Floor(d.cx-r)))
+		xMax := min(d.w-1, int(math.Ceil(d.cx+r)))
+		for y := yMin; y <= yMax; y++ {
+			dy := (float64(y) + 0.5 - d.cy) / r
+			dy2 := dy * dy
+			if dy2 > 1 {
+				continue
 			}
-			return -1
-		})
+			rowOff := y * d.w
+			for x := xMin; x <= xMax; x++ {
+				dx := (float64(x) + 0.5 - d.cx) / r
+				d2 := dx*dx + dy2
+				if d2 > 1 {
+					continue
+				}
+				a := math.Atan2(dy, dx) - ring.turn
+				a -= math.Round(a/sector) * sector
+				rad := math.Sqrt(d2)
+				sinA, cosA := math.Sincos(a)
+				along, across := rad*cosA, rad*sinA
+				if along > 0 && along < 1 && math.Abs(across) <= yinYangPetalWidth(along) {
+					d.px[rowOff+x] = ring.tag
+				}
+			}
+		}
 	}
 	d.fill(d.cx, d.cy, d.pad*inner*0.35, yinYangGold)
 }
@@ -536,24 +582,37 @@ func (d *yinYangDriver) plot(x, y float64, t int8) {
 	d.set(int(math.Floor(x)), int(math.Floor(y)), t)
 }
 
-// disc fills a disc of radius r, taking each pixel's tag from shade at its
-// offset from the centre, in radii.
-func (d *yinYangDriver) disc(cx, cy, r float64, shade func(dx, dy float64) int8) {
-	if r <= 0 {
+func (d *yinYangDriver) fill(cx, cy, r float64, t int8) {
+	if r <= 0 || t < 0 {
 		return
 	}
-	for y := max(0, int(math.Floor(cy-r))); y <= min(d.h-1, int(math.Ceil(cy+r))); y++ {
-		for x := max(0, int(math.Floor(cx-r))); x <= min(d.w-1, int(math.Ceil(cx+r))); x++ {
-			dx, dy := (float64(x)+0.5-cx)/r, (float64(y)+0.5-cy)/r
-			if dx*dx+dy*dy <= 1 {
-				d.set(x, y, shade(dx, dy))
+	yMin := max(0, int(math.Floor(cy-r)))
+	yMax := min(d.h-1, int(math.Ceil(cy+r)))
+	xMin := max(0, int(math.Floor(cx-r)))
+	xMax := min(d.w-1, int(math.Ceil(cx+r)))
+	for y := yMin; y <= yMax; y++ {
+		dy := (float64(y) + 0.5 - cy) / r
+		dy2 := dy * dy
+		if dy2 > 1 {
+			continue
+		}
+		if !d.strip {
+			rowOff := y * d.w
+			for x := xMin; x <= xMax; x++ {
+				dx := (float64(x) + 0.5 - cx) / r
+				if dx*dx+dy2 <= 1 {
+					d.px[rowOff+x] = t
+				}
+			}
+			continue
+		}
+		for x := xMin; x <= xMax; x++ {
+			dx := (float64(x) + 0.5 - cx) / r
+			if dx*dx+dy2 <= 1 {
+				d.set(x, y, t)
 			}
 		}
 	}
-}
-
-func (d *yinYangDriver) fill(cx, cy, r float64, t int8) {
-	d.disc(cx, cy, r, func(float64, float64) int8 { return t })
 }
 
 func (d *yinYangDriver) drawSwirl(s yinYangSwirl) {
@@ -643,7 +702,15 @@ func (d *yinYangDriver) drawSprite(k *yinYangKoi, pat yinYangPattern) {
 	for i, p := range k.joints {
 		local.joints[i] = yinYangPoint{p.x + sx - ox, p.y + sy - oy}
 	}
-	sprite := yinYangDriver{w: bw, h: bh, size: d.size, px: make([]int8, bw*bh)}
+	need := bw * bh
+	px := k.sprite.px
+	if cap(px) < need {
+		px = make([]int8, need)
+	} else {
+		px = px[:need]
+		clear(px)
+	}
+	sprite := yinYangDriver{w: bw, h: bh, size: d.size, px: px}
 	sprite.drawShape(&local, pat, false)
 	yinYangCloseGaps(sprite.px, bw, pat.body)
 	addStripEyes(sprite.px, bw, int(hx-ox), int(hy-oy), pat.body)
@@ -764,7 +831,7 @@ func refreshYinYangANSI() {
 	for fg := yinYangDim; fg < yinYangTagCount; fg++ {
 		yinYangANSI[fg][yinYangWater] = foregroundANSI(tags[fg])
 		for bg := yinYangDim; bg < yinYangTagCount; bg++ {
-			yinYangANSI[fg][bg] = colorANSI(lipgloss.NewStyle().Foreground(tags[fg]).Background(tags[bg]))
+			yinYangANSI[fg][bg] = colorANSI(pairStyle(tags[fg], tags[bg]))
 		}
 	}
 }
@@ -806,12 +873,15 @@ func (d *yinYangDriver) encode(rows, cols int) string {
 		}
 		return min(a, b)
 	}
-	var sb, run strings.Builder
+	var sb strings.Builder
+	sb.Grow(rows * (cols*5 + 16))
+	w := styleRunWriter{sb: &sb}
 	for row := range rows {
 		if row > 0 {
 			sb.WriteByte('\n')
 		}
 		var style styleANSI
+		w.switchStyle(style)
 		for col := range cols {
 			i := row*4*d.w + col*2
 			var sub [6]int8
@@ -823,10 +893,10 @@ func (d *yinYangDriver) encode(rows, cols int) string {
 			}
 			if empty {
 				if style != (styleANSI{}) {
-					writeStyledRun(&sb, &run, style)
 					style = styleANSI{}
+					w.switchStyle(style)
 				}
-				run.WriteByte(' ')
+				w.writeByte(' ')
 				continue
 			}
 			var cellCount [yinYangTagCount]int
@@ -867,12 +937,12 @@ func (d *yinYangDriver) encode(rows, cols int) string {
 				}
 			}
 			if next != style {
-				writeStyledRun(&sb, &run, style)
 				style = next
+				w.switchStyle(style)
 			}
-			run.WriteRune(glyph)
+			w.writeRune(glyph)
 		}
-		writeStyledRun(&sb, &run, style)
+		w.flush()
 	}
 	return sb.String()
 }

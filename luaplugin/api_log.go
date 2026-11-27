@@ -15,9 +15,10 @@ const pluginLogName = "plugins.log"
 
 // pluginLogger writes plugin log messages to ~/.config/cliamp/plugins.log.
 type pluginLogger struct {
-	mu   sync.Mutex
-	path string
-	f    *os.File
+	mu     sync.Mutex
+	path   string
+	f      *os.File
+	closed bool
 }
 
 func newPluginLogger(path string) *pluginLogger {
@@ -30,8 +31,14 @@ func (l *pluginLogger) log(plugin, level, format string, args ...any) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.closed {
+		return
+	}
 
 	if l.f == nil {
+		if l.path == "" {
+			return
+		}
 		f, err := os.OpenFile(l.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 		if err != nil {
 			return
@@ -45,13 +52,16 @@ func (l *pluginLogger) log(plugin, level, format string, args ...any) {
 }
 
 func (l *pluginLogger) close() {
-	if l == nil || l.f == nil {
+	if l == nil {
 		return
 	}
 	l.mu.Lock()
-	l.f.Close()
-	l.f = nil
-	l.mu.Unlock()
+	defer l.mu.Unlock()
+	l.closed = true
+	if l.f != nil {
+		l.f.Close()
+		l.f = nil
+	}
 }
 
 // registerLogAPI adds cliamp.log.{info,warn,error,debug} to the cliamp table.

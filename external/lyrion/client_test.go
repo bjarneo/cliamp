@@ -338,7 +338,7 @@ func TestEmptyContainersAreNotErrors(t *testing.T) {
 
 func TestFetchAllPaginatesToResponseCount(t *testing.T) {
 	var offsets []int
-	got, err := fetchAll(2, func(offset int) ([]int, int, error) {
+	got, err := fetchAll(2, strconv.Itoa, func(offset int) ([]int, int, error) {
 		offsets = append(offsets, offset)
 		switch offset {
 		case 0:
@@ -359,6 +359,47 @@ func TestFetchAllPaginatesToResponseCount(t *testing.T) {
 	}
 	if want := []int{0, 2, 4}; !slices.Equal(offsets, want) {
 		t.Errorf("offsets = %v, want %v", offsets, want)
+	}
+}
+
+func TestFetchAllStopsOnRepeatAndMaxPages(t *testing.T) {
+	tests := []struct {
+		name      string
+		fetch     func(offset int) ([]int, int, error)
+		wantItems int
+		wantCalls int
+	}{
+		{
+			name: "stops when server repeats first ID",
+			fetch: func(offset int) ([]int, int, error) {
+				return []int{1, 2}, 100, nil
+			},
+			wantItems: 2,
+			wantCalls: 2,
+		},
+		{
+			name: "stops at maxPages cap",
+			fetch: func(offset int) ([]int, int, error) {
+				return []int{offset + 1}, maxPages * 10, nil
+			},
+			wantItems: maxPages,
+			wantCalls: maxPages,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			got, err := fetchAll(1, strconv.Itoa, func(offset int) ([]int, int, error) {
+				calls++
+				return tt.fetch(offset)
+			})
+			if err != nil {
+				t.Fatalf("fetchAll() error = %v", err)
+			}
+			if len(got) != tt.wantItems || calls != tt.wantCalls {
+				t.Fatalf("got %d items in %d calls, want %d items in %d calls", len(got), calls, tt.wantItems, tt.wantCalls)
+			}
+		})
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
@@ -287,6 +288,69 @@ func TestStreamingAndAPIProxyRules(t *testing.T) {
 			}
 			if got := urlString(api); got != tt.wantAPI {
 				t.Errorf("apiProxy = %q, want %q", got, tt.wantAPI)
+			}
+		})
+	}
+}
+
+func TestProxyErrorsRedactRequestURL(t *testing.T) {
+	tests := []struct {
+		name      string
+		env       map[string]string
+		reqURL    string
+		wantClean string
+		call      func(req *http.Request) error
+	}{
+		{
+			name: "socks5RoundTripper redacts query and userinfo on SOCKS5 auth error",
+			env: map[string]string{
+				"HTTPS_PROXY": "socks5h://proxyuser:proxypass@127.0.0.1:1080",
+			},
+			reqURL:    "https://fan:secretpass@bandcamp.com/api/subsonic/rest/stream?u=fan&t=SECRET_TOKEN&s=SECRET_SALT",
+			wantClean: "https://bandcamp.com/api/subsonic/rest/stream",
+			call: func(req *http.Request) error {
+				rt := &socks5RoundTripper{transport: newStreamingTransport()}
+				_, err := rt.RoundTrip(req)
+				return err
+			},
+		},
+		{
+			name: "transportProxy redacts query and userinfo on CGI HTTP_PROXY error",
+			env: map[string]string{
+				"HTTP_PROXY":     "http://proxy.example:8080",
+				"REQUEST_METHOD": "GET",
+			},
+			reqURL:    "http://fan:secretpass@stream.example/live/stream?t=SECRET_TOKEN&s=SECRET_SALT",
+			wantClean: "http://stream.example/live/stream",
+			call: func(req *http.Request) error {
+				_, err := transportProxy(req)
+				return err
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clearProxyEnv(t)
+			t.Setenv("REQUEST_METHOD", "")
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+			req, err := http.NewRequest(http.MethodGet, tt.reqURL, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			gotErr := tt.call(req)
+			if gotErr == nil {
+				t.Fatal("expected error, got nil")
+			}
+			msg := gotErr.Error()
+			if !strings.Contains(msg, tt.wantClean) {
+				t.Errorf("error = %q, want clean URL %q", msg, tt.wantClean)
+			}
+			for _, secret := range []string{"secretpass", "SECRET_TOKEN", "SECRET_SALT", "u=fan"} {
+				if strings.Contains(msg, secret) {
+					t.Errorf("error %q leaked sensitive text %q", msg, secret)
+				}
 			}
 		})
 	}

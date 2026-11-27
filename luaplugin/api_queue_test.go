@@ -264,3 +264,34 @@ func TestQueueListRowRoundTripsThroughAdd(t *testing.T) {
 		t.Fatalf("queued %+v, want %+v", got, want)
 	}
 }
+
+func TestQueueListPopulatesAllFields(t *testing.T) {
+	state := &StateProvider{QueueList: func() []QueueEntry {
+		return []QueueEntry{{
+			Track: Track{
+				Title: "T", Artist: "Ar", Album: "Al", Genre: "G",
+				Year: 2024, Path: "/p.flac", Duration: 180, Stream: true,
+				ArtURL: "file:///cover.png",
+			},
+			Index:  3,
+			Queued: true,
+		}}
+	}}
+	L := newQueueState(t, state, &ControlProvider{}, nil)
+	if err := L.DoString(`
+		local row = cliamp.queue.list()[1]
+		assert(row.title == "T")
+		assert(row.artist == "Ar")
+		assert(row.album == "Al")
+		assert(row.genre == "G")
+		assert(row.year == 2024)
+		assert(row.path == "/p.flac")
+		assert(row.duration == 180)
+		assert(row.stream == true)
+		assert(row.album_art_url == "file:///cover.png")
+		assert(row.index == 3)
+		assert(row.queued == true)
+	`); err != nil {
+		t.Fatal(err)
+	}
+}

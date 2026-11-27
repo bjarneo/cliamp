@@ -41,6 +41,7 @@ Inside the TUI:
 | — | No in-TUI hotkey yet: start cliamp with `--provider yandex` or set `provider = "yandex"` in `config.toml` |
 | `Ctrl+F` | Search the Yandex Music catalog while the provider is active |
 | `Enter` | Load the highlighted playlist or play the highlighted track |
+| `f` | Toggle favorite ♥ locally and like or unlike the track on Yandex Music |
 | `Ctrl+R` | Refresh: reload the current playlist/wave in place, or return to the playlists pane |
 
 The provider pane shows three sections: **My Music** (Liked Tracks and Моя волна), **My Playlists**, and **Saved Playlists** (playlists owned by other accounts that you follow).

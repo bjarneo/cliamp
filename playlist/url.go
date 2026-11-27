@@ -141,8 +141,14 @@ func IsYTDL(path string) bool {
 	if IsYTSearch(path) {
 		return true
 	}
-	host, _, ok := hostOf(path)
+	host, u, ok := hostOf(path)
 	if !ok {
+		return false
+	}
+	// Subsonic stream endpoints (the Navidrome and Bandcamp providers) are
+	// plain HTTP audio for the buffered pipeline, not yt-dlp pages —
+	// whatever host they live on.
+	if isSubsonicStreamPath(u.Path) {
 		return false
 	}
 	switch host {
@@ -160,6 +166,12 @@ func IsYTDL(path string) bool {
 	}
 	// Bandcamp artist subdomains (e.g. artist.bandcamp.com)
 	if strings.HasSuffix(host, ".bandcamp.com") {
+		return true
+	}
+	// SoundCloud pages and short links. Other subdomains include podcast feeds,
+	// which should not be resolved through yt-dlp.
+	switch host {
+	case "www.soundcloud.com", "m.soundcloud.com", "on.soundcloud.com":
 		return true
 	}
 	return false

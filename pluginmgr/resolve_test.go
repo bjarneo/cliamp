@@ -91,6 +91,22 @@ func TestResolveSourceInvalid(t *testing.T) {
 		"too/many/parts",
 		"/nope",
 		"bitbucket:user/repo",
+		"user/repo@../other",
+		"user/repo@a/b",
+		"user/repo@main?x=1",
+		"user/repo@main#frag",
+		"user/repo@",
+		"user/repo@a b",
+		"user/repo@v1\x1b[31m",
+		"../repo",
+		"user/..",
+		"user/cliamp-plugin-",
+		"user/cliamp-plugin-..",
+		"user?x/repo",
+		"user#x/repo",
+		"user/repo\\evil",
+		"https://example.com/\x1b[2J.lua",
+		"https:///missing-host.lua",
 	}
 
 	for _, src := range tests {
@@ -98,6 +114,20 @@ func TestResolveSourceInvalid(t *testing.T) {
 		if err == nil {
 			t.Errorf("resolveSource(%q) should return error", src)
 		}
+	}
+}
+
+func TestResolveSourceEscapesPathSegments(t *testing.T) {
+	urls, name, err := resolveSource("user/repo@v1%2f2")
+	if err != nil {
+		t.Fatalf("resolveSource: %v", err)
+	}
+	if name != "repo" {
+		t.Fatalf("name = %q, want repo", name)
+	}
+	want := "https://raw.githubusercontent.com/user/repo/v1%252f2/repo.lua"
+	if len(urls) != 1 || urls[0] != want {
+		t.Fatalf("urls = %v, want [%s]", urls, want)
 	}
 }
 

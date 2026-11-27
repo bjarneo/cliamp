@@ -41,14 +41,20 @@ func bandGapAfter(totalBands, b, cols int) bool {
 	return (b+1)*gaps/slots > b*gaps/slots
 }
 
-// interpolateBandColumns builds per-column levels by interpolating between neighboring bands.
-func interpolateBandColumns(bands []float64, bandCols []int) []float64 {
+// interpolateBandColumnsInto writes interpolated column levels into dst and
+// reuses its backing array when capacity allows.
+func interpolateBandColumnsInto(dst, bands []float64, bandCols []int) []float64 {
 	totalCols := 0
 	for _, width := range bandCols {
 		totalCols += width
 	}
 
-	cols := make([]float64, totalCols)
+	var cols []float64
+	if cap(dst) >= totalCols {
+		cols = dst[:totalCols]
+	} else {
+		cols = make([]float64, totalCols)
+	}
 	offset := 0
 	for b, level := range bands {
 		width := bandCols[b]
@@ -87,16 +93,22 @@ func sampleBandLinear(bands []float64, pos float64) float64 {
 	return bands[idx]*(1-frac) + bands[idx+1]*frac
 }
 
-func resampleBandsLinear(bands []float64, totalCols int) []float64 {
+// resampleBandsLinearInto resamples bands into dst and reuses its backing
+// array when capacity allows.
+func resampleBandsLinearInto(dst, bands []float64, totalCols int) []float64 {
 	if totalCols <= 0 || len(bands) == 0 {
 		return nil
 	}
+	var out []float64
+	if cap(dst) >= totalCols {
+		out = dst[:totalCols]
+	} else {
+		out = make([]float64, totalCols)
+	}
 	if len(bands) == totalCols {
-		out := make([]float64, len(bands))
 		copy(out, bands)
 		return out
 	}
-	out := make([]float64, totalCols)
 	if totalCols == 1 {
 		out[0] = sampleBandLinear(bands, float64(len(bands)-1)/2)
 		return out

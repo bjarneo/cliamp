@@ -3,22 +3,30 @@
 package player
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
 
+const audioDeviceCmdTimeout = 5 * time.Second
+
 // ListAudioDevices returns available output sinks via pactl.
-// Works on PulseAudio and PipeWire (via pipewire-pulse).
+// Works on PulseAudio and PipeWire.
 func ListAudioDevices() ([]AudioDevice, error) {
+	ctxDefault, cancelDefault := context.WithTimeout(context.Background(), audioDeviceCmdTimeout)
+	defer cancelDefault()
 	defaultSink := ""
-	if out, err := exec.Command("pactl", "get-default-sink").Output(); err == nil {
+	if out, err := exec.CommandContext(ctxDefault, "pactl", "get-default-sink").Output(); err == nil {
 		defaultSink = strings.TrimSpace(string(out))
 	}
 
-	out, err := exec.Command("pactl", "list", "sinks").Output()
+	ctxList, cancelList := context.WithTimeout(context.Background(), audioDeviceCmdTimeout)
+	defer cancelList()
+	out, err := exec.CommandContext(ctxList, "pactl", "list", "sinks").Output()
 	if err != nil {
 		return nil, fmt.Errorf("pactl: %w (is PulseAudio/PipeWire running?)", err)
 	}
@@ -64,45 +72,20 @@ func PrepareAudioDevice(device string) func() {
 }
 
 // SwitchAudioDevice moves cliamp's audio stream to a different sink.
-// Falls back to changing the system default if the stream can't be found.
+// It falls back to changing the system default sink when no stream matches.
 func SwitchAudioDevice(deviceName string) error {
-	out, err := exec.Command("pactl", "list", "sink-inputs").Output()
+	ctxList, cancelList := context.WithTimeout(context.Background(), audioDeviceCmdTimeout)
+	defer cancelList()
+	out, err := exec.CommandContext(ctxList, "pactl", "list", "sink-inputs").Output()
 	if err != nil {
 		return fmt.Errorf("pactl: %w", err)
 	}
 
-	pidStr := strconv.Itoa(os.Getpid())
-	sinkInputIdx := -1
-	currentIdx := 0
-	props := map[string]string{}
-
-	// Parse all sink-inputs, collecting properties per entry.
-	lines := strings.Split(string(out), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "Sink Input #") {
-			// Check previous entry before moving on.
-			if sinkInputIdx < 0 {
-				sinkInputIdx = matchCliamp(props, pidStr, currentIdx)
-			}
-			if sinkInputIdx >= 0 {
-				break
-			}
-			currentIdx, _ = strconv.Atoi(strings.TrimPrefix(line, "Sink Input #"))
-			props = map[string]string{}
-			continue
-		}
-		if key, val, ok := strings.Cut(line, "="); ok {
-			props[strings.TrimSpace(key)] = strings.Trim(strings.TrimSpace(val), `"`)
-		}
-	}
-	// Check the last entry.
-	if sinkInputIdx < 0 {
-		sinkInputIdx = matchCliamp(props, pidStr, currentIdx)
-	}
-
+	sinkInputIdx := findCliampSinkInput(string(out), strconv.Itoa(os.Getpid()))
 	if sinkInputIdx >= 0 {
-		cmd := exec.Command("pactl", "move-sink-input",
+		ctxMove, cancelMove := context.WithTimeout(context.Background(), audioDeviceCmdTimeout)
+		defer cancelMove()
+		cmd := exec.CommandContext(ctxMove, "pactl", "--", "move-sink-input",
 			strconv.Itoa(sinkInputIdx), deviceName)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("move-sink-input: %s (%w)", strings.TrimSpace(string(out)), err)
@@ -110,23 +93,61 @@ func SwitchAudioDevice(deviceName string) error {
 		return nil
 	}
 
-	// Fallback: change the system default sink.
-	if out, err := exec.Command("pactl", "set-default-sink", deviceName).CombinedOutput(); err != nil {
+	// Change the system default sink when no cliamp stream is active.
+	ctxDefault, cancelDefault := context.WithTimeout(context.Background(), audioDeviceCmdTimeout)
+	defer cancelDefault()
+	cmd := exec.CommandContext(ctxDefault, "pactl", "--", "set-default-sink", deviceName)
+	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("set-default-sink: %s (%w)", strings.TrimSpace(string(out)), err)
 	}
 	return nil
 }
 
-// matchCliamp checks if a sink-input's properties belong to cliamp.
-func matchCliamp(props map[string]string, pidStr string, idx int) int {
-	if props["application.process.id"] == pidStr {
+// findCliampSinkInput scans pactl sink-input output and prioritizes an exact
+// PID match over a binary or application name fallback match.
+func findCliampSinkInput(output, pidStr string) int {
+	fallbackIdx := -1
+	currentIdx := 0
+	hasEntry := false
+	props := map[string]string{}
+
+	checkEntry := func() int {
+		if !hasEntry {
+			return -1
+		}
+		if props["application.process.id"] == pidStr {
+			return currentIdx
+		}
+		if fallbackIdx < 0 && matchCliampFallback(props) {
+			fallbackIdx = currentIdx
+		}
+		return -1
+	}
+
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Sink Input #") {
+			if idx := checkEntry(); idx >= 0 {
+				return idx
+			}
+			currentIdx, _ = strconv.Atoi(strings.TrimPrefix(line, "Sink Input #"))
+			props = map[string]string{}
+			hasEntry = true
+			continue
+		}
+		if key, val, ok := strings.Cut(line, "="); ok {
+			props[strings.TrimSpace(key)] = strings.Trim(strings.TrimSpace(val), `"`)
+		}
+	}
+	if idx := checkEntry(); idx >= 0 {
 		return idx
 	}
+	return fallbackIdx
+}
+
+func matchCliampFallback(props map[string]string) bool {
 	if strings.EqualFold(props["application.process.binary"], "cliamp") {
-		return idx
+		return true
 	}
-	if strings.Contains(strings.ToLower(props["application.name"]), "cliamp") {
-		return idx
-	}
-	return -1
+	return strings.Contains(strings.ToLower(props["application.name"]), "cliamp")
 }

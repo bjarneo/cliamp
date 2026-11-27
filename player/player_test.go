@@ -2,6 +2,8 @@ package player
 
 import (
 	"bufio"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -10,11 +12,11 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/gopxl/beep/v2"
-	"github.com/gopxl/beep/v2/speaker"
 )
 
 // newTestPlayer returns a Player with only the atomic accessors wired up.
@@ -163,7 +165,8 @@ func TestMuteYTDLSeekSourceReadsPlayedPosition(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// The decoder has read 3 s of audio.
-			decoder := &ytdlPipeStreamer{pipeReport: pipeReport{state: newPipeStreamState(300)}}
+			decoder := &ytdlPipeStreamer{}
+			decoder.setState(newPipeStreamState(300))
 			cur := &trackPipeline{
 				decoder:      decoder,
 				stream:       decoder,
@@ -313,8 +316,8 @@ func (preparedSeekTestDecoder) prepareSeek(int) (*preparedFFmpegSeek, error) {
 	return &preparedFFmpegSeek{}, nil
 }
 func (preparedSeekTestDecoder) seekMatches(*preparedFFmpegSeek) bool { return true }
-func (preparedSeekTestDecoder) commitPreparedSeek(*preparedFFmpegSeek) (ffmpegPipe, bool) {
-	return ffmpegPipe{}, true
+func (preparedSeekTestDecoder) commitPreparedSeek(*preparedFFmpegSeek) (*ffmpegPipe, bool) {
+	return nil, true
 }
 func (preparedSeekTestDecoder) interrupt() {}
 
@@ -732,6 +735,7 @@ func TestPlayerBlockedPipeStreamCanBeInterruptedBeforeSpeakerLock(t *testing.T) 
 	}{
 		{name: "nav", blocked: blockedNavPlayback},
 		{name: "yt-dlp", blocked: blockedYTDLPlayback},
+		{name: "custom", blocked: blockedCustomPlayback},
 	}
 	tests := []struct {
 		name string
@@ -851,18 +855,61 @@ func blockedYTDLPlayback(t *testing.T) (*trackPipeline, <-chan struct{}, <-chan 
 	return tp, started, done, func() { _ = decoder.Close() }
 }
 
+// interruptibleTestDecoder is a custom streamer whose Stream blocks until
+// Interrupt, as a network read on a dead connection does.
+type interruptibleTestDecoder struct {
+	playbackTestDecoder
+	once        sync.Once
+	interrupted chan struct{}
+}
+
+func (d *interruptibleTestDecoder) Stream([][2]float64) (int, bool) {
+	<-d.interrupted
+	return 0, false
+}
+
+func (d *interruptibleTestDecoder) Interrupt() {
+	d.once.Do(func() { close(d.interrupted) })
+}
+
+// blockedCustomPlayback starts a custom streamer, such as the Spotify one,
+// that blocks in Stream while the audio goroutine holds the speaker lock.
+func blockedCustomPlayback(t *testing.T) (*trackPipeline, <-chan struct{}, <-chan struct{}, func()) {
+	t.Helper()
+	decoder := &interruptibleTestDecoder{
+		playbackTestDecoder: playbackTestDecoder{closed: make(chan struct{})},
+		interrupted:         make(chan struct{}),
+	}
+	tp := &trackPipeline{
+		decoder:  decoder,
+		stream:   decoder,
+		format:   beep.Format{SampleRate: 100, NumChannels: 2, Precision: 2},
+		seekable: true,
+	}
+	started := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		speaker.Lock()
+		close(started)
+		decoder.Stream(make([][2]float64, 1))
+		speaker.Unlock()
+		close(done)
+	}()
+	return tp, started, done, decoder.Interrupt
+}
+
 func blockedNavPlayback(t *testing.T) (*trackPipeline, <-chan struct{}, <-chan struct{}, func()) {
 	t.Helper()
 	reader, writer := io.Pipe()
 	decoder := &navFFmpegStreamer{
 		ffmpegPipe: ffmpegPipe{
-			pipeReport: pipeReport{state: newPipeStreamState(0)},
-			reader:     bufio.NewReader(reader),
-			pipe:       reader,
+			reader: bufio.NewReader(reader),
+			pipe:   reader,
 		},
 		nb: newCompletedTestNavBuffer(t, nil),
 		sr: 100,
 	}
+	decoder.setState(newPipeStreamState(0))
 	tp := &trackPipeline{
 		decoder:  decoder,
 		stream:   decoder,
@@ -1146,4 +1193,607 @@ func TestFirstPlayWritesCtrlUnderSpeakerLock(t *testing.T) {
 	}
 	p.suspended = true // Avoid a real speaker context in this lifecycle test.
 	p.Stop()
+}
+
+func TestTogglePauseRequiresPlayingAndSyncsState(t *testing.T) {
+	tests := []struct {
+		name        string
+		playing     bool
+		initPaused  bool
+		wantPaused  bool
+		wantCtrlPwd bool
+	}{
+		{name: "stopped ignores toggle", playing: false, initPaused: true, wantPaused: false, wantCtrlPwd: true},
+		{name: "playing pauses", playing: true, initPaused: false, wantPaused: true, wantCtrlPwd: true},
+		{name: "paused resumes", playing: true, initPaused: true, wantPaused: false, wantCtrlPwd: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := newTestPlayer()
+			p.gapless = &gaplessStreamer{}
+			p.ctrl = &beep.Ctrl{Paused: tt.initPaused}
+			p.suspended = true
+			p.playing.Store(tt.playing)
+			if tt.playing {
+				p.paused.Store(tt.initPaused)
+			}
+
+			p.TogglePause()
+
+			if got := p.IsPaused(); got != tt.wantPaused {
+				t.Fatalf("IsPaused() = %v, want %v", got, tt.wantPaused)
+			}
+			speaker.Lock()
+			gotCtrl := p.ctrl.Paused
+			speaker.Unlock()
+			if gotCtrl != tt.wantCtrlPwd {
+				t.Fatalf("ctrl.Paused = %v, want %v", gotCtrl, tt.wantCtrlPwd)
+			}
+		})
+	}
+}
+
+func TestClearPreloadConcurrentWithPreload(t *testing.T) {
+	p := newTestPlayer()
+	p.gapless = &gaplessStreamer{}
+	var wg sync.WaitGroup
+	for range 50 {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			dec := newPlaybackTestDecoder()
+			_ = p.preloadPipelineForGeneration(&trackPipeline{decoder: dec, stream: dec}, 0)
+		}()
+		go func() {
+			defer wg.Done()
+			p.ClearPreload()
+		}()
+	}
+	wg.Wait()
+
+	// Verify ClearPreload did not close an armed gapless next stream.
+	p.mu.Lock()
+	next := p.nextPipeline
+	p.mu.Unlock()
+	if next != nil {
+		dec := next.decoder.(*playbackTestDecoder)
+		select {
+		case <-dec.closed:
+			t.Fatal("live preloaded pipeline was closed while still armed")
+		default:
+		}
+	}
+	p.suspended = true
+	p.Close()
+}
+
+func TestPreloadGenInvalidatedOnCommitAndSeek(t *testing.T) {
+	tests := []struct {
+		name string
+		act  func(p *Player)
+	}{
+		{
+			name: "playPipelineForGeneration",
+			act: func(p *Player) {
+				dec := newPlaybackTestDecoder()
+				_ = p.playPipelineForGeneration(&trackPipeline{decoder: dec, stream: dec}, 0)
+			},
+		},
+		{
+			name: "native Seek",
+			act: func(p *Player) {
+				_ = p.Seek(time.Second)
+			},
+		},
+		{
+			name: "commitPreparedSeek",
+			act: func(p *Player) {
+				seeker := preparedSeekTestDecoder{playbackTestDecoder: newPlaybackTestDecoder()}
+				cur := &trackPipeline{
+					decoder:  seeker,
+					stream:   seeker,
+					format:   beep.Format{SampleRate: 100, NumChannels: 2, Precision: 2},
+					seekable: true,
+				}
+				p.mu.Lock()
+				p.current = cur
+				p.mu.Unlock()
+				_ = p.commitPreparedSeek(cur, seeker, &preparedFFmpegSeek{})
+			},
+		},
+		{
+			name: "commitYTDLSeek",
+			act: func(p *Player) {
+				cur := p.current
+				repDec := newPlaybackTestDecoder()
+				rep := &trackPipeline{decoder: repDec, stream: repDec, ytdlSeek: true}
+				p.commitYTDLSeek(cur, rep, p.seekGen.Load())
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := newTestPlayer()
+			p.sr = 100
+			p.gapless = &gaplessStreamer{}
+			p.ctrl = &beep.Ctrl{}
+			p.started = true
+			p.suspended = true
+			curDec := newPlaybackTestDecoder()
+			p.current = &trackPipeline{
+				decoder:  curDec,
+				stream:   curDec,
+				format:   beep.Format{SampleRate: 100, NumChannels: 2, Precision: 2},
+				seekable: true,
+			}
+			p.gapless.Replace(p.current.stream)
+
+			inFlight := p.BeginPreload()
+			tt.act(p)
+			if p.preloadGen.Load() == inFlight {
+				t.Fatalf("%s did not increment preloadGen", tt.name)
+			}
+			staleDec := newPlaybackTestDecoder()
+			_ = p.preloadPipelineForGeneration(&trackPipeline{decoder: staleDec, stream: staleDec}, inFlight)
+			if p.HasPreload() {
+				t.Fatalf("%s allowed stale preload to arm", tt.name)
+			}
+			p.Close()
+		})
+	}
+}
+
+func TestPlayAndStopInterruptQueuedNextPipeline(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(p *Player)
+	}{
+		{
+			name: "Stop interrupts current and next",
+			run: func(p *Player) {
+				p.Stop()
+			},
+		},
+		{
+			name: "PlayAt interrupts current and next",
+			run: func(p *Player) {
+				dec := newPlaybackTestDecoder()
+				_ = p.playPipelineForGeneration(&trackPipeline{decoder: dec, stream: dec}, 0)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			curDec := &interruptibleTestDecoder{
+				playbackTestDecoder: playbackTestDecoder{closed: make(chan struct{})},
+				interrupted:         make(chan struct{}),
+			}
+			nextDec := &interruptibleTestDecoder{
+				playbackTestDecoder: playbackTestDecoder{closed: make(chan struct{})},
+				interrupted:         make(chan struct{}),
+			}
+			p := newTestPlayer()
+			p.sr = 100
+			p.gapless = &gaplessStreamer{}
+			p.ctrl = &beep.Ctrl{}
+			p.started = true
+			p.suspended = true
+			p.current = &trackPipeline{decoder: curDec, stream: curDec}
+			p.nextPipeline = &trackPipeline{decoder: nextDec, stream: nextDec}
+			p.gapless.Replace(curDec)
+			p.gapless.SetNext(nextDec)
+
+			tt.run(p)
+
+			select {
+			case <-curDec.interrupted:
+			default:
+				t.Fatal("current pipeline was not interrupted")
+			}
+			select {
+			case <-nextDec.interrupted:
+			default:
+				t.Fatal("queued next pipeline was not interrupted")
+			}
+			p.Close()
+		})
+	}
+}
+
+type nonAtomicErrDecoder struct {
+	playbackTestDecoder
+	err error
+}
+
+func (d *nonAtomicErrDecoder) Stream(samples [][2]float64) (int, bool) {
+	d.err = errors.New("stream error")
+	clear(samples)
+	return len(samples), true
+}
+
+func (d *nonAtomicErrDecoder) Err() error { return d.err }
+
+func TestStreamErrSerializesDirectDecoderWithSpeakerLock(t *testing.T) {
+	dec := &nonAtomicErrDecoder{playbackTestDecoder: playbackTestDecoder{closed: make(chan struct{})}}
+	p := newTestPlayer()
+	p.current = &trackPipeline{decoder: dec, stream: dec}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buf := make([][2]float64, 4)
+		for range 200 {
+			speaker.Lock()
+			dec.Stream(buf)
+			speaker.Unlock()
+		}
+	}()
+	for range 200 {
+		_ = p.StreamErr()
+	}
+	<-done
+	if p.StreamErr() == nil {
+		t.Fatal("StreamErr() = nil, want decoder error")
+	}
+}
+
+func TestPlayerCloseWaitsForDetachedCloses(t *testing.T) {
+	p := newTestPlayer()
+	p.gapless = &gaplessStreamer{}
+	p.suspended = true
+	dec := &blockingCloseDecoder{
+		playbackTestDecoder: newPlaybackTestDecoder(),
+		release:             make(chan struct{}),
+	}
+	if err := p.preloadPipelineForGeneration(&trackPipeline{decoder: dec, stream: dec}, 0); err != nil {
+		t.Fatalf("preloadPipelineForGeneration: %v", err)
+	}
+	p.ClearPreload()
+
+	closedDone := make(chan struct{})
+	go func() {
+		p.Close()
+		close(closedDone)
+	}()
+
+	select {
+	case <-closedDone:
+		t.Fatal("Player.Close returned before detached close finished")
+	case <-time.After(30 * time.Millisecond):
+	}
+
+	close(dec.release)
+	select {
+	case <-closedDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Player.Close did not return after detached close completed")
+	}
+}
+
+func TestSpeederResetOnReplaceClearAndSeek(t *testing.T) {
+	seedSpeeder := func(ss *speedStreamer) {
+		ss.tailValid = true
+		ss.inN = 100
+		ss.inPos = 50
+		ss.outRd = 10
+		ss.outWr = 40
+		ss.tail[0] = [2]float64{1, 1}
+	}
+	assertCleared := func(t *testing.T, ss *speedStreamer) {
+		t.Helper()
+		if ss.tailValid || ss.inN != 0 || ss.inPos != 0 || ss.outRd != 0 || ss.outWr != 0 {
+			t.Fatalf("speeder not reset: tailValid=%v inN=%d inPos=%v outRd=%d outWr=%d", ss.tailValid, ss.inN, ss.inPos, ss.outRd, ss.outWr)
+		}
+	}
+
+	tests := []struct {
+		name string
+		act  func(p *Player)
+	}{
+		{
+			name: "Replace via playPipelineForGeneration",
+			act: func(p *Player) {
+				dec := newPlaybackTestDecoder()
+				_ = p.playPipelineForGeneration(&trackPipeline{decoder: dec, stream: dec}, 0)
+			},
+		},
+		{
+			name: "Clear via Stop",
+			act: func(p *Player) {
+				p.Stop()
+			},
+		},
+		{
+			name: "native Seek",
+			act: func(p *Player) {
+				_ = p.Seek(time.Second)
+			},
+		},
+		{
+			name: "prepared FFmpeg Seek",
+			act: func(p *Player) {
+				seeker := preparedSeekTestDecoder{playbackTestDecoder: newPlaybackTestDecoder()}
+				cur := &trackPipeline{
+					decoder:  seeker,
+					stream:   seeker,
+					format:   beep.Format{SampleRate: 100, NumChannels: 2, Precision: 2},
+					seekable: true,
+				}
+				p.mu.Lock()
+				p.current = cur
+				p.mu.Unlock()
+				_ = p.commitPreparedSeek(cur, seeker, &preparedFFmpegSeek{})
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := newTestPlayer()
+			p.sr = 100
+			p.gapless = &gaplessStreamer{}
+			p.speeder = newSpeedStreamer(p.gapless, &p.speed)
+			p.ctrl = &beep.Ctrl{}
+			p.started = true
+			p.suspended = true
+			curDec := newPlaybackTestDecoder()
+			p.current = &trackPipeline{
+				decoder:  curDec,
+				stream:   curDec,
+				format:   beep.Format{SampleRate: 100, NumChannels: 2, Precision: 2},
+				seekable: true,
+			}
+			p.gapless.Replace(curDec)
+
+			seedSpeeder(p.speeder)
+			tt.act(p)
+			assertCleared(t, p.speeder)
+			p.Close()
+		})
+	}
+}
+
+func TestStartStreamMetadataCancelsPreviousPoller(t *testing.T) {
+	p := newTestPlayer()
+	p.gapless = &gaplessStreamer{}
+	p.suspended = true
+
+	var firstCancelled atomic.Bool
+	p.mu.Lock()
+	p.metaCancel = func() { firstCancelled.Store(true) }
+	p.mu.Unlock()
+
+	var secondCtx context.Context
+	started := make(chan struct{}, 1)
+	p.RegisterStreamMetadataResolver(func(string) (func(context.Context) (string, error), time.Duration, bool) {
+		return func(ctx context.Context) (string, error) {
+			secondCtx = ctx
+			select {
+			case started <- struct{}{}:
+			default:
+			}
+			<-ctx.Done()
+			return "", ctx.Err()
+		}, time.Hour, true
+	})
+
+	p.startStreamMetadata("https://radio.example/live")
+	if !firstCancelled.Load() {
+		t.Fatal("startStreamMetadata did not cancel prior metaCancel")
+	}
+	<-started
+
+	p.Stop()
+	if secondCtx.Err() == nil {
+		t.Fatal("Stop did not cancel active metadata poller")
+	}
+}
+
+func TestSeekConcurrentWithStreamRaceFree(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX shell fixtures")
+	}
+	dir := t.TempDir()
+	writeExecutable(t, filepath.Join(dir, "ffmpeg"), "#!/bin/sh\ndd if=/dev/zero bs=4 count=2000 2>/dev/null\n")
+	writeExecutable(t, filepath.Join(dir, "ffprobe"), "#!/bin/sh\nprintf '20\\n'\n")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	decoder, format, err := decodeFFmpegLocal(filepath.Join(dir, "track.m4a"), beep.SampleRate(100), 16)
+	if err != nil {
+		t.Fatalf("decodeFFmpegLocal() error = %v", err)
+	}
+	tp := &trackPipeline{decoder: decoder, stream: decoder, format: format, seekable: true}
+	p := newTestPlayer()
+	p.sr = 100
+	p.gapless = &gaplessStreamer{}
+	p.ctrl = &beep.Ctrl{}
+	p.started = true
+	p.suspended = true
+	p.current = tp
+	p.gapless.Replace(tp.stream)
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		buf := make([][2]float64, 16)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				speaker.Lock()
+				p.gapless.Stream(buf)
+				speaker.Unlock()
+			}
+		}
+	}()
+
+	for range 5 {
+		if err := p.Seek(time.Second); err != nil {
+			close(stop)
+			wg.Wait()
+			p.Close()
+			t.Fatalf("Seek() error = %v", err)
+		}
+		_, _ = p.PositionAndDuration()
+	}
+
+	close(stop)
+	wg.Wait()
+	p.Close()
+}
+
+func TestPositionAndDurationAndStreamErrSkipSpeakerLock(t *testing.T) {
+	wantErr := errors.New("pipe error")
+	format := beep.Format{SampleRate: 100, NumChannels: 2, Precision: 2}
+
+	makeState := func(pos int, err error) *pipeStreamState {
+		st := newPipeStreamState(pos)
+		st.err.publish(err)
+		return st
+	}
+
+	localPipe := &localFFmpegStreamer{sr: format.SampleRate}
+	localPipe.setState(makeState(250, wantErr))
+	localPipe.setTotal(1000)
+
+	navPipe := &navFFmpegStreamer{sr: format.SampleRate}
+	navPipe.setState(makeState(150, wantErr))
+	navPipe.probed.Store(800)
+
+	streamPipe := &ffmpegPipeStreamer{}
+	streamPipe.setState(makeState(300, wantErr))
+
+	ytdlPipe := &ytdlPipeStreamer{}
+	ytdlPipe.setState(makeState(200, wantErr))
+
+	prefetch := &livePrefetchStreamer{sampleRate: format.SampleRate, consumed: 400, err: wantErr}
+
+	tests := []struct {
+		name    string
+		tp      *trackPipeline
+		wantPos time.Duration
+		wantDur time.Duration
+	}{
+		{
+			name:    "livePrefetch",
+			tp:      &trackPipeline{decoder: newPlaybackTestDecoder(), format: format, livePrefetch: prefetch, knownDuration: 30 * time.Second},
+			wantPos: 4 * time.Second,
+			wantDur: 30 * time.Second,
+		},
+		{
+			name:    "localFFmpegStreamer",
+			tp:      &trackPipeline{decoder: localPipe, format: format},
+			wantPos: 2500 * time.Millisecond,
+			wantDur: 10 * time.Second,
+		},
+		{
+			name:    "navFFmpegStreamer",
+			tp:      &trackPipeline{decoder: navPipe, format: format},
+			wantPos: 1500 * time.Millisecond,
+			wantDur: 8 * time.Second,
+		},
+		{
+			name:    "ffmpegPipeStreamer",
+			tp:      &trackPipeline{decoder: streamPipe, format: format, knownDuration: 20 * time.Second},
+			wantPos: 3 * time.Second,
+			wantDur: 20 * time.Second,
+		},
+		{
+			name:    "ytdlPipeStreamer",
+			tp:      &trackPipeline{decoder: ytdlPipe, format: format, streamOffset: time.Minute, knownDuration: 2 * time.Minute},
+			wantPos: time.Minute + 2*time.Second,
+			wantDur: 2 * time.Minute,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := newTestPlayer()
+			p.current = tt.tp
+
+			// Hold the speaker lock so any path that tries to lock it blocks.
+			speaker.Lock()
+			defer speaker.Unlock()
+
+			done := make(chan struct{})
+			var pos, dur, posOnly, durOnly time.Duration
+			var streamErr error
+			go func() {
+				defer close(done)
+				pos, dur = p.PositionAndDuration()
+				posOnly = p.Position()
+				durOnly = p.Duration()
+				streamErr = p.StreamErr()
+			}()
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatalf("%s blocked on speaker.Lock()", tt.name)
+			}
+
+			if pos != tt.wantPos || dur != tt.wantDur || posOnly != tt.wantPos || durOnly != tt.wantDur {
+				t.Fatalf("got pos=(%v,%v) dur=(%v,%v), want (%v, %v)", pos, posOnly, dur, durOnly, tt.wantPos, tt.wantDur)
+			}
+			if !errors.Is(streamErr, wantErr) {
+				t.Fatalf("StreamErr() = %v, want %v", streamErr, wantErr)
+			}
+		})
+	}
+}
+
+func TestPlayerSetTapEnabledAndLockFreeReads(t *testing.T) {
+	p := newTestPlayer()
+	p.sr = 44100
+	p.gapless = &gaplessStreamer{}
+	p.tapBufferFrames = 64
+	p.suspended = true
+	t.Cleanup(speaker.Clear)
+
+	// A call to SetTapEnabled(false) before first play propagates to the new tap.
+	p.SetTapEnabled(false)
+	dec := &levelDecoder{level: 0.5, left: -1}
+	if err := p.playPipelineForGeneration(&trackPipeline{decoder: dec, stream: dec}, 0); err != nil {
+		t.Fatalf("playPipelineForGeneration: %v", err)
+	}
+	tp := p.tap.Load()
+	if tp == nil {
+		t.Fatal("tap was not published")
+	}
+	if !tp.disabled.Load() {
+		t.Fatal("tap started enabled despite SetTapEnabled(false) before play")
+	}
+
+	// Enable tap, feed frames, and read while p.mu is held.
+	p.SetTapEnabled(true)
+	if tp.disabled.Load() {
+		t.Fatal("SetTapEnabled(true) did not enable tap")
+	}
+	tp.Stream(make([][2]float64, 8))
+
+	p.mu.Lock()
+	done := make(chan struct{})
+	var nMono, nWave, nStereo int
+	go func() {
+		defer close(done)
+		nMono = p.SamplesInto(make([]float64, 4))
+		nWave = p.WaveformSamplesInto(make([]float64, 4))
+		nStereo = p.StereoSamplesInto(make([][2]float64, 4))
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		p.mu.Unlock()
+		t.Fatal("tap sample readers blocked on p.mu")
+	}
+	p.mu.Unlock()
+
+	if nMono != 4 || nWave != 4 || nStereo != 4 {
+		t.Fatalf("sample counts = (%d, %d, %d), want (4, 4, 4)", nMono, nWave, nStereo)
+	}
+	p.Close()
 }

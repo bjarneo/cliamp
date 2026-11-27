@@ -175,5 +175,99 @@ func TestVolumeStreamerErr(t *testing.T) {
 	}
 }
 
+func TestVolumeStreamerModesTable(t *testing.T) {
+	tests := []struct {
+		name string
+		db   float64
+		mono bool
+		in   [2]float64
+		want [2]float64
+	}{
+		{
+			name: "unity stereo fast path",
+			db:   0,
+			mono: false,
+			in:   [2]float64{0.75, -0.25},
+			want: [2]float64{0.75, -0.25},
+		},
+		{
+			name: "attenuated stereo",
+			db:   -20,
+			mono: false,
+			in:   [2]float64{1.0, -0.5},
+			want: [2]float64{0.1, -0.05},
+		},
+		{
+			name: "unity mono",
+			db:   0,
+			mono: true,
+			in:   [2]float64{0.8, 0.2},
+			want: [2]float64{0.5, 0.5},
+		},
+		{
+			name: "attenuated mono",
+			db:   -20,
+			mono: true,
+			in:   [2]float64{1.0, 0.0},
+			want: [2]float64{0.05, 0.05},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var vol atomic.Uint64
+			vol.Store(math.Float64bits(tt.db))
+			var mono atomic.Bool
+			mono.Store(tt.mono)
+			vs := &volumeStreamer{
+				s:        &fakeStreamer{val: tt.in, count: 8},
+				vol:      &vol,
+				mono:     &mono,
+				cachedDB: math.NaN(),
+			}
+			out := make([][2]float64, 8)
+			n, ok := vs.Stream(out)
+			if n != 8 || !ok {
+				t.Fatalf("Stream() = (%d, %v), want (8, true)", n, ok)
+			}
+			for i := range n {
+				if math.Abs(out[i][0]-tt.want[0]) > 1e-12 || math.Abs(out[i][1]-tt.want[1]) > 1e-12 {
+					t.Fatalf("out[%d] = %v, want %v", i, out[i], tt.want)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkVolume(b *testing.B) {
+	cases := []struct {
+		name string
+		db   float64
+		mono bool
+	}{
+		{name: "0dB_stereo", db: 0, mono: false},
+		{name: "-6dB_stereo", db: -6, mono: false},
+		{name: "-6dB_mono", db: -6, mono: true},
+	}
+	buf := make([][2]float64, 1024)
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			var vol atomic.Uint64
+			vol.Store(math.Float64bits(tc.db))
+			var mono atomic.Bool
+			mono.Store(tc.mono)
+			vs := &volumeStreamer{
+				s:        &noopStreamer{},
+				vol:      &vol,
+				mono:     &mono,
+				cachedDB: math.NaN(),
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				vs.Stream(buf)
+			}
+		})
+	}
+}
+
 // Ensure fakeStreamer implements beep.Streamer at compile time.
 var _ beep.Streamer = (*fakeStreamer)(nil)

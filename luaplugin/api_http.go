@@ -6,31 +6,102 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
 )
 
+// allowedPrivateAddrs holds the non-public IP:port pairs that ssrfGuard lets
+// through, from [plugins] allowed_private_addresses in config.toml.
+var allowedPrivateAddrs atomic.Pointer[map[string]bool]
+
+// blockedPrefixes lists special-purpose IP ranges that ssrfGuard blocks in
+// addition to loopback, private, link-local, multicast, and unspecified ranges.
+var blockedPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("255.255.255.255/32"),
+	netip.MustParsePrefix("64:ff9b::/96"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
+	netip.MustParsePrefix("::/96"),
+	netip.MustParsePrefix("2002::/16"),
+	netip.MustParsePrefix("2001::/32"),
+	netip.MustParsePrefix("fec0::/10"),
+}
+
+// isNonPublicAddr reports whether addr falls in a non-public or special range.
+func isNonPublicAddr(addr netip.Addr) bool {
+	addr = addr.Unmap()
+	if addr.Zone() != "" {
+		return true
+	}
+	if addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast() ||
+		addr.IsLinkLocalMulticast() || addr.IsInterfaceLocalMulticast() ||
+		addr.IsMulticast() || addr.IsUnspecified() {
+		return true
+	}
+	for _, prefix := range blockedPrefixes {
+		if prefix.Contains(addr) {
+			return true
+		}
+	}
+	return false
+}
+
 // ssrfGuard rejects connections to non-public addresses. It runs as the
-// dialer's Control hook, so it sees the resolved IP for every connection
-// attempt, including ones reached via HTTP redirects or DNS rebinding.
+// dialer's Control hook so it inspects the resolved IP after redirects and DNS
+// resolution. Exact IP:port entries in allowedPrivateAddrs bypass the block.
 func ssrfGuard(network, address string, _ syscall.RawConn) error {
-	host, _, err := net.SplitHostPort(address)
+	host, port, err := net.SplitHostPort(address)
 	if err != nil {
 		return err
 	}
-	ip := net.ParseIP(host)
-	if ip == nil {
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
 		return fmt.Errorf("cannot resolve dial address %q", address)
 	}
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
-		return fmt.Errorf("blocked request to non-public address %s", ip)
+	addr = addr.Unmap()
+	if isNonPublicAddr(addr) {
+		if addr.Zone() == "" {
+			if allowed := allowedPrivateAddrs.Load(); allowed != nil && (*allowed)[net.JoinHostPort(addr.String(), port)] {
+				return nil
+			}
+		}
+		return fmt.Errorf("blocked request to non-public address %s", addr)
 	}
 	return nil
+}
+
+// resolveAllowedPrivateAddrs parses [plugins] allowed_private_addresses as a
+// comma-separated list of ip:port pairs and returns valid entries plus invalid
+// entries to log.
+func resolveAllowedPrivateAddrs(pluginCfg map[string]map[string]string) (allowed map[string]bool, invalid []string) {
+	raw := pluginCfg[""]["allowed_private_addresses"]
+	allowed = make(map[string]bool)
+	for _, entry := range strings.Split(raw, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		host, port, err := net.SplitHostPort(entry)
+		addr, addrErr := netip.ParseAddr(host)
+		number, portErr := strconv.Atoi(port)
+		if err != nil || addrErr != nil || addr.Zone() != "" || portErr != nil || number < 1 || number > 65535 {
+			invalid = append(invalid, entry)
+			continue
+		}
+		addr = addr.Unmap()
+		allowed[net.JoinHostPort(addr.String(), strconv.Itoa(number))] = true
+	}
+	return allowed, invalid
 }
 
 var httpClient = &http.Client{
@@ -73,7 +144,10 @@ func doHTTP(L *lua.LState, method string) int {
 	if opts != nil {
 		// JSON body: cliamp.http.post(url, {json = {...}})
 		if jsonVal := opts.RawGetString("json"); jsonVal != lua.LNil {
-			goVal := luaToGo(jsonVal)
+			goVal, err := luaToGoCtx(callContext(L), jsonVal)
+			if err != nil {
+				return pushErr(L, err.Error())
+			}
 			data, err := json.Marshal(goVal)
 			if err != nil {
 				return pushErr(L, err.Error())

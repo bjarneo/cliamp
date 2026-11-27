@@ -1,5 +1,7 @@
 package config
 
+import "math"
+
 // Overrides holds CLI flag values. Nil pointers mean "not set".
 type Overrides struct {
 	Volume          *float64
@@ -28,7 +30,11 @@ type Overrides struct {
 // Apply merges non-nil overrides into cfg and clamps the result.
 func (o Overrides) Apply(cfg *Config) {
 	if o.Volume != nil {
-		cfg.Volume = *o.Volume
+		if math.IsNaN(*o.Volume) || math.IsInf(*o.Volume, 0) {
+			cfg.Volume = defaultConfig().Volume
+		} else {
+			cfg.Volume = *o.Volume
+		}
 	}
 	if o.Shuffle != nil {
 		cfg.Shuffle = *o.Shuffle

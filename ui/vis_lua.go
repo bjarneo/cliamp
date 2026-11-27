@@ -64,6 +64,16 @@ func (d *luaModeDriver) Render(v *Visualizer) string {
 	return v.luaHost.RenderVis(name, luaBands(v.SmoothedBands()), v.Rows, v.columns(), v.frame)
 }
 
+// AnalysisSpec reads the audible tap. The latest tap moves only when the
+// device takes samples, in jumps of half the speaker buffer, and it runs
+// ahead of the sound. A plugin would see a kick early, or miss it between
+// two jumps.
+func (*luaModeDriver) AnalysisSpec(*Visualizer) VisAnalysisSpec {
+	spec := spectrumAnalysisSpec(DefaultSpectrumBands)
+	spec.Tap = VisTapAudible
+	return spec
+}
+
 func (d *luaModeDriver) Tick(v *Visualizer, ctx VisTickContext) {
 	defaultDriverTick(v, ctx, d.AnalysisSpec(v))
 }

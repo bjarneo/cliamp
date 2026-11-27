@@ -5,20 +5,26 @@ on:
     workflows: ["Release"]
     types: [completed]
 
+permissions:
+  contents: read
+
 jobs:
   aur:
     runs-on: ubuntu-latest
     if: github.event.workflow_run.conclusion == 'success' && !contains(github.event.workflow_run.head_branch, '-')
     steps:
       - name: Checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.workflow_run.head_branch }}
+          persist-credentials: false
 
       - name: Extract version
         id: version
+        env:
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
-          TAG="${{ github.event.workflow_run.head_branch }}"
+          TAG="${HEAD_BRANCH}"
           echo "pkgver=${TAG#v}" >> "$GITHUB_OUTPUT"
 
       - name: Generate PKGBUILD
@@ -27,7 +33,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           SOURCE_URL="https://github.com/${REPO}/archive/refs/tags/v${PKGVER}.tar.gz"
-          SHA256=$(curl -sL "$SOURCE_URL" | sha256sum | cut -d' ' -f1)
+          SHA256=$(curl -fsSL "$SOURCE_URL" | sha256sum | cut -d' ' -f1)
 
           cat > PKGBUILD <<'HEREDOC'
           # Maintainer: bjarneo <https://github.com/bjarneo>
@@ -77,15 +83,21 @@ jobs:
           AUR_EMAIL: ${{ secrets.AUR_EMAIL }}
           PKGVER: ${{ steps.version.outputs.pkgver }}
         run: |
-          # Setup SSH
+          # Setup SSH with official AUR host keys from https://aur.archlinux.org/
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
           echo "$AUR_SSH_KEY" > ~/.ssh/aur
           chmod 600 ~/.ssh/aur
-          ssh-keyscan -t rsa,ecdsa,ed25519 aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null
+          cat >> ~/.ssh/known_hosts <<'EOF'
+          aur.archlinux.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEuBKrPzbawxA/k2g6NcyV5jmqwJ2s+zpgZGZ7tpLIcN
+          aur.archlinux.org ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBLMiLrP8pVi5BFX2i3vepSUnpedeiewE5XptnUnau+ZoeUOPkpoCgZZuYfpaIQfhhJJI5qgnjJmr4hyJbe/zxow=
+          EOF
+          chmod 600 ~/.ssh/known_hosts
           cat >> ~/.ssh/config <<EOF
           Host aur.archlinux.org
             IdentityFile ~/.ssh/aur
             User aur
+            StrictHostKeyChecking yes
           EOF
 
           # Clone AUR repo

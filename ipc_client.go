@@ -8,7 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"os"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/bjarneo/cliamp/ipc"
@@ -34,6 +38,25 @@ func userIPCError(err error) error {
 		return fmt.Errorf("cliamp is not running (no socket at %s)", ipc.DefaultSocketPath())
 	}
 	return err
+}
+
+// dialV2 opens a persistent version 2 IPC connection to the running cliamp.
+func dialV2() (*ipc.V2Client, error) {
+	client, err := ipc.DialV2(ipc.DefaultSocketPath())
+	if err != nil {
+		return nil, userIPCError(err)
+	}
+	return client, nil
+}
+
+// sendV2On sends one request with the CLI request ID on an open client.
+func sendV2On(client *ipc.V2Client, request ipc.V2Request) (ipc.V2Response, error) {
+	request.ID = json.RawMessage(cliRequestID)
+	response, err := client.Send(request)
+	if err != nil {
+		return ipc.V2Response{}, userIPCError(err)
+	}
+	return response, nil
 }
 
 // sendV2 sends one request with the CLI request ID to the running cliamp.
@@ -69,7 +92,16 @@ func ipcSendWithContext(ctx context.Context, operation string, params ipc.Reques
 	if err != nil {
 		return ipc.Response{}, fmt.Errorf("marshal %s parameters: %w", operation, err)
 	}
-	response, err := sendV2(ipc.V2Request{
+	client, err := dialV2()
+	if err != nil {
+		return ipc.Response{}, err
+	}
+	defer func() {
+		if client != nil {
+			_ = client.Close()
+		}
+	}()
+	response, err := sendV2On(client, ipc.V2Request{
 		Method:    "operation.submit",
 		Operation: operation,
 		Params:    raw,
@@ -83,7 +115,7 @@ func ipcSendWithContext(ctx context.Context, operation string, params ipc.Reques
 	if response.Job == nil {
 		return ipc.Response{}, fmt.Errorf("%s returned no job", operation)
 	}
-	response, err = waitForV2Job(ctx, response.Job.ID)
+	response, err = waitForV2JobWithClient(ctx, &client, response.Job.ID)
 	if err != nil {
 		return ipc.Response{}, err
 	}
@@ -102,11 +134,73 @@ func ipcSendWithContext(ctx context.Context, operation string, params ipc.Reques
 
 // waitForV2Job polls the job until it ends or ctx is done.
 func waitForV2Job(ctx context.Context, jobID string) (ipc.V2Response, error) {
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
+	client, err := dialV2()
+	if err != nil {
+		return ipc.V2Response{}, err
+	}
+	defer func() {
+		if client != nil {
+			_ = client.Close()
+		}
+	}()
+	return waitForV2JobWithClient(ctx, &client, jobID)
+}
+
+// isConnResetOrEOF reports whether the peer closed or reset the connection.
+func isConnResetOrEOF(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, net.ErrClosed) ||
+		errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.EPIPE) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "broken pipe") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "closed by the remote host")
+}
+
+// sendV2JobPoll sends job.get on client and redials once after EOF or reset.
+func sendV2JobPoll(client **ipc.V2Client, jobID string) (ipc.V2Response, error) {
+	req := ipc.V2Request{Method: "job.get", JobID: jobID}
+	if *client != nil {
+		response, err := sendV2On(*client, req)
+		if err == nil || !isConnResetOrEOF(err) {
+			return response, err
+		}
+		_ = (*client).Close()
+		*client = nil
+	}
+	fresh, err := dialV2()
+	if err != nil {
+		return ipc.V2Response{}, err
+	}
+	*client = fresh
+	return sendV2On(fresh, req)
+}
+
+// waitForV2JobWithClient polls jobID on a persistent client until it ends or ctx ends.
+func waitForV2JobWithClient(ctx context.Context, client **ipc.V2Client, jobID string) (ipc.V2Response, error) {
+	delay := 5 * time.Millisecond
+	const maxDelay = 100 * time.Millisecond
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
 	for {
-		response, err := sendV2(ipc.V2Request{Method: "job.get", JobID: jobID})
+		response, err := sendV2JobPoll(client, jobID)
 		if err != nil {
+			if ctx.Err() != nil {
+				return ipc.V2Response{}, ctx.Err()
+			}
 			return ipc.V2Response{}, err
 		}
 		if err := v2ResponseError(response); err != nil {
@@ -126,11 +220,13 @@ func waitForV2Job(ctx context.Context, jobID string) (ipc.V2Response, error) {
 				return ipc.V2Response{}, fmt.Errorf("job %s", response.Job.State)
 			}
 		}
+		timer.Reset(delay)
 		select {
 		case <-ctx.Done():
 			return ipc.V2Response{}, ctx.Err()
-		case <-ticker.C:
+		case <-timer.C:
 		}
+		delay = min(delay*2, maxDelay)
 	}
 }
 

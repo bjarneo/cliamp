@@ -12,7 +12,7 @@ func fitVisualizerFrame(frame string, cols, rows int) string {
 	}
 
 	var out strings.Builder
-	out.Grow(rows*(cols+1) - 1)
+	out.Grow(max(len(frame), rows*(cols+1)-1))
 	rest := frame
 	for row := range rows {
 		if row > 0 {

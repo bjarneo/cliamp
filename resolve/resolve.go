@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"mime"
 	"net/http"
 	"net/url"
@@ -38,6 +37,13 @@ var ExpandYTPlaylist = true
 // resolving or playing URLs for host. Passing an empty browser disables it.
 func SetYTDLCookiesForHost(host, browser string) {
 	ytdlcookies.SetForHost(host, browser)
+}
+
+// SetYTDLCookiesFileForHost configures yt-dlp to read cookies from a
+// Netscape-format file when resolving or playing URLs for host. It takes
+// precedence over browser cookies. Passing an empty path disables it.
+func SetYTDLCookiesFileForHost(host, path string) {
+	ytdlcookies.SetFileForHost(host, path)
 }
 
 // httpClient is used for feed, M3U and YouTube page resolution. It has a
@@ -108,9 +114,11 @@ func argsContext(ctx context.Context, args []string) (Result, error) {
 	var r Result
 	var files []string
 
-	for _, arg := range args {
+	sniffed := sniffFeedURLs(ctx, args)
+
+	for i, arg := range args {
 		if playlist.IsURL(arg) {
-			if classifyRemote(arg) != kindStream || sniffFeedURL(ctx, arg) {
+			if classifyRemote(arg) != kindStream || sniffed[i] {
 				r.Pending = append(r.Pending, arg)
 			} else {
 				files = append(files, arg)
@@ -307,6 +315,44 @@ func hasListParam(rawURL string) bool {
 	return u.Query().Get("list") != ""
 }
 
+// sniffFeedURLs probes unclassified URL arguments concurrently when multiple
+// candidates require HEAD checks.
+func sniffFeedURLs(ctx context.Context, args []string) []bool {
+	results := make([]bool, len(args))
+	var indices []int
+	for i, arg := range args {
+		if playlist.IsURL(arg) && classifyRemote(arg) == kindStream {
+			indices = append(indices, i)
+		}
+	}
+	if len(indices) == 0 {
+		return results
+	}
+	if len(indices) == 1 {
+		idx := indices[0]
+		results[idx] = sniffFeedURL(ctx, args[idx])
+		return results
+	}
+	workers := min(len(indices), 8)
+	jobs := make(chan int, len(indices))
+	for _, idx := range indices {
+		jobs <- idx
+	}
+	close(jobs)
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for range workers {
+		go func() {
+			defer wg.Done()
+			for idx := range jobs {
+				results[idx] = sniffFeedURL(ctx, args[idx])
+			}
+		}()
+	}
+	wg.Wait()
+	return results
+}
+
 // sniffFeedURL does a HEAD request under ctx and returns true if the
 // Content-Type indicates an RSS/Atom feed. Used as a fallback when the URL has
 // no recognizable file extension (e.g. https://feeds.megaphone.fm/GLT1412515089).
@@ -369,27 +415,7 @@ func AudioFiles(dir string, recursive bool) ([]string, error) {
 
 	if recursive {
 		var files []string
-		err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-			if err != nil {
-				// Skip entries we cannot read instead of aborting the scan, so
-				// one unreadable subdirectory cannot empty the whole result.
-				if d != nil && d.IsDir() {
-					return fs.SkipDir
-				}
-				return nil
-			}
-			if p != dir && isHiddenName(d.Name()) {
-				if d.IsDir() {
-					return fs.SkipDir
-				}
-				return nil
-			}
-			if !d.IsDir() && playlist.IsAudioFile(p) {
-				files = append(files, p)
-			}
-			return nil
-		})
-		if err != nil {
+		if err := walkAudioDir(dir, &files); err != nil {
 			return nil, fmt.Errorf("walk audio directory %q: %w", dir, err)
 		}
 
@@ -407,12 +433,84 @@ func AudioFiles(dir string, recursive bool) ([]string, error) {
 			continue
 		}
 		p := filepath.Join(dir, e.Name())
+		if !e.Type().IsRegular() {
+			tinfo, err := os.Stat(p)
+			if err != nil || !tinfo.Mode().IsRegular() {
+				continue
+			}
+		}
 		if playlist.IsAudioFile(p) {
 			files = append(files, p)
 		}
 	}
 	slices.Sort(files)
 	return files, nil
+}
+
+// walkAudioDir recursively collects audio files under root, following symlinked
+// directories while tracking canonical targets to prevent cycles and duplicate
+// scans. Unreadable subdirectories and broken symlinks are skipped.
+func walkAudioDir(root string, files *[]string) error {
+	visited := make(map[string]struct{})
+	var walk func(cur string, isRoot bool) error
+	walk = func(cur string, isRoot bool) error {
+		if key := canonicalDirKey(cur); key != "" {
+			if _, seen := visited[key]; seen {
+				return nil
+			}
+			visited[key] = struct{}{}
+		}
+		entries, err := os.ReadDir(cur)
+		if err != nil {
+			if isRoot {
+				return err
+			}
+			return nil
+		}
+		for _, e := range entries {
+			if isHiddenName(e.Name()) {
+				continue
+			}
+			p := filepath.Join(cur, e.Name())
+			if e.IsDir() {
+				if err := walk(p, false); err != nil {
+					return err
+				}
+				continue
+			}
+			if !e.Type().IsRegular() {
+				tinfo, err := os.Stat(p)
+				if err != nil {
+					continue
+				}
+				if tinfo.IsDir() {
+					if err := walk(p, false); err != nil {
+						return err
+					}
+					continue
+				}
+				if tinfo.Mode().IsRegular() && playlist.IsAudioFile(p) {
+					*files = append(*files, p)
+				}
+				continue
+			}
+			if playlist.IsAudioFile(p) {
+				*files = append(*files, p)
+			}
+		}
+		return nil
+	}
+	return walk(root, true)
+}
+
+func canonicalDirKey(dir string) string {
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		return filepath.Clean(resolved)
+	}
+	if abs, err := filepath.Abs(dir); err == nil {
+		return filepath.Clean(abs)
+	}
+	return ""
 }
 
 // isHiddenName reports whether a directory entry name is a dotfile.
@@ -525,7 +623,7 @@ func resolveM3U(ctx context.Context, m3uURL string) ([]playlist.Track, error) {
 	if err != nil {
 		return nil, err
 	}
-	return filterRemoteEntries(entriesToTracks(entries)), nil
+	return remoteM3UEntriesToTracks(filterRemoteM3UEntries(entries)), nil
 }
 
 // resolvePLS fetches a PLS playlist URL and returns tracks.
@@ -555,7 +653,7 @@ func resolvePLS(ctx context.Context, plsURL string) ([]playlist.Track, error) {
 	if err != nil {
 		return nil, err
 	}
-	return filterRemoteEntries(plsEntriesToTracks(entries)), nil
+	return remotePLSEntriesToTracks(filterRemotePLSEntries(entries)), nil
 }
 
 // hasHLSEndList reports whether an HLS body holds #EXT-X-ENDLIST. head is the
@@ -680,7 +778,42 @@ func resolveYouTube(ctx context.Context, pageURL string) ([]playlist.Track, erro
 }
 
 // ytdlTimeout bounds one yt-dlp enumeration when the caller sets no limit.
-const ytdlTimeout = 30 * time.Second
+const (
+	ytdlTimeout         = 30 * time.Second
+	maxYTDLStderrBytes  = 64 << 10
+	maxYTDLDownloadJSON = 4 << 20
+)
+
+// cappedBuffer stores up to limit bytes and discards additional writes.
+type cappedBuffer struct {
+	buf   bytes.Buffer
+	limit int
+}
+
+func (c *cappedBuffer) Write(p []byte) (int, error) {
+	if rem := c.limit - c.buf.Len(); rem > 0 {
+		if len(p) > rem {
+			c.buf.Write(p[:rem])
+		} else {
+			c.buf.Write(p)
+		}
+	}
+	return len(p), nil
+}
+
+func (c *cappedBuffer) String() string {
+	return c.buf.String()
+}
+
+// isHTTPURL reports whether raw uses the http or https scheme with a host.
+func isHTTPURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	return (scheme == "http" || scheme == "https") && u.Host != ""
+}
 
 // ResolveYTDLBatch is ResolveYTDLBatchContext with a 30 s limit.
 func ResolveYTDLBatch(pageURL string, start, count int, browser string) ([]playlist.Track, error) {
@@ -696,45 +829,95 @@ func ResolveYTDLBatchContext(ctx context.Context, pageURL string, start, count i
 	return tracks, err
 }
 
-// ResolveYTDLBatchPageContext uses yt-dlp --flat-playlist to list the entries
-// of pageURL from offset start. It fetches at most count entries, or all the
-// remaining entries when count is 0. The tracks keep their page URLs as Path,
-// not direct audio URLs. It also returns the number of source entries that
-// yt-dlp emitted, which includes entries that give no track. A non-empty
-// browser supplies the cookies. Otherwise the cookie source configured for the
-// host of pageURL applies.
+// ResolveYTDLBatchPageContext lists the entries of pageURL from offset start
+// using yt-dlp. Most URLs use --flat-playlist; Bilibili medialists use full
+// extraction so each favorite keeps its own video title and uploader. It
+// fetches at most count entries, or all remaining entries when count is 0.
+// The tracks keep their page URLs as Path, not direct audio URLs. It also
+// returns the number of source entries that yt-dlp emitted, which includes
+// entries that give no track. A non-empty browser supplies the cookies.
+// Otherwise the cookie source configured for the host of pageURL applies.
 func ResolveYTDLBatchPageContext(ctx context.Context, pageURL string, start, count int, browser string) ([]playlist.Track, int, error) {
 	if _, err := exec.LookPath("yt-dlp"); err != nil {
 		return nil, 0, fmt.Errorf("yt-dlp not found in PATH — see https://github.com/yt-dlp/yt-dlp#installation")
 	}
 
-	args := []string{"--flat-playlist", "-j", "--socket-timeout", "15"}
-	b := strings.TrimSpace(browser)
-	if b == "" {
-		b = ytdlcookies.ForURL(pageURL)
+	var cookieArgs []string
+	if b := strings.TrimSpace(browser); b != "" {
+		cookieArgs = []string{"--cookies-from-browser", b}
+	} else {
+		var cleanup func()
+		var err error
+		cookieArgs, cleanup, err = ytdlcookies.Args(pageURL)
+		defer cleanup()
+		if err != nil {
+			return nil, 0, fmt.Errorf("yt-dlp: %w", err)
+		}
 	}
-	if b != "" {
-		args = append(args, "--cookies-from-browser", b)
+
+	rangeArgs := ytdlRangeArgs(start, count)
+	if isBilibiliMedialist(pageURL) {
+		if len(rangeArgs) > 0 {
+			// Slice the outer medialist with --flat-playlist first, then expand
+			// only the selected video URLs without range flags so nested
+			// multipart Bilibili videos are not filtered out by start/end.
+			flatArgs := append([]string{"--flat-playlist", "-j", "--socket-timeout", "15"}, cookieArgs...)
+			flatArgs = append(flatArgs, rangeArgs...)
+			flatArgs = append(flatArgs, "--", pageURL)
+			flatTracks, flatEntries, err := runYTDLTracks(ctx, flatArgs, pageURL, false)
+			if err != nil || len(flatTracks) == 0 {
+				return flatTracks, flatEntries, err
+			}
+			expandArgs := append([]string{"-j", "--ignore-errors", "--socket-timeout", "15"}, cookieArgs...)
+			expandArgs = append(expandArgs, "--")
+			for _, tr := range flatTracks {
+				expandArgs = append(expandArgs, tr.Path)
+			}
+			tracks, _, err := runYTDLTracks(ctx, expandArgs, pageURL, true)
+			return tracks, flatEntries, err
+		}
+		args := append([]string{"-j", "--ignore-errors", "--socket-timeout", "15"}, cookieArgs...)
+		args = append(args, "--", pageURL)
+		return runYTDLTracks(ctx, args, pageURL, true)
 	}
+
+	args := append([]string{"--flat-playlist", "-j", "--socket-timeout", "15"}, cookieArgs...)
+	args = append(args, rangeArgs...)
+	args = append(args, "--", pageURL)
+	return runYTDLTracks(ctx, args, pageURL, false)
+}
+
+func ytdlRangeArgs(start, count int) []string {
+	var args []string
 	if start > 0 {
 		args = append(args, "--playlist-start", strconv.Itoa(start+1)) // yt-dlp is 1-based
 	}
-	end := 0
 	if count > 0 {
-		end = start + count
+		args = append(args, "--playlist-end", strconv.Itoa(start+count))
 	}
-	if end > 0 {
-		args = append(args, "--playlist-end", strconv.Itoa(end))
-	}
-	args = append(args, "--", pageURL)
+	return args
+}
+
+func runYTDLTracks(ctx context.Context, args []string, pageURL string, allowPartial bool) ([]playlist.Track, int, error) {
 	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
 	cmd.WaitDelay = 3 * time.Second
-	var stderr strings.Builder
+	stderr := cappedBuffer{limit: maxYTDLStderrBytes}
 	cmd.Stderr = &stderr
-	stdout, err := cmd.Output()
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		return nil, 0, fmt.Errorf("yt-dlp: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, 0, fmt.Errorf("yt-dlp: %w", err)
+	}
+	tracks, entries, parseErr := parseYTDLTracks(stdout)
+	_, _ = io.Copy(io.Discard, stdout)
+	if err := cmd.Wait(); err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, 0, fmt.Errorf("yt-dlp: resolve %s: %w", pageURL, ctxErr)
+		}
+		if allowPartial && parseErr == nil && len(tracks) > 0 {
+			return tracks, entries, nil
 		}
 		msg := strings.TrimSpace(stderr.String())
 		if msg != "" {
@@ -742,7 +925,24 @@ func ResolveYTDLBatchPageContext(ctx context.Context, pageURL string, start, cou
 		}
 		return nil, 0, fmt.Errorf("yt-dlp: %w", err)
 	}
-	return parseYTDLTracks(bytes.NewReader(stdout))
+	return tracks, entries, parseErr
+}
+
+// isBilibiliMedialist reports whether pageURL is a Bilibili favorite list.
+// yt-dlp's flat extraction for those lists exposes only the BV id and the
+// playlist owner, so these entries need full extraction for their own metadata.
+func isBilibiliMedialist(pageURL string) bool {
+	u, err := url.Parse(strings.TrimSpace(pageURL))
+	if err != nil {
+		return false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return (host == "bilibili.com" || strings.HasSuffix(host, ".bilibili.com")) &&
+		strings.HasPrefix(strings.ToLower(u.Path), "/medialist/detail/")
 }
 
 // resolveYTDL lists the first maxItems entries of pageURL, or all entries when
@@ -774,7 +974,7 @@ func parseYTDLTracks(r io.Reader) ([]playlist.Track, int, error) {
 		if trackURL == "" {
 			trackURL = e.URL
 		}
-		if trackURL == "" {
+		if trackURL == "" || !isHTTPURL(trackURL) {
 			continue
 		}
 		title := e.Title
@@ -815,16 +1015,27 @@ func DownloadYTDLContext(ctx context.Context, pageURL, saveDir string) (string, 
 		"--print-json",
 		"-o", outTemplate,
 	}
-	if browser := ytdlcookies.ForURL(pageURL); browser != "" {
-		args = append(args, "--cookies-from-browser", browser)
+	cookieArgs, cleanup, err := ytdlcookies.Args(pageURL)
+	defer cleanup()
+	if err != nil {
+		return "", fmt.Errorf("yt-dlp: %w", err)
 	}
+	args = append(args, cookieArgs...)
 	args = append(args, "--", pageURL)
 	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
 	cmd.WaitDelay = 3 * time.Second
-	var stderr strings.Builder
+	stderr := cappedBuffer{limit: maxYTDLStderrBytes}
 	cmd.Stderr = &stderr
-	stdout, err := cmd.Output()
+	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
+		return "", fmt.Errorf("yt-dlp: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("yt-dlp: %w", err)
+	}
+	stdout, readErr := io.ReadAll(io.LimitReader(stdoutPipe, maxYTDLDownloadJSON))
+	_, _ = io.Copy(io.Discard, stdoutPipe)
+	if err := cmd.Wait(); err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return "", fmt.Errorf("yt-dlp: download %s: %w", pageURL, ctxErr)
 		}
@@ -833,6 +1044,9 @@ func DownloadYTDLContext(ctx context.Context, pageURL, saveDir string) (string, 
 			return "", fmt.Errorf("yt-dlp: %s", msg)
 		}
 		return "", fmt.Errorf("yt-dlp: %w", err)
+	}
+	if readErr != nil {
+		return "", fmt.Errorf("reading yt-dlp output: %w", readErr)
 	}
 
 	var e ytdlFullEntry

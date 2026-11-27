@@ -127,35 +127,39 @@ func (d *mosaicDriver) Render(v *Visualizer) string {
 	}
 	d.ensureGrid(rows, tiles, len(v.SmoothedBands()))
 
-	lines := make([]string, rows)
+	var sb strings.Builder
+	sb.Grow(rows * (tiles*(mosaicCellW*3+mosaicCellGap+8) + 16))
+	w := styleRunWriter{sb: &sb}
 	for row := 0; row < rows; row++ {
-		var sb, run strings.Builder
+		if row > 0 {
+			sb.WriteByte('\n')
+		}
 		tag := -1
+		w.setTag(-1)
 
 		for t := 0; t < tiles; t++ {
 			cell := d.cells[row*tiles+t]
 			level := mosaicLevelFor(cell.value)
 			if level.tier != tag {
-				flushStyleRun(&sb, &run, tag)
 				tag = level.tier
+				w.setTag(tag)
 			}
 			for c := 0; c < mosaicCellW; c++ {
-				run.WriteRune(level.glyph)
+				w.writeRune(level.glyph)
 			}
 			if t < tiles-1 {
 				if tag != -1 {
-					flushStyleRun(&sb, &run, tag)
 					tag = -1
+					w.setTag(-1)
 				}
 				for g := 0; g < mosaicCellGap; g++ {
-					run.WriteRune(' ')
+					w.writeByte(' ')
 				}
 			}
 		}
-		flushStyleRun(&sb, &run, tag)
-		lines[row] = sb.String()
+		w.flush()
 	}
-	return strings.Join(lines, "\n")
+	return sb.String()
 }
 
 func (d *mosaicDriver) Tick(v *Visualizer, ctx VisTickContext) {
@@ -181,9 +185,14 @@ func (d *mosaicDriver) Tick(v *Visualizer, ctx VisTickContext) {
 	// For each cell: if its assigned band exceeds the cell's threshold, ignite
 	// (set value to the band level — clamped to 1.05 so spikes can briefly
 	// promote into the yellow/red tiers). Otherwise decay in place.
+	bandCount := len(bands)
 	for i := range d.cells {
 		c := &d.cells[i]
-		level := bands[c.bandIdx]
+		idx := c.bandIdx
+		if idx >= bandCount {
+			idx = bandCount - 1
+		}
+		level := bands[idx]
 		if level > c.threshold {
 			ignited := level
 			if ignited > 1.05 {

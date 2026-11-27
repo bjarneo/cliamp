@@ -32,35 +32,43 @@ func resizeTerrainBuf(buf []float64, dotCols int) []float64 {
 
 func (d *terrainDriver) Render(v *Visualizer) string {
 	height := v.Rows
+	cols := v.columns()
 	dotRows := height * 4
-	dotCols := v.columns() * 2
+	dotCols := cols * 2
 	buf := resizeTerrainBuf(d.buf, dotCols)
 
-	// Render: each dot column is filled from its terrain height down to the bottom.
-	lines := make([]string, height)
+	// Fill each dot column from its terrain height down to the bottom.
+	var sb strings.Builder
+	sb.Grow(height * (cols*3 + 24))
 	for row := range height {
-		var content strings.Builder
-		for ch := range v.columns() {
-			var braille rune = '\u2800'
+		if row > 0 {
+			sb.WriteByte('\n')
+		}
+		style := specANSI[specTag(float64(height-1-row)/float64(height))]
+		if style.prefix != "" {
+			sb.WriteString(style.prefix)
+		}
+		for ch := range cols {
+			var mask byte
 			for dc := range 2 {
 				x := ch*2 + dc
 				terrainH := buf[x]
-				// Top dot position — invert so 0 is bottom.
 				topDot := dotRows - 1 - int(terrainH*float64(dotRows-1))
 				for dr := range 4 {
 					dotY := row*4 + dr
 					if dotY >= topDot {
-						braille |= brailleBit[dr][dc]
+						mask |= brailleBit[dr][dc]
 					}
 				}
 			}
-			content.WriteRune(braille)
+			sb.WriteString(brailleUTF8[mask])
 		}
-		// Color by row height: green base, yellow middle, red peaks.
-		lines[row] = specWrap(float64(height-1-row)/float64(height), content.String())
+		if style.prefix != "" {
+			sb.WriteString(style.suffix)
+		}
 	}
 
-	return strings.Join(lines, "\n")
+	return sb.String()
 }
 
 func (d *terrainDriver) Tick(v *Visualizer, ctx VisTickContext) {

@@ -39,7 +39,13 @@ type Entry struct {
 type Store struct {
 	path string
 
-	mu sync.Mutex
+	mu          sync.Mutex
+	cacheValid  bool
+	cacheExists bool
+	cacheMod    time.Time
+	cacheSize   int64
+	cachePaths  map[string]struct{}
+	cacheCount  int
 }
 
 // New returns a Store backed by ~/.config/cliamp/favorites.toml. Returns nil if
@@ -146,13 +152,12 @@ func (s *Store) IsFavorited(path string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	entries, err := s.loadLocked()
+	paths, _, err := s.summaryLocked()
 	if err != nil {
 		return false
 	}
-	return slices.ContainsFunc(entries, func(e Entry) bool {
-		return e.Track.Path == path
-	})
+	_, ok := paths[path]
+	return ok
 }
 
 // Count returns the number of favorited tracks.
@@ -164,11 +169,11 @@ func (s *Store) Count() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	entries, err := s.loadLocked()
+	_, count, err := s.summaryLocked()
 	if err != nil {
 		return 0
 	}
-	return len(entries)
+	return count
 }
 
 // Tracks returns all favorite tracks, newest-first, suitable for handing to a
@@ -202,6 +207,69 @@ func (s *Store) lockFile() (func() error, error) {
 	return fileutil.LockFile(s.path + ".lock")
 }
 
+// summaryLocked returns the cached path set and entry count, refreshing from
+// disk only when the file metadata changes. The caller holds s.mu.
+func (s *Store) summaryLocked() (map[string]struct{}, int, error) {
+	info, err := os.Stat(s.path)
+	if errors.Is(err, fs.ErrNotExist) {
+		s.cacheValid = true
+		s.cacheExists = false
+		s.cacheMod = time.Time{}
+		s.cacheSize = 0
+		s.cachePaths = nil
+		s.cacheCount = 0
+		return nil, 0, nil
+	}
+	if err != nil {
+		s.cacheValid = false
+		return nil, 0, fmt.Errorf("stat favorites: %w", err)
+	}
+	if s.cacheValid && s.cacheExists && info.Size() == s.cacheSize && info.ModTime().Equal(s.cacheMod) {
+		return s.cachePaths, s.cacheCount, nil
+	}
+	f, err := os.Open(s.path)
+	if errors.Is(err, fs.ErrNotExist) {
+		s.cacheValid = true
+		s.cacheExists = false
+		s.cacheMod = time.Time{}
+		s.cacheSize = 0
+		s.cachePaths = nil
+		s.cacheCount = 0
+		return nil, 0, nil
+	}
+	if err != nil {
+		s.cacheValid = false
+		return nil, 0, fmt.Errorf("read favorites: %w", err)
+	}
+	defer f.Close()
+	fdInfo, err := f.Stat()
+	if err != nil {
+		s.cacheValid = false
+		return nil, 0, fmt.Errorf("stat favorites: %w", err)
+	}
+	data, err := io.ReadAll(f)
+	if err != nil {
+		s.cacheValid = false
+		return nil, 0, fmt.Errorf("read favorites: %w", err)
+	}
+	entries := parse(data)
+	s.setSummaryLocked(entries, fdInfo)
+	return s.cachePaths, s.cacheCount, nil
+}
+
+func (s *Store) setSummaryLocked(entries []Entry, info os.FileInfo) {
+	paths := make(map[string]struct{}, len(entries))
+	for _, e := range entries {
+		paths[e.Track.Path] = struct{}{}
+	}
+	s.cacheValid = true
+	s.cacheExists = true
+	s.cacheMod = info.ModTime()
+	s.cacheSize = info.Size()
+	s.cachePaths = paths
+	s.cacheCount = len(entries)
+}
+
 func (s *Store) loadLocked() ([]Entry, error) {
 	data, err := os.ReadFile(s.path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -224,7 +292,16 @@ func (s *Store) saveLocked(entries []Entry) error {
 	// WriteFileAtomic uses a unique temp file per write and fsyncs before
 	// renaming, so a crash or a second process can never leave a torn or
 	// half-clobbered favorites.toml behind.
-	return fileutil.WriteFileAtomic(s.path, []byte(b.String()), 0o644)
+	if err := fileutil.WriteFileAtomic(s.path, []byte(b.String()), 0o600); err != nil {
+		s.cacheValid = false
+		return err
+	}
+	if info, err := os.Stat(s.path); err == nil {
+		s.setSummaryLocked(entries, info)
+	} else {
+		s.cacheValid = false
+	}
+	return nil
 }
 
 func writeEntry(w io.Writer, e Entry) {

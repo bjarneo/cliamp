@@ -33,7 +33,14 @@ func applyThemeAll(t theme.Theme) {
 // favs and hist are the favorites and history stores that the local provider
 // also reads. Each can be nil.
 func New(p player.Engine, pl *playlist.Playlist, providers []provider.Entry, defaultProvider string, localProv playlist.Provider, favs *favorites.Store, hist *history.Store, themes []theme.Theme, luaMgr *luaplugin.Manager, cs ConfigSaver) Model {
+	rc := &renderCaches{}
 	m := Model{
+		helpCache:        &rc.help,
+		playlistCache:    &rc.playlist,
+		settingsCache:    &rc.settings,
+		titleCache:       &rc.title,
+		bodyCache:        &rc.body,
+		visTick:          &visTickScratch{},
 		player:           p,
 		playlist:         pl,
 		configSaver:      cs,
@@ -52,6 +59,9 @@ func New(p player.Engine, pl *playlist.Playlist, providers []provider.Entry, def
 		favStore:         favs,
 		showAlbumHeaders: false,
 		reports:          &reportQueue{},
+		artworkCache:     &artworkCache{},
+		lyricsCancel:     &cancelSlot{},
+		navCancel:        &cancelSlot{},
 	}
 	m.refreshFavSet()
 	if luaMgr != nil {
@@ -70,10 +80,15 @@ func New(p player.Engine, pl *playlist.Playlist, providers []provider.Entry, def
 			break
 		}
 	}
-	// Fallback: select first available provider.
+	// Fallback: select first available provider. When the default names no
+	// registered provider, such as --provider qobuz with no [qobuz] section,
+	// show the setup hint of the provider shortcuts. See issue #428.
 	if m.provider == nil && len(providers) > 0 {
 		m.provPillIdx = 0
 		m.provider = providers[0].Provider
+		if defaultProvider != "" && !m.hasProvider(defaultProvider) {
+			m.status.Warning(unconfiguredProviderHint(defaultProvider), statusTTLLong)
+		}
 	}
 	return m
 }
@@ -157,9 +172,6 @@ func (m *Model) SetHeadless(v bool) {
 	}
 }
 
-// SetVisualizer60FPS enables the 60 FPS visualizer cadence while it is active.
-func (m *Model) SetVisualizer60FPS(v bool) { m.visualizer60FPS = v }
-
 // SetSimplified enables the sparse playback view without a visualizer.
 func (m *Model) SetSimplified(v bool) {
 	m.simplified = v
@@ -168,6 +180,12 @@ func (m *Model) SetSimplified(v bool) {
 	}
 	m.refreshChrome()
 	m.normalizeMainFocus()
+}
+
+// SetKeepSearchOpen keeps the Ctrl+F results open after q (queue next) and a
+// (append), so several results can be queued from one search.
+func (m *Model) SetKeepSearchOpen(v bool) {
+	m.keepSearchOpen = v
 }
 
 // SetHideHelpBar hides the key-binding hint bar and gives the row back to the
@@ -353,6 +371,7 @@ func (m Model) Init() tea.Cmd {
 // favorites store. Call after every toggle and on init so the render path
 // never hits disk.
 func (m *Model) refreshFavSet() {
+	m.favGen++
 	m.favSet = nil
 	if m.favStore == nil {
 		return
@@ -370,6 +389,7 @@ func (m *Model) refreshFavSet() {
 // SetRadioFavorites shares the Radio provider's local station favorites store.
 func (m *Model) SetRadioFavorites(favorites *radio.Favorites) {
 	m.radioFavorites = favorites
+	m.favGen++
 }
 
 // SetDownloadsDirectory selects the destination for saved tracks.

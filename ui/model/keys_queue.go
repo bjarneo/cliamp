@@ -78,6 +78,8 @@ func (m *Model) handleQueueKey(msg tea.KeyPressMsg) tea.Cmd {
 			return m.rearmStalePreload()
 		}
 	case "d":
+		return m.openDevicePicker()
+	case "x":
 		removed := false
 		if qLen > 0 {
 			snapshot := m.playlist.Snapshot()

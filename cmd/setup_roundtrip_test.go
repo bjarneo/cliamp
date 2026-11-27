@@ -3,6 +3,7 @@ package cmd
 import (
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/bjarneo/cliamp/config"
@@ -51,6 +52,15 @@ func TestSetupBodyRoundTrip(t *testing.T) {
 				return []string{c.Lyrion.URL, c.Lyrion.User, c.Lyrion.Password}
 			},
 			want: []string{"http://nas:9000", backslash + `\`, nbsp},
+		},
+		{
+			// Leading and trailing spaces are trimmed; inner ones stay.
+			section: "bandcamp",
+			values:  map[string]string{"user": " " + single, "password": mixed + " "},
+			got: func(c config.Config) []string {
+				return []string{c.Bandcamp.User, c.Bandcamp.Password}
+			},
+			want: []string{single, mixed},
 		},
 		{
 			section: "plex",
@@ -129,6 +139,20 @@ func TestSetupBodyRoundTrip(t *testing.T) {
 				return append([]string{c.Mixcloud.Username, c.Mixcloud.AccessToken, c.Mixcloud.CookiesFrom}, c.Mixcloud.Styles...)
 			},
 			want: []string{single, mixed, `firefox:` + backslash, `deep"house`, `jazz\`},
+		},
+		{
+			section: "telegram",
+			values: map[string]string{
+				"api_id": "123456", "api_hash": mixed, "phone": "+54911" + backslash,
+				"password": nbsp, "chats": "deezload2bot, my_" + backslash, "buffer_mb": "4",
+			},
+			got: func(c config.Config) []string {
+				return []string{
+					strconv.Itoa(c.Telegram.AppID), c.Telegram.AppHash, c.Telegram.Phone,
+					c.Telegram.Password, strings.Join(c.Telegram.Chats, ","), strconv.Itoa(c.Telegram.BufferMB),
+				}
+			},
+			want: []string{"123456", mixed, "+54911" + backslash, nbsp, "deezload2bot,my_" + backslash, "4"},
 		},
 		{
 			section: "ytmusic",

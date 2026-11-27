@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"image/color"
 	"math"
 	"slices"
 	"strings"
@@ -164,25 +165,44 @@ func TestEtherealSuspendsClock(t *testing.T) {
 	}
 }
 
-func TestEtherealKeepsItsPalette(t *testing.T) {
+func TestEtherealFollowsThemeColors(t *testing.T) {
 	t.Cleanup(func() { ApplyThemeColors(theme.Default()) })
 	v := NewVisualizer(44100)
 	v.Cols, v.Rows = 76, 7
 	d := &etherealDriver{}
 	ApplyThemeColors(theme.Default())
-	before := d.Render(v)
-	ApplyThemeColors(testTheme)
-	if got := d.Render(v); got != before {
-		t.Fatal("changing the UI theme recoloured the nebula")
-	}
-	for i, c := range etherealColors {
-		var sb, run strings.Builder
-		run.WriteString("⠂")
-		flushEtherealRun(&sb, &run, i+1)
-		want := lipgloss.NewStyle().Foreground(lipgloss.Color(c)).Render("⠂")
-		if got := sb.String(); got != want {
-			t.Fatalf("style [%d] = %q, want %q", i, got, want)
-		}
+	terminalFrame := d.Render(v)
+	for _, th := range []theme.Theme{theme.Default(), testTheme, theme.Default()} {
+		t.Run(th.Name, func(t *testing.T) {
+			ApplyThemeColors(th)
+			p := PaletteFor(th)
+			colors := [...]color.Color{p.Dim, p.SpectrumLow, p.SpectrumMid, p.SpectrumHigh, p.Text, p.Accent, p.Text}
+			for i, c := range colors {
+				var sb strings.Builder
+				w := styleRunWriter{sb: &sb}
+				w.switchStyle(etherealTierStyle(i + 1))
+				w.writeString("⠂")
+				w.flush()
+				want := lipgloss.NewStyle().Foreground(c).Render("⠂")
+				if got := sb.String(); got != want {
+					t.Errorf("style [%d] = %q, want %q", i, got, want)
+				}
+			}
+			frame := d.Render(v)
+			if stripSGR(frame) != stripSGR(terminalFrame) {
+				t.Fatal("changing the theme changed the clouds or stars")
+			}
+			if th.IsDefault() {
+				if frame != terminalFrame {
+					t.Fatal("returning to the default theme did not restore terminal colors")
+				}
+				if strings.Contains(frame, "38;2;") {
+					t.Fatal("the default theme did not use the terminal's ANSI palette")
+				}
+			} else if frame == terminalFrame {
+				t.Fatal("changing the theme did not recolor the nebula")
+			}
+		})
 	}
 }
 
@@ -201,6 +221,75 @@ func TestEtherealUsesFlameStyleDots(t *testing.T) {
 	}
 	if !slices.Contains(d.grid.cells, int8(0)) || !slices.Contains(d.grid.cells, int8(3)) {
 		t.Fatal("want open sky and visible cloud dots")
+	}
+}
+
+func TestEtherealRenderMatchesCloudFormula(t *testing.T) {
+	cases := []struct {
+		name            string
+		cols, rows      int
+		elapsed         float64
+		bass, mid, high float64
+	}{
+		{"rest", 48, 9, 0, 0, 0, 0},
+		{"drifted", 60, 12, 7.5, 0.65, 0.4, 0.2},
+		{"loud", 40, 8, 19.25, 1, 1, 0},
+		{"tiny", 3, 1, 2.1, 0.3, 0.8, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			v := NewVisualizer(44100)
+			v.Cols, v.Rows = tc.cols, tc.rows
+			v.bands = []float64{tc.bass, tc.mid, tc.high}
+			d := &etherealDriver{elapsed: tc.elapsed}
+			d.Render(v)
+
+			dotRows, dotCols := tc.rows*4, tc.cols*2
+			want := brailleGrid{styleFor: etherealTierStyle, keepRunOnEmpty: true}
+			want.ensure(dotRows, dotCols)
+			for y := range dotRows {
+				yf := float64(y) / float64(dotRows)
+				for x := range dotCols {
+					xf := (float64(x) + 0.5) / float64(dotCols)
+					light := etherealCloud(xf, yf, tc.elapsed, tc.bass, tc.mid)
+					if light < 0.10 || scatterHash(0, y, x, 0) > (light-0.08)*1.5 {
+						continue
+					}
+					tier := int8(1)
+					switch {
+					case light >= 0.70:
+						tier = 5
+					case light >= 0.52:
+						tier = 4
+					case light >= 0.35:
+						tier = 3
+					case light >= 0.20:
+						tier = 2
+					}
+					want.cells[y*dotCols+x] = tier
+				}
+			}
+			for _, star := range d.stars {
+				glow := 0.5 + 0.5*math.Sin(tc.elapsed*star.speed+star.phase)
+				if glow+tc.high*0.35 <= 0.36 {
+					continue
+				}
+				tier := int8(etherealStarDim)
+				if glow+tc.high*0.25 > 0.78 {
+					tier = etherealStarCool
+				}
+				if glow+tc.high*0.15 > 1.02 {
+					tier = etherealStarLit
+					for _, offset := range [4][2]int{{-1, 0}, {1, 0}, {0, -1}, {0, 1}} {
+						want.set(star.x+offset[0], star.y+offset[1], tier)
+					}
+				}
+				want.set(star.x, star.y, tier)
+			}
+			if !slices.Equal(d.grid.cells, want.cells) {
+				t.Fatalf("grid cells differ from etherealCloud reference")
+			}
+		})
 	}
 }
 

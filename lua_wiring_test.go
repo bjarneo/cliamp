@@ -80,7 +80,7 @@ func TestLuaSenderDoesNotBlockAndKeepsOrder(t *testing.T) {
 	queue, stop := newOrderedSender(sink.send)
 	defer stop()
 	ctrl := luaControlProvider(queue)
-	ui := luaUIProvider(queue)
+	ui := luaUIProvider(queue, false)
 
 	done := make(chan struct{})
 	go func() {

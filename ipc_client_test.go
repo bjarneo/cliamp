@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"net"
 	"os"
 	"reflect"
 	"runtime"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,15 +17,16 @@ import (
 	"github.com/bjarneo/cliamp/ui"
 )
 
-// socketDir returns a new config directory for a test that binds the
-// socket. On macOS t.TempDir is deep enough that a long test name pushes the
-// socket path past the 104-byte limit, so the directory goes in /tmp there.
+// socketDir returns a short config directory for a test that binds the socket.
+// Keeping the directory short keeps the socket path under the 107-byte Unix
+// sun_path limit on every platform, even with long subtest names or TMPDIR.
 func socketDir(t *testing.T) string {
 	t.Helper()
-	if runtime.GOOS != "darwin" {
-		return t.TempDir()
+	base := ""
+	if runtime.GOOS != "windows" {
+		base = "/tmp"
 	}
-	dir, err := os.MkdirTemp("/tmp", "c")
+	dir, err := os.MkdirTemp(base, "c")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,6 +260,89 @@ func TestVisModes(t *testing.T) {
 			names, active, running := visModes()
 			if !slices.Equal(names, tt.wantNames) || active != tt.wantActive || running != tt.wantRunning {
 				t.Fatalf("visModes() = %v, %d, %v; want %v, %d, %v", names, active, running, tt.wantNames, tt.wantActive, tt.wantRunning)
+			}
+		})
+	}
+}
+
+func TestIPCSendPersistentConnectionAndReconnect(t *testing.T) {
+	tests := []struct {
+		name            string
+		closeAfterCount int // close server conn after this many requests, 0 means keep open
+		wantAccepts     int32
+	}{
+		{name: "reuses one connection across submit and polls", closeAfterCount: 0, wantAccepts: 1},
+		{name: "reconnects after close between submit and poll", closeAfterCount: 1, wantAccepts: 4},
+		{name: "reconnects after close mid-poll", closeAfterCount: 2, wantAccepts: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("CLIAMP_CONFIG_DIR", socketDir(t))
+			ln, err := net.Listen("unix", ipc.DefaultSocketPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = ln.Close() })
+
+			var accepts atomic.Int32
+			var polls atomic.Int32
+			go func() {
+				for {
+					conn, err := ln.Accept()
+					if err != nil {
+						return
+					}
+					accepts.Add(1)
+					go func(c net.Conn) {
+						defer c.Close()
+						scanner := bufio.NewScanner(c)
+						handled := 0
+						for scanner.Scan() {
+							var req ipc.V2Request
+							if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
+								return
+							}
+							var resp ipc.V2Response
+							resp.ID = req.ID
+							resp.OK = true
+							switch req.Method {
+							case "operation.submit":
+								resp.Job = &ipc.Job{ID: "job-1", Operation: req.Operation, State: ipc.JobQueued}
+							case "job.get":
+								n := polls.Add(1)
+								state := ipc.JobRunning
+								var res json.RawMessage
+								if n >= 3 {
+									state = ipc.JobSucceeded
+									res = json.RawMessage(`{"ok":true,"state":"playing"}`)
+								}
+								resp.Job = &ipc.Job{ID: req.JobID, State: state, Result: res}
+							}
+							data, _ := json.Marshal(resp)
+							_, _ = c.Write(append(data, '\n'))
+							handled++
+							if tt.closeAfterCount > 0 && handled >= tt.closeAfterCount {
+								return
+							}
+						}
+					}(conn)
+				}
+			}()
+
+			got, err := ipcSendWithin("next", ipc.Request{}, 5*time.Second)
+			if err != nil {
+				t.Fatalf("ipcSendWithin() error = %v", err)
+			}
+			want := ipc.Response{OK: true, State: "playing"}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("response = %+v, want %+v", got, want)
+			}
+			if gotPolls := polls.Load(); gotPolls != 3 {
+				t.Fatalf("polls = %d, want 3", gotPolls)
+			}
+			if gotAccepts := accepts.Load(); gotAccepts != tt.wantAccepts {
+				t.Fatalf("accepted connections = %d, want %d", gotAccepts, tt.wantAccepts)
 			}
 		})
 	}

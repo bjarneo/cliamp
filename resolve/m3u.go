@@ -3,6 +3,8 @@ package resolve
 import (
 	"bufio"
 	"io"
+	"math"
+	"net/url"
 	"os"
 	pathpkg "path"
 	"path/filepath"
@@ -51,17 +53,9 @@ func parseM3U(r io.Reader, baseDir string) ([]m3uEntry, error) {
 			continue
 		}
 
-		// Parse #EXTINF:duration,title
+		// Parse #EXTINF:duration [key="value" ...],title
 		if after, ok := strings.CutPrefix(line, "#EXTINF:"); ok {
-			info := after
-			dur := -1
-			title := ""
-			if before, after, ok := strings.Cut(info, ","); ok {
-				if d, err := strconv.Atoi(strings.TrimSpace(before)); err == nil {
-					dur = d
-				}
-				title = strings.TrimSpace(after)
-			}
+			dur, title := parseEXTINF(after)
 			pending = &m3uEntry{Duration: dur, Title: title}
 			continue
 		}
@@ -89,9 +83,44 @@ func parseM3U(r io.Reader, baseDir string) ([]m3uEntry, error) {
 	return entries, scanner.Err()
 }
 
+// parseEXTINF splits the text after "#EXTINF:" into the duration in seconds
+// (-1 if unknown) and the title. The title starts after the first comma
+// outside quotes: IPTV and radio lists put attributes such as
+// group-title="Jazz, Blues" between the two. Durations may have decimals.
+func parseEXTINF(info string) (int, string) {
+	split := strings.IndexByte(info, ',')
+	inQuotes := false
+	for i := 0; i < len(info); i++ {
+		if info[i] == '"' {
+			inQuotes = !inQuotes
+		} else if info[i] == ',' && !inQuotes {
+			split = i
+			break
+		}
+	}
+	if split < 0 {
+		return -1, ""
+	}
+	dur := -1
+	if fields := strings.Fields(info[:split]); len(fields) > 0 {
+		if d, err := strconv.ParseFloat(fields[0], 64); err == nil && d >= -1 && d <= math.MaxInt32 {
+			dur = int(d)
+		}
+	}
+	return dur, strings.TrimSpace(info[split+1:])
+}
+
 // m3uEntryToTrack converts a parsed M3U entry to a playlist.Track.
 func m3uEntryToTrack(e m3uEntry) playlist.Track {
+	return m3uEntryToTrackWithOptions(e, true)
+}
+
+func m3uEntryToTrackWithOptions(e m3uEntry, allowLocalFS bool) playlist.Track {
 	isURL := playlist.IsURL(e.Path)
+	if !isURL {
+		scheme := URIScheme(e.Path)
+		isURL = scheme == "http" || scheme == "https"
+	}
 	duration := max(e.Duration, 0)
 	realtime := isURL && e.Duration <= 0
 
@@ -104,7 +133,12 @@ func m3uEntryToTrack(e m3uEntry) playlist.Track {
 			DurationSecs: duration,
 		}
 	}
-	t := playlist.TrackFromPath(e.Path)
+	var t playlist.Track
+	if allowLocalFS {
+		t = playlist.TrackFromPath(e.Path)
+	} else {
+		t = remoteTrackFromPath(e.Path)
+	}
 	t.Realtime = realtime
 	t.DurationSecs = duration
 	return t
@@ -114,7 +148,16 @@ func m3uEntryToTrack(e m3uEntry) playlist.Track {
 func entriesToTracks(entries []m3uEntry) []playlist.Track {
 	tracks := make([]playlist.Track, 0, len(entries))
 	for _, e := range entries {
-		tracks = append(tracks, m3uEntryToTrack(e))
+		tracks = append(tracks, m3uEntryToTrackWithOptions(e, true))
+	}
+	return tracks
+}
+
+// remoteM3UEntriesToTracks converts filtered remote M3U entries without local file reads.
+func remoteM3UEntriesToTracks(entries []m3uEntry) []playlist.Track {
+	tracks := make([]playlist.Track, 0, len(entries))
+	for _, e := range entries {
+		tracks = append(tracks, m3uEntryToTrackWithOptions(e, false))
 	}
 	return tracks
 }
@@ -147,6 +190,9 @@ func resolveM3UPath(baseDir, entry string) string {
 	if entry == "" || playlist.IsURL(entry) {
 		return entry
 	}
+	if path, ok := fileURIPath(entry); ok {
+		return path
+	}
 	if isWindowsAbsolutePath(entry) {
 		return filepath.Clean(entry)
 	}
@@ -160,6 +206,31 @@ func resolveM3UPath(baseDir, entry string) string {
 		return filepath.Join(baseDir, filepath.FromSlash(entry))
 	}
 	return pathpkg.Join(baseDir, entry)
+}
+
+// fileURIPath returns the local path of a file:// entry, the form VLC and
+// other players write for tracks outside the playlist's folder. It decodes
+// the path by hand: url.Parse would cut a file name at an unescaped # or ?.
+func fileURIPath(entry string) (string, bool) {
+	if URIScheme(entry) != "file" || !strings.HasPrefix(entry[len("file:"):], "//") {
+		return "", false
+	}
+	rest := entry[len("file://"):]
+	slash := strings.IndexByte(rest, '/')
+	if slash < 0 {
+		return "", false
+	}
+	if host := rest[:slash]; host != "" && !strings.EqualFold(host, "localhost") {
+		return "", false
+	}
+	path, err := url.PathUnescape(rest[slash:])
+	if err != nil {
+		return "", false
+	}
+	if hasWindowsDrivePrefix(path[1:]) {
+		path = filepath.FromSlash(path[1:])
+	}
+	return path, true
 }
 
 func usesWindowsPathSemantics(base string) bool {

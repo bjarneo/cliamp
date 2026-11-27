@@ -150,10 +150,10 @@ func TestProgressStorePersistsAcrossLoads(t *testing.T) {
 	}
 
 	reloaded := newProgressStore()
+	state, ok := reloaded.state(track)
 	if reloaded.loadErr != nil {
 		t.Fatalf("loadErr = %v", reloaded.loadErr)
 	}
-	state, ok := reloaded.state(track)
 	if !ok {
 		t.Fatal("state() returned no entry after reload")
 	}
@@ -171,11 +171,11 @@ func TestProgressStoreCorruptFileStartsEmpty(t *testing.T) {
 
 	s := newProgressStore()
 
-	if s.loadErr == nil {
-		t.Error("loadErr = nil for a corrupt store, want an error")
-	}
 	if s.has() {
 		t.Error("has() = true after a failed load")
+	}
+	if s.loadErr == nil {
+		t.Error("loadErr = nil for a corrupt store, want an error")
 	}
 }
 
@@ -307,6 +307,9 @@ func TestProgressStoreLeavesNewerVersionUntouched(t *testing.T) {
 
 	s := newProgressStore()
 
+	if s.has() {
+		t.Fatal("has() = true for an unsupported version 3 file")
+	}
 	if s.loadErr == nil {
 		t.Fatal("loadErr = nil for a version 3 file, want an error")
 	}
@@ -627,10 +630,10 @@ func TestProgressStoreMigratesVersionOne(t *testing.T) {
 
 	s := newProgressStore()
 
+	state, ok := s.state(episodeTrack("guid-1", "https://cdn.example.com/a.mp3"))
 	if s.loadErr != nil {
 		t.Fatalf("loadErr = %v", s.loadErr)
 	}
-	state, ok := s.state(episodeTrack("guid-1", "https://cdn.example.com/a.mp3"))
 	if !ok || state.Position != 20*time.Minute {
 		t.Errorf("migrated state = %+v, %v; want 20m under the feed-scoped key", state, ok)
 	}
@@ -677,6 +680,8 @@ func TestScrobbleReportsAFailedWrite(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLIAMP_CONFIG_DIR", dir)
 	p := New("us")
+	// Trigger initial lazy load while the store file is absent so loadErr stays nil.
+	_ = p.HasPlaybackState()
 	// Make the target path a directory so the atomic write cannot replace it.
 	if err := os.Mkdir(filepath.Join(dir, "podcast_progress.json"), 0o755); err != nil {
 		t.Fatal(err)
@@ -710,6 +715,30 @@ func TestShortEpisodeNeedsHalfToCountAsPlayed(t *testing.T) {
 	}
 }
 
+func TestProgressStorePruneHandlesWideUnixTimestamps(t *testing.T) {
+	s := &progressStore{
+		episodes: make(map[string]episodeState, maxStoredEpisodes+2),
+		aliases:  map[string]string{},
+	}
+	s.episodes["oldest"] = episodeState{UpdatedUnix: -(1 << 40)}
+	s.episodes["newest"] = episodeState{UpdatedUnix: 1 << 40}
+	for i := range maxStoredEpisodes {
+		s.episodes[fmt.Sprintf("mid-%d", i)] = episodeState{UpdatedUnix: int64(i + 1)}
+	}
+
+	s.prune()
+
+	if _, ok := s.episodes["oldest"]; ok {
+		t.Error("oldest episode was not pruned")
+	}
+	if _, ok := s.episodes["newest"]; !ok {
+		t.Error("newest episode was incorrectly pruned")
+	}
+	if len(s.episodes) != maxStoredEpisodes {
+		t.Fatalf("len(episodes) = %d, want %d", len(s.episodes), maxStoredEpisodes)
+	}
+}
+
 // A file holding JSON null decodes to no entries, not to a nil map that the
 // next record would panic on.
 func TestProgressStoreTreatsNullAsEmpty(t *testing.T) {
@@ -719,11 +748,10 @@ func TestProgressStoreTreatsNullAsEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := newProgressStore()
+	s.record(episodeTrack("guid-1", "https://cdn.example.com/a.mp3"), 20*time.Minute, time.Hour)
 	if s.loadErr != nil {
 		t.Fatalf("loadErr = %v, want null accepted as empty", s.loadErr)
 	}
-
-	s.record(episodeTrack("guid-1", "https://cdn.example.com/a.mp3"), 20*time.Minute, time.Hour)
 
 	if !s.has() {
 		t.Error("record after a null file stored nothing")

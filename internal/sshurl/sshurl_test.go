@@ -40,6 +40,28 @@ func TestParse(t *testing.T) {
 			wantPath: "/path/to/music",
 		},
 		{
+			name:     "ipv6 host",
+			input:    "ssh://[::1]:2222/path/to/music",
+			wantHost: "::1",
+			wantPort: "2222",
+			wantPath: "/path/to/music",
+		},
+		{
+			name:    "empty host",
+			input:   "ssh:///path/to/music",
+			wantErr: true,
+		},
+		{
+			name:    "empty host with user",
+			input:   "ssh://user@/path/to/music",
+			wantErr: true,
+		},
+		{
+			name:    "empty username",
+			input:   "ssh://@myhost/path/to/music",
+			wantErr: true,
+		},
+		{
 			name:    "wrong scheme",
 			input:   "http://myhost/path",
 			wantErr: true,
@@ -55,8 +77,38 @@ func TestParse(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "leading dash hostname after user is rejected",
+			input:   "ssh://user@-myhost/path/to/music",
+			wantErr: true,
+		},
+		{
+			name:    "leading dash username is rejected",
+			input:   "ssh://-user@myhost/path/to/music",
+			wantErr: true,
+		},
+		{
 			name:    "host containing equals is rejected",
 			input:   "ssh://ho=st/path/to/music",
+			wantErr: true,
+		},
+		{
+			name:    "username with shell metachar is rejected",
+			input:   "ssh://user%3Bid@myhost/path/to/music",
+			wantErr: true,
+		},
+		{
+			name:    "username with whitespace is rejected",
+			input:   "ssh://a%20b@myhost/path/to/music",
+			wantErr: true,
+		},
+		{
+			name:    "username with control char is rejected",
+			input:   "ssh://a%0Ab@myhost/path/to/music",
+			wantErr: true,
+		},
+		{
+			name:    "hostname with shell metachar is rejected",
+			input:   "ssh://my$host/path/to/music",
 			wantErr: true,
 		},
 	}
@@ -94,12 +146,12 @@ func TestSSHArgs(t *testing.T) {
 		{
 			name:   "no port",
 			parsed: Parsed{Host: "myhost", Port: "", Path: "/music"},
-			want:   []string{"-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=5", "myhost"},
+			want:   []string{"-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=5", "--", "myhost"},
 		},
 		{
 			name:   "with port",
 			parsed: Parsed{Host: "user@myhost", Port: "2222", Path: "/music"},
-			want:   []string{"-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=5", "-p", "2222", "user@myhost"},
+			want:   []string{"-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=5", "-p", "2222", "--", "user@myhost"},
 		},
 	}
 	for _, tt := range tests {

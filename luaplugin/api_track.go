@@ -22,6 +22,7 @@ var trackGetters = []struct {
 	// its duration, as the broadcast has become a recording.
 	{"is_live", func(t Track) lua.LValue { return lua.LBool(t.Live) }},
 	{"duration_secs", func(t Track) lua.LValue { return lua.LNumber(t.Duration) }},
+	{"album_art_url", func(t Track) lua.LValue { return lua.LString(t.ArtURL) }},
 }
 
 // registerTrackAPI adds the read-only cliamp.track.* table.
@@ -55,6 +56,7 @@ var trackFields = []struct {
 	{"path", func(t Track) any { return t.Path }},
 	{"duration", func(t Track) any { return t.Duration }},
 	{"stream", func(t Track) any { return t.Stream }},
+	{"album_art_url", func(t Track) any { return t.ArtURL }},
 }
 
 // TrackData returns the track table of t as event data.

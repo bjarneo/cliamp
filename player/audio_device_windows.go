@@ -3,16 +3,25 @@
 package player
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
+	"time"
+)
+
+const (
+	audioDeviceCmdTimeout   = 5 * time.Second
+	listAudioDevicesScript  = `Get-CimInstance Win32_SoundDevice | ForEach-Object { $_.Name + '|' + $_.DeviceID }`
+	switchAudioDeviceScript = `Get-AudioDevice -PlaybackCommunication | Out-Null; Set-AudioDevice -ID $env:CLIAMP_DEVICE -ErrorAction Stop`
 )
 
 // ListAudioDevices lists audio output devices via PowerShell on Windows.
 func ListAudioDevices() ([]AudioDevice, error) {
-	// Use Get-CimInstance Win32_SoundDevice for basic sound card enumeration.
-	script := `Get-CimInstance Win32_SoundDevice | ForEach-Object { $_.Name + '|' + $_.DeviceID }`
-	out, err := exec.Command("powershell", "-NoProfile", "-Command", script).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), audioDeviceCmdTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command", listAudioDevicesScript).Output()
 	if err != nil {
 		return nil, fmt.Errorf("powershell: %w", err)
 	}
@@ -34,25 +43,24 @@ func ListAudioDevices() ([]AudioDevice, error) {
 	return devices, nil
 }
 
-// PrepareAudioDevice is a no-op on Windows — the system default output
-// device is used. Returns a no-op cleanup.
+// PrepareAudioDevice is a no-op on Windows. It returns a no-op cleanup.
 func PrepareAudioDevice(device string) func() {
 	return func() {}
 }
 
 // SwitchAudioDevice changes the Windows system default output device.
-// The running audio stream keeps its original device; the change
-// takes full effect on the next app restart.
+// The running audio stream keeps its original device until restart.
 func SwitchAudioDevice(deviceName string) error {
-	script := fmt.Sprintf(
-		`Get-AudioDevice -PlaybackCommunication | Out-Null; `+
-			`Set-AudioDevice -ID '%s' -ErrorAction Stop`,
-		strings.ReplaceAll(deviceName, "'", "''"),
-	)
-	if out, err := exec.Command("powershell", "-NoProfile", "-Command", script).CombinedOutput(); err != nil {
-		// AudioDeviceCmdlets may not be installed; fall back to nircmd.
-		cmd := exec.Command("nircmd", "setdefaultsounddevice", deviceName)
-		if out2, err2 := cmd.CombinedOutput(); err2 != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), audioDeviceCmdTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command", switchAudioDeviceScript)
+	cmd.Env = append(os.Environ(), "CLIAMP_DEVICE="+deviceName)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		// Fall back to nircmd when AudioDeviceCmdlets is not installed.
+		ctx2, cancel2 := context.WithTimeout(context.Background(), audioDeviceCmdTimeout)
+		defer cancel2()
+		fallback := exec.CommandContext(ctx2, "nircmd", "setdefaultsounddevice", deviceName)
+		if out2, err2 := fallback.CombinedOutput(); err2 != nil {
 			return fmt.Errorf("failed to set output device (install AudioDeviceCmdlets or nircmd): %s / %s",
 				strings.TrimSpace(string(out)), strings.TrimSpace(string(out2)))
 		}

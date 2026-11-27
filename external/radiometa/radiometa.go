@@ -11,6 +11,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -23,20 +25,56 @@ var client = httpclient.NewAPI(8 * time.Second)
 // when the URL is not a recognized broadcaster. It satisfies
 // player.StreamMetadataResolver.
 func Resolver(streamURL string) (fetch func(ctx context.Context) (string, error), interval time.Duration, ok bool) {
-	u := strings.ToLower(streamURL)
 	switch {
-	case matchNTS(u):
-		channel := ntsChannel(u)
+	case matchNTS(streamURL):
+		channel := ntsChannel(streamURL)
 		return func(ctx context.Context) (string, error) {
 			return ntsNowPlaying(ctx, channel)
 		}, 30 * time.Second, true
-	case matchFIP(u):
-		station := fipStationID(u)
+	case matchFIP(streamURL):
+		station := fipStationID(streamURL)
 		return func(ctx context.Context) (string, error) {
 			return fipNowPlaying(ctx, station, time.Now().Unix())
 		}, 15 * time.Second, true
 	}
 	return nil, 0, false
+}
+
+// parseStreamURL parses an HTTP or HTTPS stream URL and returns its lowercased
+// hostname and non-empty lowercased path segments.
+func parseStreamURL(raw string) (host string, segments []string, ok bool) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Opaque != "" {
+		return "", nil, false
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", nil, false
+	}
+	host = strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
+	if host == "" || strings.HasPrefix(host, ".") || strings.Contains(host, "..") {
+		return "", nil, false
+	}
+	for seg := range strings.SplitSeq(strings.ToLower(u.Path), "/") {
+		if seg != "" {
+			segments = append(segments, seg)
+		}
+	}
+	return host, segments, true
+}
+
+// hasHostSuffix reports whether host equals domain or is a subdomain of domain.
+func hasHostSuffix(host, domain string) bool {
+	return host == domain || strings.HasSuffix(host, "."+domain)
+}
+
+// hasPathSegment reports whether segments contains any target value.
+func hasPathSegment(segments []string, targets ...string) bool {
+	for _, seg := range segments {
+		if slices.Contains(targets, seg) {
+			return true
+		}
+	}
+	return false
 }
 
 // maxMetaBody limits a now-playing response. The documents are a few KB.
@@ -63,18 +101,27 @@ func getJSON(ctx context.Context, url string, v any) error {
 
 // --- NTS -------------------------------------------------------------------
 
-// matchNTS reports whether url is an NTS Radio stream. The directory entry
-// points at ntslive.net (which 302-redirects to radiomast), so match either.
-func matchNTS(url string) bool {
-	return strings.Contains(url, "ntslive.net") ||
-		strings.Contains(url, "radiomast.io/nts") ||
-		strings.Contains(url, "/nts1") || strings.Contains(url, "/nts2")
+// matchNTS reports whether rawURL is an NTS Radio stream. The directory entry
+// points at ntslive.net, which redirects to radiomast.io.
+func matchNTS(rawURL string) bool {
+	host, segments, ok := parseStreamURL(rawURL)
+	if !ok {
+		return false
+	}
+	switch {
+	case hasHostSuffix(host, "ntslive.net"):
+		return hasPathSegment(segments, "stream", "stream1", "stream2", "nts1", "nts2")
+	case hasHostSuffix(host, "radiomast.io"):
+		return hasPathSegment(segments, "nts1", "nts2")
+	default:
+		return false
+	}
 }
 
-// ntsChannel returns the NTS channel ("1" or "2") encoded in the stream URL.
-// The channel-2 stream is "stream2" (ntslive) or "nts2" (radiomast).
-func ntsChannel(url string) string {
-	if strings.Contains(url, "stream2") || strings.Contains(url, "nts2") {
+// ntsChannel returns the NTS channel encoded in the stream URL path.
+func ntsChannel(rawURL string) string {
+	_, segments, ok := parseStreamURL(rawURL)
+	if ok && hasPathSegment(segments, "stream2", "nts2") {
 		return "2"
 	}
 	return "1"
@@ -120,46 +167,81 @@ func parseNTS(live *ntsLive, channel string) string {
 
 // --- FIP (Radio France) ----------------------------------------------------
 
-// fipStations maps a URL slug fragment to the Radio France livemeta station ID.
-// Order matters: specific genres are checked before the plain FIP default.
-var fipStations = []struct {
-	slug string
-	id   int
-}{
-	{"fipjazz", 65},
-	{"fipgroove", 66},
-	{"fiprock", 64},
-	{"fipreggae", 71},
-	{"fipelectro", 74},
-	{"fipmetal", 77},
-	{"fipnouveau", 70}, // fipnouveautes
-	{"fipworld", 69},
-	{"fipmonde", 69},
+// fipStations maps a FIP path token to the Radio France livemeta station ID.
+var fipStations = map[string]int{
+	"fip":           7,
+	"fipjazz":       65,
+	"fipgroove":     66,
+	"fiprock":       64,
+	"fipreggae":     71,
+	"fipelectro":    74,
+	"fipmetal":      77,
+	"fipnouveau":    70,
+	"fipnouveautes": 70,
+	"fipworld":      69,
+	"fipmonde":      69,
 }
 
-// matchFIP reports whether url is a Radio France FIP stream.
-func matchFIP(url string) bool {
-	return strings.Contains(url, "radiofrance.fr") && strings.Contains(url, "fip")
+// fipSegmentStem returns the station token before the first hyphen, underscore, or dot.
+func fipSegmentStem(seg string) string {
+	if i := strings.IndexAny(seg, "-_."); i >= 0 {
+		return seg[:i]
+	}
+	return seg
 }
 
-// fipStationID returns the livemeta station ID for a FIP stream URL, defaulting
-// to 7 (the main FIP channel) when no sub-channel slug matches.
-func fipStationID(url string) int {
-	for _, s := range fipStations {
-		if strings.Contains(url, s.slug) {
-			return s.id
+// fipStationForPath returns the Radio France livemeta station ID matched by a
+// path segment. Specific sub-channels take precedence over the main channel.
+func fipStationForPath(segments []string) (int, bool) {
+	matchedMain := false
+	for _, seg := range segments {
+		id, ok := fipStations[fipSegmentStem(seg)]
+		if !ok {
+			continue
 		}
+		if id != 7 {
+			return id, true
+		}
+		matchedMain = true
+	}
+	if matchedMain {
+		return 7, true
+	}
+	return 0, false
+}
+
+// matchFIP reports whether rawURL is a Radio France FIP stream.
+func matchFIP(rawURL string) bool {
+	host, segments, ok := parseStreamURL(rawURL)
+	if !ok || !hasHostSuffix(host, "radiofrance.fr") {
+		return false
+	}
+	_, ok = fipStationForPath(segments)
+	return ok
+}
+
+// fipStationID returns the livemeta station ID for a FIP stream URL.
+// It defaults to 7 when no sub-channel segment matches.
+func fipStationID(rawURL string) int {
+	_, segments, ok := parseStreamURL(rawURL)
+	if !ok {
+		return 7
+	}
+	if id, ok := fipStationForPath(segments); ok {
+		return id
 	}
 	return 7
 }
 
+type fipStep struct {
+	Title   string `json:"title"`
+	Authors string `json:"authors"`
+	Start   int64  `json:"start"`
+	End     int64  `json:"end"`
+}
+
 type fipLive struct {
-	Steps map[string]struct {
-		Title   string `json:"title"`
-		Authors string `json:"authors"`
-		Start   int64  `json:"start"`
-		End     int64  `json:"end"`
-	} `json:"steps"`
+	Steps map[string]fipStep `json:"steps"`
 }
 
 func fipNowPlaying(ctx context.Context, station int, now int64) (string, error) {
@@ -171,22 +253,51 @@ func fipNowPlaying(ctx context.Context, station int, now int64) (string, error) 
 	return parseFIP(&live, now), nil
 }
 
-// parseFIP returns "Artist - Title" for the step playing at now. It picks the
-// step whose [start,end) window contains now; if none does (clock skew, gaps),
-// it falls back to the most recent step that has already started.
+// betterFIPStep reports whether step a wins over step b.
+// A later Start wins. An earlier End breaks Start ties, and the map key breaks End ties.
+func betterFIPStep(ka string, a fipStep, kb string, b fipStep) bool {
+	if a.Start != b.Start {
+		return a.Start > b.Start
+	}
+	if a.End != b.End {
+		return a.End < b.End
+	}
+	return ka < kb
+}
+
+// parseFIP returns the formatted track for the step playing at now.
+// It inspects every step whose window contains now and selects the step with
+// the latest Start. When no window contains now, it falls back to the most
+// recent started step.
 func parseFIP(live *fipLive, now int64) string {
-	var bestStart int64 = -1
-	var artist, title string
-	for _, s := range live.Steps {
+	var (
+		hasActive   bool
+		activeKey   string
+		active      fipStep
+		hasFallback bool
+		fallbackKey string
+		fallback    fipStep
+	)
+	for k, s := range live.Steps {
 		if s.Start <= now && now < s.End {
-			return formatTrack(s.Authors, s.Title)
+			if !hasActive || betterFIPStep(k, s, activeKey, active) {
+				hasActive, activeKey, active = true, k, s
+			}
+			continue
 		}
-		if s.Start <= now && s.Start > bestStart {
-			bestStart = s.Start
-			artist, title = s.Authors, s.Title
+		if s.Start <= now {
+			if !hasFallback || betterFIPStep(k, s, fallbackKey, fallback) {
+				hasFallback, fallbackKey, fallback = true, k, s
+			}
 		}
 	}
-	return formatTrack(artist, title)
+	if hasActive {
+		return formatTrack(active.Authors, active.Title)
+	}
+	if hasFallback {
+		return formatTrack(fallback.Authors, fallback.Title)
+	}
+	return ""
 }
 
 // formatTrack joins artist and title as "Artist - Title", matching the ICY

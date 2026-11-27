@@ -8,48 +8,50 @@ import "strings"
 func (v *Visualizer) renderBarsDot(bands []float64) string {
 	height := v.Rows
 	dotRows := height * 4
-	lines := make([]string, height)
 	bandCount := len(bands)
 	width := v.columns()
 
+	var sb strings.Builder
+	sb.Grow(height * (width*3 + 24))
+	w := styleRunWriter{sb: &sb}
+
 	for row := range height {
-		var run strings.Builder
-		var sb strings.Builder
+		if row > 0 {
+			sb.WriteByte('\n')
+		}
 		curTag := -1
+		w.setTag(-1)
+		rowTag := specTag(float64(height-1-row) / float64(height))
 
 		for b := range bandCount {
 			charsPerBand := visBandWidth(bandCount, b, width)
-			for range charsPerBand {
-				var braille rune = '\u2800'
-
+			if charsPerBand > 0 {
+				var mask byte
+				level := bands[b]
 				for dr := range 4 {
-					for dc := range 2 {
-						dotRow := row*4 + dr
-						// Invert: bars grow from bottom.
-						dotY := float64(dotRows-1-dotRow) / float64(dotRows)
-						if dotY < bands[b] {
-							braille |= brailleBit[dr][dc]
-						}
+					dotRow := row*4 + dr
+					// Invert so bars grow from the bottom.
+					dotY := float64(dotRows-1-dotRow) / float64(dotRows)
+					if dotY < level {
+						mask |= brailleBit[dr][0] | brailleBit[dr][1]
 					}
 				}
-
-				norm := float64(height-1-row) / float64(height)
-				tag := specTag(norm)
-				if tag != curTag {
-					flushStyleRun(&sb, &run, curTag)
-					curTag = tag
+				if rowTag != curTag {
+					curTag = rowTag
+					w.setTag(curTag)
 				}
-				run.WriteRune(braille)
+				for range charsPerBand {
+					w.writeBraille(mask)
+				}
 			}
 
 			if bandGapAfter(bandCount, b, width) {
-				// Gap character inherits current style run.
-				run.WriteByte(' ')
+				// Gap character inherits the active style run.
+				w.writeByte(' ')
 			}
 		}
-		flushStyleRun(&sb, &run, curTag)
-		lines[row] = sb.String()
+		w.flush()
 	}
 
-	return strings.Join(lines, "\n")
+	return sb.String()
 }

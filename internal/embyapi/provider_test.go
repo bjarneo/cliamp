@@ -1,10 +1,13 @@
 package embyapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
@@ -299,6 +302,29 @@ func TestProviderCachesReturnCopies(t *testing.T) {
 				if *got != want {
 					t.Fatalf("a change to the %s slice changed the cache: got %q, want %q", source, *got, want)
 				}
+			}
+		})
+	}
+}
+
+func TestSearchTracksThreadsContext(t *testing.T) {
+	for _, d := range providerDialects {
+		t.Run(d.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				select {
+				case <-r.Context().Done():
+				case <-time.After(5 * time.Second):
+				}
+			}))
+			defer srv.Close()
+
+			p := NewProvider(d.newClient(srv.URL, "tok", "user-1", "", ""), d.name)
+			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+			defer cancel()
+
+			_, err := p.SearchTracks(ctx, "jazz", 10)
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("SearchTracks() error = %v, want context.DeadlineExceeded", err)
 			}
 		})
 	}

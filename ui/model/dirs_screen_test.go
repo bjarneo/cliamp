@@ -273,7 +273,7 @@ func TestPlMgrDeleteRefreshesProviderPane(t *testing.T) {
 	}
 	m.plManager.cursor = 1
 
-	m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "d"}) // arm confirmation
+	m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "x"}) // arm confirmation
 	if !m.plManager.confirmDel {
 		t.Fatal("confirmDel should be armed after 'd'")
 	}
@@ -326,7 +326,7 @@ func TestPlMgrDeleteSkipsPaneFetchWhenRemoteActive(t *testing.T) {
 	m.plManager.playlists = []playlist.PlaylistInfo{{ID: "top40", Name: "top40"}}
 	m.plManager.cursor = 0
 
-	m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "d"})
+	m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "x"})
 	if cmd := m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "y"}); cmd != nil {
 		t.Fatal("delete with a remote provider active must not schedule a pane refresh")
 	}
@@ -345,7 +345,7 @@ func TestPlMgrDeleteGuardsRecentlyPlayed(t *testing.T) {
 	}
 	m.plManager.cursor = 1
 
-	m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "d"})
+	m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "x"})
 	if m.plManager.confirmDel {
 		t.Fatal("d on Recently Played must not ask for confirmation")
 	}
@@ -437,7 +437,7 @@ func TestPlMgrDeleteGuardsFavorites(t *testing.T) {
 	}
 	m.plManager.cursor = 0
 
-	m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "d"})
+	m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "x"})
 	if m.plManager.confirmDel {
 		t.Fatal("d on Favorites must not ask for confirmation")
 	}
@@ -484,7 +484,7 @@ func TestPlMgrDirsRemoveConfirmFlow(t *testing.T) {
 	m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "D"}) // open dirs screen
 
 	// 'd' arms the confirmation prompt; nothing removed yet.
-	m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "d"})
+	m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "x"})
 	if !m.plManager.confirmDel {
 		t.Fatal("confirmDel should be armed after 'd'")
 	}
@@ -551,7 +551,7 @@ func TestPlMgrDeletePromptOwnsProviderShortcuts(t *testing.T) {
 				m.providers = append(m.providers, provider.Entry{Key: key, Name: key, Provider: commandsTestProvider{name: key}})
 			}
 
-			m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "d"}) // arm confirmation
+			m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "x"}) // arm confirmation
 			if !m.plManager.confirmDel {
 				t.Fatal("confirmDel should be armed after 'd'")
 			}
@@ -1039,7 +1039,7 @@ func TestPlMgrDeleteUndoRestoresDirDocument(t *testing.T) {
 	m.plManager.playlists = []playlist.PlaylistInfo{{ID: "mix", Name: "mix"}}
 	m.plManager.cursor = 0
 
-	m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "d"}) // arm confirmation
+	m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "x"}) // arm confirmation
 	m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "y"}) // delete
 	if len(prov.deleted) != 1 || prov.deleted[0] != "mix" {
 		t.Fatalf("deleted = %v, want [mix]", prov.deleted)

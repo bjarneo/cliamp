@@ -69,3 +69,39 @@ func TestBundledPluginsLoad(t *testing.T) {
 		}
 	}
 }
+
+func TestWebhookHandlesHTTPErrorWithoutLuaCrash(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "plugins", "webhook.lua"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := newTestManager()
+	logPath := filepath.Join(t.TempDir(), pluginLogName)
+	m.logger = newPluginLogger(logPath)
+	t.Cleanup(m.Close)
+
+	// Point webhook at loopback so ssrfGuard rejects the POST and returns nil, err.
+	loadTestPluginWithConfig(t, m, "webhook", string(data), map[string]string{
+		"url": "http://127.0.0.1:1/hook",
+	})
+	m.EmitSync(EventTrackChange, map[string]any{
+		"title":  "Song",
+		"artist": "Artist",
+		"album":  "Album",
+		"genre":  "Rock",
+		"path":   "/song.mp3",
+	})
+	m.Close()
+
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logText := string(logBytes)
+	if !strings.Contains(logText, "webhook failed:") {
+		t.Errorf("plugins.log = %q, want webhook failed warning", logText)
+	}
+	if strings.Contains(logText, "handler error") {
+		t.Errorf("plugins.log = %q, webhook raised a Lua error", logText)
+	}
+}

@@ -144,28 +144,6 @@ func TestTickIntervalClampsFastVisualizerCadence(t *testing.T) {
 	}
 }
 
-func TestTickIntervalVisualizer60FPS(t *testing.T) {
-	p := &playbackFakeEngine{playing: true}
-	m := Model{
-		player:   p,
-		vis:      ui.NewVisualizer(float64(p.SampleRate())),
-		playlist: playlist.New(),
-		width:    80,
-		height:   24,
-	}
-	m.recomputeLayout()
-	m.SetVisualizer60FPS(true)
-
-	if got := m.tickInterval(); got != ui.TickAnim {
-		t.Fatalf("tickInterval() = %v, want %v", got, ui.TickAnim)
-	}
-
-	m.SetLowPower(true)
-	if got := m.tickInterval(); got != ui.TickLowPowerPlaying {
-		t.Fatalf("tickInterval() with low-power = %v, want %v", got, ui.TickLowPowerPlaying)
-	}
-}
-
 func TestCadenceOwnerPlaybackHonorsDriverCadence(t *testing.T) {
 	for _, mode := range []string{"ClassicPeak", "ClassicLED"} {
 		t.Run(mode, func(t *testing.T) {
@@ -180,10 +158,6 @@ func TestCadenceOwnerPlaybackHonorsDriverCadence(t *testing.T) {
 			if got := m.tickInterval(); got != want || got >= ui.TickFast {
 				t.Fatalf("%s playback tick = %v, want driver cadence %v faster than %v", mode, got, want, ui.TickFast)
 			}
-			m.SetVisualizer60FPS(true)
-			if got := m.tickInterval(); got != ui.TickAnim {
-				t.Fatalf("%s 60fps tick = %v, want %v", mode, got, ui.TickAnim)
-			}
 			m.SetLowPower(true)
 			if got := m.tickInterval(); got != ui.TickLowPowerPlaying {
 				t.Fatalf("%s low-power tick = %v, want %v", mode, got, ui.TickLowPowerPlaying)
@@ -192,9 +166,9 @@ func TestCadenceOwnerPlaybackHonorsDriverCadence(t *testing.T) {
 	}
 }
 
-// The raw-sample modes run at about 60 FPS during playback without the
-// 60 FPS setting. docs/cli.md names the same modes.
-func TestTickIntervalRawSampleVisualizerUsesWaveCadence(t *testing.T) {
+// The raw-sample modes tick at 25 ms during playback. Their frame clock stays
+// at 16 ms, so the Scope wobble keeps its speed.
+func TestTickIntervalRawSampleVisualizerUsesRawSampleCadence(t *testing.T) {
 	for _, mode := range []string{"Wave", "Scope", "Heartbeat", "Stereo"} {
 		t.Run(mode, func(t *testing.T) {
 			p := &playbackFakeEngine{playing: true}
@@ -211,15 +185,22 @@ func TestTickIntervalRawSampleVisualizerUsesWaveCadence(t *testing.T) {
 			if !m.vis.UsesRawSamples() {
 				t.Fatalf("%s UsesRawSamples() = false, want true", mode)
 			}
-			if got := m.tickInterval(); got != ui.TickWave {
-				t.Fatalf("%s tickInterval() = %v, want %v", mode, got, ui.TickWave)
+			if got := m.tickInterval(); got != 25*time.Millisecond {
+				t.Fatalf("%s tickInterval() = %v, want 25ms", mode, got)
+			}
+			if got := m.vis.TickInterval(m.visualizerTickContext(time.Time{})); got != ui.TickAnim {
+				t.Fatalf("%s frame clock = %v, want %v", mode, got, ui.TickAnim)
+			}
+			m.SetLowPower(true)
+			if got := m.tickInterval(); got != ui.TickLowPowerPlaying {
+				t.Fatalf("%s low-power tick = %v, want %v", mode, got, ui.TickLowPowerPlaying)
 			}
 		})
 	}
 }
 
 func TestVisualizerSelectsAudibleTap(t *testing.T) {
-	for _, mode := range []string{"Wave", "ClassicPeak", "ClassicLED", "Bars"} {
+	for _, mode := range []string{"Wave", "ClassicPeak", "ClassicLED", "Bars", "plugin"} {
 		t.Run(mode, func(t *testing.T) {
 			p := &samplingFakeEngine{playbackFakeEngine: &playbackFakeEngine{playing: true}}
 			m := Model{
@@ -230,10 +211,13 @@ func TestVisualizerSelectsAudibleTap(t *testing.T) {
 				height:   24,
 			}
 			m.recomputeLayout()
-			m.SetVisualizer(mode)
+			m.RegisterLuaVisualizers([]string{"plugin"}, nil)
+			if !m.SetVisualizer(mode) {
+				t.Fatalf("no visualizer %q", mode)
+			}
 			m.tickVisualizer(time.Unix(1, 0))
 			wantAudible := 0
-			if mode == "Wave" || mode == "ClassicPeak" {
+			if mode == "Wave" || mode == "ClassicPeak" || mode == "plugin" {
 				wantAudible = 1
 			}
 			if p.waveformSampleCalls != wantAudible || p.sampleCalls != 1-wantAudible {

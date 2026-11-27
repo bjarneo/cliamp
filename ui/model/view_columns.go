@@ -32,8 +32,31 @@ func (m Model) renderBodyRegion() string {
 		return ""
 	}
 
-	left := columnLines(m.renderPlaylistColumn(), m.layout.playlistWidth, rows)
-	right := columnLines(m.renderSettingsPane(rows), m.layout.settingsWidth, rows)
+	leftBlock := m.renderPlaylistColumn()
+	rightBlock := m.renderSettingsPane(rows)
+	if m.bodyCache != nil {
+		key := bodyCacheKey{
+			left:          leftBlock,
+			right:         rightBlock,
+			playlistWidth: m.layout.playlistWidth,
+			settingsWidth: m.layout.settingsWidth,
+			rows:          rows,
+		}
+		if m.bodyCache.valid && m.bodyCache.key == key {
+			return m.bodyCache.value
+		}
+		out := joinTwoColumns(leftBlock, rightBlock, m.layout.playlistWidth, m.layout.settingsWidth, rows)
+		m.bodyCache.key = key
+		m.bodyCache.value = out
+		m.bodyCache.valid = true
+		return out
+	}
+	return joinTwoColumns(leftBlock, rightBlock, m.layout.playlistWidth, m.layout.settingsWidth, rows)
+}
+
+func joinTwoColumns(leftBlock, rightBlock string, leftW, rightW, rows int) string {
+	left := columnLines(leftBlock, leftW, rows)
+	right := columnLines(rightBlock, rightW, rows)
 
 	joined := make([]string, rows)
 	for i := range joined {
@@ -61,7 +84,7 @@ func (m Model) renderColumnHeaders() string {
 	// either way. The queue's header arrives here when it is toggled on.
 	return fillSeparator(m.renderPlaylistHeader(), m.layout.playlistWidth) +
 		columnGutter +
-		fillSeparator(sepHeader("Settings", m.layout.panelWidth), m.layout.settingsWidth)
+		fillSeparator(sepHeader("Settings", m.layout.settingsWidth), m.layout.settingsWidth)
 }
 
 // settingsPaneMaxRows is the pane's full height: source, volume, EQ preset,
@@ -94,6 +117,93 @@ const (
 // EQ curve, or shuffle without repeat, would read as a rendering bug rather
 // than a compromise, so the pane can end up a row shorter than it was given.
 func (m Model) renderSettingsPane(rows int) string {
+	if m.panes == nil || m.panes.IsBuiltinOnly(ui.RegionSettings) {
+		return m.renderSettingsBuiltin(rows)
+	}
+	panes := m.regionPanes(ui.RegionSettings)
+	if len(panes) == 1 && panes[0].Pane == ui.PaneBuiltin {
+		// Same shortcut rule as the visualizer band: a lone plugin pane is not
+		// the settings column.
+		return m.renderSettingsBuiltin(rows)
+	}
+	heights := ui.SplitWeights(rows, paneWeights(panes))
+	var out []string
+	for i, pane := range panes {
+		block := ""
+		switch {
+		case pane.Vis != "":
+			// A pane can show any visualizer, in either region. In a narrow
+			// column the frame is tall instead of wide, so the built-in modes
+			// that assume a band look cramped, but they render.
+			block = m.renderPaneVis(pane.Region, pane.Pane, pane.Vis, heights[i], m.layout.settingsWidth)
+		case pane.Pane == ui.PaneBuiltin:
+			block = m.renderSettingsBuiltin(heights[i])
+		default:
+			block = m.renderPluginPane(pane.Pane, heights[i], m.layout.settingsWidth)
+		}
+		lines := strings.Split(block, "\n")
+		for row := 0; row < heights[i]; row++ {
+			if row < len(lines) {
+				out = append(out, lines[row])
+			} else {
+				out = append(out, "")
+			}
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+func (m Model) renderSettingsBuiltin(rows int) string {
+	if m.settingsCache != nil && m.player != nil && m.playlist != nil {
+		provName := ""
+		if len(m.providers) > 1 && m.provPillIdx >= 0 && m.provPillIdx < len(m.providers) {
+			provName = m.providers[m.provPillIdx].Name
+		}
+		key := settingsCacheKey{
+			rows:          rows,
+			width:         m.layout.settingsWidth,
+			focus:         m.focus,
+			volume:        m.player.Volume(),
+			volumeMin:     m.player.VolumeMin(),
+			mono:          m.player.Mono(),
+			speed:         m.player.Speed(),
+			eqBands:       m.player.EQBands(),
+			eqPreset:      m.EQPresetName(),
+			eqCursor:      m.eqCursor,
+			shuffle:       m.playlist.Shuffled(),
+			repeat:        m.playlist.Repeat(),
+			provPillIdx:   m.provPillIdx,
+			providerCount: len(m.providers),
+			providerName:  provName,
+			networkText:   m.networkStatsText(),
+			showMetadata:  m.showMetadata,
+			themeIdx:      m.themeIdx,
+			styleGen:      styleGen.Load(),
+		}
+		if m.showMetadata {
+			key.plPtr = m.playlist
+			key.plCursor = m.plCursor
+			key.playlistRev = m.playlist.Revision()
+			key.playingActive = m.playingTrackActive
+			if m.playingTrackActive {
+				key.playingPath = m.playingTrack.Path
+			}
+			key.isPlaying = m.isPlaying()
+			key.streamTitle = m.streamTitle
+		}
+		if m.settingsCache.valid && m.settingsCache.key == key {
+			return m.settingsCache.value
+		}
+		out := m.renderSettingsBuiltinUncached(rows)
+		m.settingsCache.key = key
+		m.settingsCache.value = out
+		m.settingsCache.valid = true
+		return out
+	}
+	return m.renderSettingsBuiltinUncached(rows)
+}
+
+func (m Model) renderSettingsBuiltinUncached(rows int) string {
 	metadataRows := m.metadataPaneRows(rows)
 	pane := m.settingsPaneRows(rows - metadataRows)
 	lines := make([]string, 0, len(pane))
@@ -132,6 +242,49 @@ func (m Model) settingsPaneRows(rows int) []paneRow {
 	}
 
 	return pane[:min(len(pane), max(0, rows))]
+}
+
+// settingsPaneFocusAreas returns the focusable controls that fit in budget rows.
+// It uses the same rank rules as settingsPaneRows with no text render.
+func (m Model) settingsPaneFocusAreas(budget int) []focusArea {
+	if budget <= 0 {
+		return nil
+	}
+	type rowSpec struct {
+		rank  int
+		focus focusArea
+	}
+	var buf [settingsPaneMaxRows]rowSpec
+	rows := buf[:0]
+	if len(m.providers) > 1 {
+		rows = append(rows, rowSpec{rank: rankControl, focus: focusProvPill})
+	}
+	rows = append(rows,
+		rowSpec{rank: rankControl, focus: focusVolume},
+		rowSpec{rank: rankControl, focus: focusEQ},
+	)
+	for range eqBandRows {
+		rows = append(rows, rowSpec{rank: rankDetail, focus: focusPlaylist})
+	}
+	rows = append(rows,
+		rowSpec{rank: rankMode, focus: focusShuffle},
+		rowSpec{rank: rankMode, focus: focusRepeat},
+		rowSpec{rank: rankControl, focus: focusSpeed},
+	)
+	if m.hasNetworkStats() {
+		rows = append(rows, rowSpec{rank: rankInfo, focus: focusPlaylist})
+	}
+	for rank := rankInfo; rank > rankControl && len(rows) > budget; rank-- {
+		rows = slices.DeleteFunc(rows, func(r rowSpec) bool { return r.rank == rank })
+	}
+	rows = rows[:min(len(rows), budget)]
+	areas := make([]focusArea, 0, len(rows))
+	for _, r := range rows {
+		if r.focus != focusPlaylist {
+			areas = append(areas, r.focus)
+		}
+	}
+	return areas
 }
 
 // settingsNetwork renders the live stream counters, or "" for local playback
@@ -285,19 +438,33 @@ func settingsRow(label, value string, active, focused bool) string {
 // out to exactly w, then pads the block to rows, so the gutter beside it stays
 // on the same screen columns from the first row to the last.
 func columnLines(block string, w, rows int) []string {
-	lines := strings.Split(block, "\n")
-	if len(lines) > rows {
-		lines = lines[:rows]
-	}
-	for len(lines) < rows {
-		lines = append(lines, "")
-	}
-	for i, line := range lines {
-		line = ansi.Truncate(line, w, "")
-		if pad := w - lipgloss.Width(line); pad > 0 {
-			line += strings.Repeat(" ", pad)
+	lines := make([]string, rows)
+	empty := repeatSpaces(w)
+	rest := block
+	i := 0
+	for i < rows {
+		line, after, hasNL := strings.Cut(rest, "\n")
+		if line == "" {
+			lines[i] = empty
+		} else {
+			lw := singleLineWidth(line)
+			if lw > w {
+				line = ansi.Truncate(line, w, "")
+				lw = singleLineWidth(line)
+			}
+			if pad := w - lw; pad > 0 {
+				line += repeatSpaces(pad)
+			}
+			lines[i] = line
 		}
-		lines[i] = line
+		i++
+		if !hasNL {
+			break
+		}
+		rest = after
+	}
+	for ; i < rows; i++ {
+		lines[i] = empty
 	}
 	return lines
 }

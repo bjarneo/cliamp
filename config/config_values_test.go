@@ -53,6 +53,7 @@ func TestLoadBoolKeysIgnoreLetterCase(t *testing.T) {
 		{"simplified", "simplified = True", func(c Config) bool { return c.Simplified }, true},
 		{"hide_help_bar", "hide_help_bar = True", func(c Config) bool { return c.HideHelpBar }, true},
 		{"hide_settings_pane", "hide_settings_pane = True", func(c Config) bool { return c.HideSettingsPane }, true},
+		{"keep_search_open", "keep_search_open = True", func(c Config) bool { return c.KeepSearchOpen }, true},
 		{"show_metadata", "show_metadata = True", func(c Config) bool { return c.ShowMetadata }, true},
 		{"expanded", "expanded = True", func(c Config) bool { return c.Expanded }, true},
 		{"low_power", "low_power = True", func(c Config) bool { return c.LowPower }, true},

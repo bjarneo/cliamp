@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,9 +17,12 @@ import (
 
 	cli "github.com/urfave/cli/v3"
 
+	"github.com/charmbracelet/x/term"
+
 	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/cmd"
 	"github.com/bjarneo/cliamp/config"
+	"github.com/bjarneo/cliamp/external/bandcamp"
 	"github.com/bjarneo/cliamp/external/qobuz"
 	"github.com/bjarneo/cliamp/external/spotify"
 	"github.com/bjarneo/cliamp/external/tidal"
@@ -43,7 +50,9 @@ func buildApp() *cli.Command {
 		&cli.StringFlag{Name: "provider", Usage: providerFlagUsage()},
 		&cli.StringFlag{Name: "start-theme", Usage: "UI theme name"},
 		&cli.StringFlag{Name: "visualizer", Usage: "visualizer mode"},
-		&cli.BoolFlag{Name: "visualizer-60fps", Usage: "render visualizer at 60 FPS (higher CPU use)"},
+		// Retired: cliamp ignores this flag, so that old scripts still start.
+		// Remove it in a later release.
+		&cli.BoolFlag{Name: "visualizer-60fps", Hidden: true},
 		&cli.StringFlag{Name: "eq-preset", Usage: "EQ preset name"},
 		&cli.IntFlag{Name: "sample-rate", Usage: "output sample rate in Hz (0=auto)", HideDefault: true},
 		&cli.IntFlag{Name: "buffer-ms", Usage: "speaker buffer in milliseconds (50-5000)", HideDefault: true},
@@ -71,7 +80,7 @@ func buildApp() *cli.Command {
 			if err != nil {
 				return err
 			}
-			return run(ov, c.Args().Slice(), c.Bool("daemon"), c.Bool("visualizer-60fps"))
+			return run(ov, c.Args().Slice(), c.Bool("daemon"))
 		},
 		Commands: []*cli.Command{
 			upgradeCommand(),
@@ -83,6 +92,7 @@ func buildApp() *cli.Command {
 			spotifyCommand(),
 			qobuzCommand(),
 			tidalCommand(),
+			bandcampCommand(),
 			ytmusicCommand(),
 			ipcSimpleCommand("play", "resume playback"),
 			ipcSimpleCommand("pause", "pause playback"),
@@ -345,7 +355,7 @@ func protocolCommand() *cli.Command {
 		Usage: "register cliamp:// links with the desktop",
 		Description: "Makes cliamp the handler for cliamp:// links, so clicking one plays\n" +
 			"or queues its target. install.sh already registers the scheme; use\n" +
-			"these commands after a go install build, to point the scheme at a\n" +
+			"these commands after a source build, to point the scheme at a\n" +
 			"different binary, or to remove the registration.",
 		Commands: []*cli.Command{
 			{
@@ -410,9 +420,10 @@ func setupCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "setup",
 		Usage: "interactive wizard to configure remote providers",
-		Description: "Walks through configuring Navidrome, Plex, Jellyfin, Spotify,\n" +
-			"Qobuz, Tidal, NetEase, Audiobookshelf, and YouTube Music. Validates\n" +
-			"connections and writes ~/.config/cliamp/config.toml.",
+		Description: "Walks through configuring Navidrome, Lyrion, Bandcamp, Plex,\n" +
+			"Jellyfin, Emby, Audiobookshelf, Spotify, Qobuz, Tidal, NetEase,\n" +
+			"Mixcloud, YouTube Music, and Telegram. Validates connections and\n" +
+			"writes ~/.config/cliamp/config.toml.\n",
 
 		Action: func(ctx context.Context, c *cli.Command) error {
 			return cmd.Setup()
@@ -449,6 +460,28 @@ func tidalCommand() *cli.Command {
 		},
 	})
 	return cmd
+}
+
+func bandcampCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "bandcamp",
+		Usage: "manage Bandcamp integration",
+		Commands: []*cli.Command{
+			{
+				Name:  "probe",
+				Usage: "print sanitized Subsonic API diagnostics (no tokens or signed URLs)",
+				Action: func(ctx context.Context, c *cli.Command) error {
+					cfg, err := config.Load()
+					if err != nil {
+						return fmt.Errorf("config: %w", err)
+					}
+					probeCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+					defer cancel()
+					return bandcamp.Probe(probeCtx, os.Stdout, cfg.Bandcamp)
+				},
+			},
+		},
+	}
 }
 
 func ytmusicCommand() *cli.Command {
@@ -817,7 +850,7 @@ func volumeCommand() *cli.Command {
 				return fmt.Errorf("usage: cliamp volume <dB>")
 			}
 			db, err := strconv.ParseFloat(c.Args().First(), 64)
-			if err != nil {
+			if err != nil || math.IsNaN(db) || math.IsInf(db, 0) {
 				return fmt.Errorf("invalid volume value %q", c.Args().First())
 			}
 			_, err = ipcSend("volume", ipc.Request{Value: db})
@@ -836,7 +869,7 @@ func seekCommand() *cli.Command {
 				return fmt.Errorf("usage: cliamp seek <seconds>")
 			}
 			secs, err := strconv.ParseFloat(c.Args().First(), 64)
-			if err != nil {
+			if err != nil || math.IsNaN(secs) || math.IsInf(secs, 0) {
 				return fmt.Errorf("invalid seek value %q", c.Args().First())
 			}
 			_, err = ipcSend("seek", ipc.Request{Value: secs})
@@ -1069,7 +1102,7 @@ func speedCommand() *cli.Command {
 				return fmt.Errorf("usage: cliamp speed <ratio>  (e.g. 1.0, 1.5, 0.75)")
 			}
 			ratio, err := strconv.ParseFloat(c.Args().First(), 64)
-			if err != nil {
+			if err != nil || math.IsNaN(ratio) || math.IsInf(ratio, 0) {
 				return fmt.Errorf("invalid speed %q", c.Args().First())
 			}
 			resp, err := ipcSend("speed", ipc.Request{Value: ratio})
@@ -1098,7 +1131,7 @@ func eqCommand() *cli.Command {
 					return fmt.Errorf("usage: cliamp eq --band N <dB>")
 				}
 				db, err := strconv.ParseFloat(c.Args().First(), 64)
-				if err != nil {
+				if err != nil || math.IsNaN(db) || math.IsInf(db, 0) {
 					return fmt.Errorf("invalid dB value %q", c.Args().First())
 				}
 				resp, err := ipcSend("eq", ipc.Request{Band: band, Value: db})
@@ -1182,15 +1215,17 @@ func remoteCommand() *cli.Command {
 				ArgsUsage: "<operation>",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "params", Usage: "JSON object passed as operation parameters", Value: "{}"},
+					&cli.StringFlag{Name: "params-file", Usage: "read JSON parameters from a file, or - for stdin"},
+					&cli.BoolFlag{Name: "params-stdin", Usage: "read JSON parameters from stdin"},
 					&cli.BoolFlag{Name: "wait", Usage: "wait for a submitted job to finish"},
 				},
 				Action: func(ctx context.Context, c *cli.Command) error {
 					if c.Args().Len() == 0 {
-						return fmt.Errorf("usage: cliamp remote call <operation> [--params '{}']")
+						return fmt.Errorf("usage: cliamp remote call <operation> [--params '{}' | --params-file <path> | --params-stdin]")
 					}
-					params := json.RawMessage(c.String("params"))
-					if !json.Valid(params) {
-						return fmt.Errorf("--params must be a JSON value")
+					params, err := readRemoteCallParams(c)
+					if err != nil {
+						return err
 					}
 					response, err := sendV2(ipc.V2Request{
 						Method:    "operation.submit",
@@ -1274,4 +1309,95 @@ func remoteCommand() *cli.Command {
 			},
 		},
 	}
+}
+
+// maxRemoteParamsSize limits the byte size of parameters passed via file or stdin to 1 MiB.
+const maxRemoteParamsSize = 1 << 20
+
+var remoteStdin io.Reader = os.Stdin
+
+func readRemoteCallParams(c *cli.Command) (json.RawMessage, error) {
+	return readRemoteCallParamsFrom(c, remoteStdin)
+}
+
+func readRemoteCallParamsFrom(c *cli.Command, stdin io.Reader) (json.RawMessage, error) {
+	hasParams := c.IsSet("params")
+	hasFile := c.IsSet("params-file")
+	hasStdin := c.Bool("params-stdin")
+
+	count := 0
+	if hasParams {
+		count++
+	}
+	if hasFile {
+		count++
+	}
+	if hasStdin {
+		count++
+	}
+	if count > 1 {
+		return nil, errors.New("--params, --params-file, and --params-stdin are mutually exclusive")
+	}
+
+	var data []byte
+	if hasStdin || (hasFile && c.String("params-file") == "-") {
+		if f, ok := stdin.(*os.File); ok && term.IsTerminal(f.Fd()) {
+			return nil, errors.New("cannot read parameters from terminal stdin; pipe data or use --params")
+		}
+		var err error
+		data, err = io.ReadAll(io.LimitReader(stdin, maxRemoteParamsSize+1))
+		if err != nil {
+			return nil, fmt.Errorf("reading parameters from stdin: %w", err)
+		}
+		if len(data) > maxRemoteParamsSize {
+			return nil, fmt.Errorf("parameters exceed maximum allowed size of %d bytes", maxRemoteParamsSize)
+		}
+		if len(bytes.TrimSpace(data)) == 0 {
+			return nil, errors.New("parameters input is empty")
+		}
+	} else if hasFile {
+		filePath := strings.TrimSpace(c.String("params-file"))
+		if filePath == "" {
+			return nil, errors.New("--params-file requires a path, or - for stdin")
+		}
+		f, err := os.Open(filePath)
+		if err != nil {
+			return nil, fmt.Errorf("opening parameters file: %w", err)
+		}
+		defer f.Close()
+
+		data, err = io.ReadAll(io.LimitReader(f, maxRemoteParamsSize+1))
+		if err != nil {
+			return nil, fmt.Errorf("reading parameters file: %w", err)
+		}
+		if len(data) > maxRemoteParamsSize {
+			return nil, fmt.Errorf("parameters exceed maximum allowed size of %d bytes", maxRemoteParamsSize)
+		}
+		if len(bytes.TrimSpace(data)) == 0 {
+			return nil, errors.New("parameters file is empty")
+		}
+	} else if hasParams {
+		data = []byte(c.String("params"))
+		if len(data) > maxRemoteParamsSize {
+			return nil, fmt.Errorf("parameters exceed maximum allowed size of %d bytes", maxRemoteParamsSize)
+		}
+	} else {
+		data = []byte("{}")
+	}
+
+	data = bytes.TrimSpace(data)
+	if !json.Valid(data) {
+		if hasFile || hasStdin {
+			return nil, errors.New("parameters must be valid JSON")
+		}
+		return nil, errors.New("--params must be a JSON object")
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return nil, errors.New("parameters must be a JSON object")
+	}
+	if obj == nil {
+		return nil, errors.New("parameters must be a JSON object")
+	}
+	return json.RawMessage(data), nil
 }

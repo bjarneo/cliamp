@@ -22,6 +22,7 @@ import (
 // devicesListedMsg carries the result of listing audio output devices.
 type devicesListedMsg struct {
 	devices []player.AudioDevice
+	gen     uint64
 	err     error
 }
 
@@ -78,6 +79,7 @@ type feedsLoadedMsg struct {
 	tracks   []playlist.Track
 	urls     []string // original source URLs that produced these tracks
 	autoPlay bool     // whether to start playback automatically
+	gen      uint64
 	err      error
 }
 
@@ -96,6 +98,13 @@ type lyricsLoadedMsg struct {
 	err   error
 	query string
 	gen   uint64
+}
+
+// embeddedMetaRefreshedMsg carries local file tags read off the Update goroutine.
+type embeddedMetaRefreshedMsg struct {
+	gen   uint64
+	path  string
+	track playlist.Track
 }
 
 // netSearchResultsMsg carries the result set of a yt-dlp/sc-dlp search query
@@ -192,10 +201,10 @@ func AttachNotifier(notifier playback.Notifier) tea.Msg {
 	return attachNotifierMsg{notifier: notifier}
 }
 
-func listDevicesCmd() tea.Cmd {
+func listDevicesCmd(gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		devices, err := player.ListAudioDevices()
-		return devicesListedMsg{devices: devices, err: err}
+		return devicesListedMsg{devices: devices, gen: gen, err: err}
 	}
 }
 
@@ -210,6 +219,14 @@ func switchDeviceCmd(name string) tea.Cmd {
 func authenticateProviderCmd(auth playlist.Authenticator, providerName string, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		return provAuthDoneMsg{providerName: providerName, gen: gen, err: auth.Authenticate()}
+	}
+}
+
+// authenticateCodeCmd completes a provider.CodeAuthenticator sign-in with the
+// code the user typed in the pane.
+func authenticateCodeCmd(ca provider.CodeAuthenticator, code, providerName string, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		return provAuthDoneMsg{providerName: providerName, gen: gen, err: ca.Authenticate(code)}
 	}
 }
 
@@ -275,19 +292,31 @@ func resolveRemoteCmd(urls []string, autoPlay bool) tea.Cmd {
 // input the same way command-line arguments are classified, so raw stream and
 // audio-file addresses load as tracks instead of being parsed as feeds.
 func resolveURLCmd(rawURL string, autoPlay bool) tea.Cmd {
+	return resolveURLCmdGen(rawURL, autoPlay, 0)
+}
+
+func resolveURLCmdGen(rawURL string, autoPlay bool, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		tracks, err := resolve.URL(rawURL)
 		if err != nil {
-			return feedsLoadedMsg{err: fmt.Errorf("resolving URL: %w", err)}
+			return feedsLoadedMsg{gen: gen, err: fmt.Errorf("resolving URL: %w", err)}
 		}
-		return feedsLoadedMsg{tracks: tracks, urls: []string{rawURL}, autoPlay: autoPlay}
+		return feedsLoadedMsg{tracks: tracks, urls: []string{rawURL}, autoPlay: autoPlay, gen: gen}
 	}
 }
 
-func fetchTrackLyricsCmd(track playlist.Track, artist, title, query string, gen uint64, sources []trackLyricsSource) tea.Cmd {
+func refreshEmbeddedMetaCmd(track playlist.Track, gen uint64) tea.Cmd {
+	path := track.Path
+	return func() tea.Msg {
+		refreshed := playlist.RefreshEmbeddedMetadata(track)
+		return embeddedMetaRefreshedMsg{gen: gen, path: path, track: refreshed}
+	}
+}
+
+func fetchTrackLyricsCmd(ctx context.Context, track playlist.Track, artist, title, query string, gen uint64, sources []trackLyricsSource) tea.Cmd {
 	lookups := lyricsLookups(track, sources)
 	return func() tea.Msg {
-		lines, err := lyrics.Lookup(context.Background(), track.EmbeddedLyrics, artist, title, lookups...)
+		lines, err := lyrics.Lookup(requestContext(ctx), track.EmbeddedLyrics, artist, title, lookups...)
 		return lyricsLoadedMsg{lines: lines, err: err, query: query, gen: gen}
 	}
 }
@@ -410,11 +439,18 @@ func fetchNavAlbumListCmd(b provider.AlbumBrowser, sortType string, offset int, 
 	}
 }
 
-func fetchNavRemainingAlbumsCmd(b provider.AlbumBrowser, sortType string, offset int, gen uint64) tea.Cmd {
+func fetchNavRemainingAlbumsCmd(ctx context.Context, cancel context.CancelFunc, b provider.AlbumBrowser, sortType string, offset int, gen uint64) tea.Cmd {
+	ctx = requestContext(ctx)
 	return func() tea.Msg {
+		if cancel != nil {
+			defer cancel()
+		}
 		start := offset
 		var albums []provider.AlbumInfo
 		for {
+			if err := ctx.Err(); err != nil {
+				return navAlbumsLoadedMsg{offset: start, gen: gen, err: err}
+			}
 			page, err := b.AlbumList(sortType, offset+len(albums), navAlbumPageSize)
 			if err != nil {
 				return navAlbumsLoadedMsg{offset: start, gen: gen, err: err}
@@ -448,9 +484,12 @@ func fetchNavGenreTracksCmd(b provider.GenreBrowser, genreID, sortType string, g
 	}
 }
 
-func fetchNavGenreSearchCmd(s provider.GenreSearcher, query string, gen uint64) tea.Cmd {
+func fetchNavGenreSearchCmd(parent context.Context, cancelParent context.CancelFunc, s provider.GenreSearcher, query string, gen uint64) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if cancelParent != nil {
+			defer cancelParent()
+		}
+		ctx, cancel := context.WithTimeout(requestContext(parent), 30*time.Second)
 		defer cancel()
 		genres, err := s.SearchGenres(ctx, query, 100)
 		return navGenresLoadedMsg{genres: genres, gen: gen, err: err}
@@ -509,6 +548,7 @@ const (
 	searchOverlayAlbumPlay      searchOverlayAlbumAction = iota // start the album now
 	searchOverlayAlbumAppend                                    // add to the end of the queue
 	searchOverlayAlbumQueueNext                                 // play right after the current track
+	searchOverlayAlbumReplace                                   // replace the queue with the album
 )
 
 type searchOverlayAlbumTracksMsg struct {

@@ -39,6 +39,8 @@ func (m *Model) quit() tea.Cmd {
 	m.flushPendingEQSave()
 	// Quit leaves the track that plays, as s does, so it can scrobble.
 	m.leaveTrack(m.player.PositionAndDuration())
+	m.cancelLyricsRequest()
+	m.cancelNavContext()
 	m.player.Close()
 	m.clearPlaybackTrack()
 	m.quitting = true
@@ -85,6 +87,9 @@ func (m *Model) providerMaybeAdjustScroll() {
 
 	// Provider lists can add radio-prefix or PlaylistInfo.Section headers. Keep
 	// the logical cursor visible in their rendered-row viewport.
+	if visible > 0 {
+		m.provPane.scroll = max(m.provPane.scroll, m.provPane.cursor-visible+1)
+	}
 	for m.provPane.scroll < total && m.providerRowsFromScroll(m.provPane.scroll, m.provPane.cursor) > visible {
 		m.provPane.scroll++
 	}
@@ -188,7 +193,20 @@ func normalizeShiftedLetter(msg tea.KeyPressMsg) tea.KeyPressMsg {
 // the focused area owns the key. The provider filter takes keys only while
 // the provider pane has the focus, where commandContext shows it.
 func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
+	if isModifierKey(msg.Code) {
+		return nil
+	}
+	msg, m.layoutText = physicalKey(msg)
+	defer func() { m.layoutText = "" }()
 	msg = normalizeShiftedLetter(msg)
+
+	if m.luaSelect != nil {
+		if msg.String() == "ctrl+c" {
+			return m.quit()
+		}
+		m.handleLuaSelectKey(msg)
+		return nil
+	}
 
 	if cmd, ok := m.handleGlobalKey(msg); ok {
 		return cmd
@@ -221,6 +239,44 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.handleProvPillKey(msg)
 	}
 	return m.handleMainKey(msg)
+}
+
+// openAuthCodeInput shows the code input. Enter there runs the handshake.
+func (m *Model) openAuthCodeInput() tea.Cmd {
+	m.authCode = authCodeState{active: true, name: m.provider.Name()}
+	if ca, ok := m.provider.(provider.CodeAuthenticator); ok {
+		m.authCode.hint = ca.Prompt()
+	}
+	return nil
+}
+
+// handleAuthCodeKey owns the input of the one-time code overlay.
+func (m *Model) handleAuthCodeKey(msg tea.KeyPressMsg) tea.Cmd {
+	switch msg.Code {
+	case tea.KeyEscape:
+		m.authCode.active = false
+	case tea.KeyEnter:
+		code := strings.TrimSpace(m.authCode.input)
+		ca, ok := m.provider.(provider.CodeAuthenticator)
+		if !ok {
+			m.authCode.active = false
+			return nil
+		}
+		if code == "" {
+			m.authCode.err = "Enter the code the app received."
+			return nil
+		}
+		m.authCode.active = false
+		m.provPane.signIn = false
+		m.provPane.loading = true
+		m.err = nil
+		return authenticateCodeCmd(ca, code, m.authCode.name, nextRequest(&m.requests.auth))
+	default:
+		if m.editText("auth-code", &m.authCode.input, msg) {
+			m.authCode.err = ""
+		}
+	}
+	return nil
 }
 
 // handleGlobalKey processes the keys that work over every overlay and focus:
@@ -272,6 +328,10 @@ func (m *Model) handleProviderPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 
+	if m.provPane.picking {
+		return m.handleChatPickerKey(msg)
+	}
+
 	if cmd, ok := m.providerShortcut(msg.String()); ok {
 		return cmd
 	}
@@ -298,6 +358,11 @@ func (m *Model) handleProviderPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.maybeLoadCatalogBatch()
 	case "enter":
 		if m.provPane.signIn {
+			if _, ok := m.provider.(provider.CodeAuthenticator); ok {
+				// A typed code needs the input first; the handshake waits
+				// for it on the live connection.
+				return m.openAuthCodeInput()
+			}
 			if auth, ok := m.provider.(playlist.Authenticator); ok {
 				m.provPane.signIn = false
 				m.provPane.loading = true
@@ -362,6 +427,10 @@ func (m *Model) handleProviderPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.toggleExpandedView()
 	case "ctrl+f":
 		m.openProviderSearch()
+	case "ctrl+p":
+		if _, ok := m.provider.(provider.ChatFilter); ok {
+			return m.startChatPicker()
+		}
 	}
 	return nil
 }
@@ -395,6 +464,23 @@ func (m *Model) handleProvPillKey(msg tea.KeyPressMsg) tea.Cmd {
 // handleMainKey processes a key press for the playlist and the focused
 // playback controls. It forwards the keys that it does not handle to plugins.
 func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
+	if m.pendingRatingActive {
+		m.pendingRatingActive = false
+		m.pendingRatingExpiresAt = time.Time{}
+		m.status.Clear()
+		if s := msg.String(); m.focus == focusPlaylist && len(s) == 1 && s[0] >= '0' && s[0] <= '5' {
+			return m.rateSelectedTrack(int(s[0] - '0'))
+		}
+	}
+	if msg.String() == "*" && m.focus == focusPlaylist {
+		m.pendingSeekActive = false
+		m.pendingSeekExpiresAt = time.Time{}
+		m.pendingRatingActive = true
+		m.pendingRatingExpiresAt = time.Now().Add(time.Duration(statusTTLMedium))
+		m.status.Activityf(statusTTLMedium, "* then 0-5 -> rate selected track")
+		return nil
+	}
+
 	// Vim-style count prefix: a digit primes a pending percentage; the next `j`
 	// jumps there (e.g. `7j` → 70%). Any other key cancels and runs normally.
 	if s := msg.String(); m.focus == focusPlaylist && len(s) == 1 && s[0] >= '0' && s[0] <= '9' {
@@ -456,10 +542,12 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.refreshActiveProvider(true)
 	case "esc", "backspace", "b":
 		if m.focus == focusPlaylist {
-			// Keep current expanded/collapsed height mode when switching focus.
-			m.focus = focusProvider
-			// The Local source has no provider pane list; show its manager.
-			m.ensureLocalManager()
+			if m.provider != nil {
+				// Keep current expanded/collapsed height mode when switching focus.
+				m.focus = focusProvider
+				// The Local source has no provider pane list; show its manager.
+				m.ensureLocalManager()
+			}
 		} else {
 			m.focus = m.previousMainFocus(m.focus)
 		}
@@ -511,6 +599,12 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 				to = m.plCursor - 1
 			}
 			cmd, _ := m.moveTrack(m.plCursor, to)
+			return cmd
+		}
+
+	case "ctrl+o":
+		if m.focus == focusPlaylist {
+			cmd, _ := m.reverseTracks()
 			return cmd
 		}
 
@@ -604,6 +698,13 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.cycleEQPreset()
 		m.scheduleEQSave()
 
+	case "alt+e":
+		if m.simplified || m.layout.tier == layoutMinimal {
+			break
+		}
+		m.previousEQPreset()
+		m.scheduleEQSave()
+
 	case "a":
 		if m.focus == focusPlaylist {
 			if !m.playlist.Dequeue(m.plCursor) {
@@ -664,10 +765,12 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.openThemePicker()
 
 	case "y":
-		m.lyrics.visible = !m.lyrics.visible
 		if m.lyrics.visible {
-			return m.retryLyrics()
+			m.closeLyrics()
+			return nil
 		}
+		m.lyrics.visible = true
+		return m.retryLyrics()
 
 	case "o":
 		m.openFileBrowser()
@@ -684,6 +787,10 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 
 	case "ctrl+h":
+		if m.playlist.Shuffled() {
+			m.status.Warning(shuffleHeadersWarning, statusTTLShort)
+			return nil
+		}
 		m.toggleAlbumHeadersManual()
 		m.adjustScroll()
 
@@ -727,13 +834,7 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 
 	case "d":
-		m.devicePicker.visible = true
-		m.devicePicker.cursor = 0
-		m.devicePicker.scroll = 0
-		if len(m.devicePicker.devices) == 0 {
-			m.devicePicker.loading = true
-			return listDevicesCmd()
-		}
+		return m.openDevicePicker()
 
 	case "]":
 		m.changeSpeed(0.25)
@@ -776,10 +877,7 @@ func (m *Model) handleInfoKey(msg tea.KeyPressMsg) tea.Cmd {
 func (m *Model) handleLyricsKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "esc", "y", "q":
-		nextRequest(&m.requests.lyrics)
-		m.lyrics.loading = false
-		m.lyrics.query = ""
-		m.lyrics.visible = false
+		m.closeLyrics()
 	case "r":
 		return m.retryLyrics()
 	case "[":
@@ -836,6 +934,9 @@ func (m *Model) handleFullVisualizerKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.adjustVolume(-1)
 	case "v":
 		_ = m.cycleVisualizer()
+	case "f":
+		m.pureVis = !m.pureVis
+		m.recomputeLayout()
 	case "t":
 		// Hide the episode name so the full-screen visualizer can be put on a
 		// shared screen without naming what is playing.
@@ -966,8 +1067,9 @@ func (m *Model) handleURLInputKey(msg tea.KeyPressMsg) tea.Cmd {
 		input := strings.TrimSpace(m.urlInput.input)
 		if input != "" {
 			m.feedLoading = true
+			m.feedRequest = nextRequest(&m.requests.queue)
 			m.status.Activity("Loading URL...", statusTTLLong)
-			return resolveURLCmd(input, true)
+			return resolveURLCmdGen(input, true, m.feedRequest)
 		}
 		m.urlInput.active = true
 		m.urlInput.err = "Enter a stream, track, or playlist URL."
@@ -975,6 +1077,19 @@ func (m *Model) handleURLInputKey(msg tea.KeyPressMsg) tea.Cmd {
 		if m.editText("url", &m.urlInput.input, msg) {
 			m.urlInput.err = ""
 		}
+	}
+	return nil
+}
+
+// openDevicePicker shows the audio device picker and lists the devices when
+// the list is empty. The picker renders above any open overlay.
+func (m *Model) openDevicePicker() tea.Cmd {
+	m.devicePicker.visible = true
+	m.devicePicker.cursor = 0
+	m.devicePicker.scroll = 0
+	if len(m.devicePicker.devices) == 0 {
+		m.devicePicker.loading = true
+		return listDevicesCmd(nextRequest(&m.requests.devices))
 	}
 	return nil
 }

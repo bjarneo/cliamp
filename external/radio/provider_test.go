@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/playlist"
 )
 
@@ -399,6 +400,27 @@ url = "http://c/"
 	}
 	if len(stations) != 1 || stations[0].name != "complete" {
 		t.Errorf("expected only 'complete', got %+v", stations)
+	}
+}
+
+func TestLoadStationsWarnsOnUnknownSection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "radios.toml")
+	writeFile(t, path, `[[stations]]
+name = "Jazz FM"
+url = "https://jazz.example.com/stream"
+`)
+	applog.Drain()
+	stations, err := loadStations(path)
+	if err != nil {
+		t.Fatalf("loadStations: %v", err)
+	}
+	if len(stations) != 0 {
+		t.Errorf("stations = %+v, want none", stations)
+	}
+	entries := applog.Drain()
+	if len(entries) != 1 || !strings.Contains(entries[0].Text, "[[stations]]") || !strings.Contains(entries[0].Text, "[[station]]") {
+		t.Errorf("warnings = %+v, want one naming [[stations]] and [[station]]", entries)
 	}
 }
 

@@ -2,6 +2,8 @@
 package plex
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -71,24 +73,42 @@ type Playlist struct {
 	Smart        bool
 }
 
-// get issues an authenticated GET request and decodes the JSON response into result.
-func (c *Client) get(path string, params url.Values, result any) error {
-	if params == nil {
-		params = url.Values{}
+// scrubURLError removes query parameters from a *url.Error before surfacing it.
+func scrubURLError(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		if u, parseErr := url.Parse(urlErr.URL); parseErr == nil && u.RawQuery != "" {
+			u.RawQuery = ""
+			clone := *urlErr
+			clone.URL = u.String()
+			return &clone
+		}
 	}
-	params.Set("X-Plex-Token", c.token)
+	return err
+}
 
-	req, err := http.NewRequest(http.MethodGet, c.baseURL+path+"?"+params.Encode(), nil)
+// get issues an authenticated GET request and decodes the JSON response into result.
+func (c *Client) get(ctx context.Context, path string, params url.Values, result any) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	rawURL := c.baseURL + path
+	if len(params) > 0 {
+		rawURL += "?" + params.Encode()
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return fmt.Errorf("plex: %s: %w", path, err)
+		return fmt.Errorf("plex: %s: %w", path, scrubURLError(err))
 	}
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Plex-Token", c.token)
 	req.Header.Set("X-Plex-Product", "cliamp")
 	req.Header.Set("X-Plex-Client-Identifier", "cliamp")
 
 	resp, err := apiClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("plex: %s: server unreachable: %w", path, netdiag.Explain(err))
+		return fmt.Errorf("plex: %s: server unreachable: %w", path, netdiag.Explain(scrubURLError(err)))
 	}
 	defer resp.Body.Close()
 
@@ -115,7 +135,7 @@ func (c *Client) Ping() error {
 			FriendlyName string `json:"friendlyName"`
 		} `json:"MediaContainer"`
 	}
-	return c.get("/", nil, &result)
+	return c.get(context.Background(), "/", nil, &result)
 }
 
 // MusicSections returns library sections of type "artist" (music libraries).
@@ -131,7 +151,7 @@ func (c *Client) MusicSections() ([]Section, error) {
 			} `json:"Directory"`
 		} `json:"MediaContainer"`
 	}
-	if err := c.get("/library/sections", nil, &result); err != nil {
+	if err := c.get(context.Background(), "/library/sections", nil, &result); err != nil {
 		return nil, err
 	}
 
@@ -199,7 +219,7 @@ func (c *Client) Albums(sectionKey string) ([]Album, error) {
 			"X-Plex-Container-Size":  {fmt.Sprintf("%d", pageSize)},
 		}
 		var page albumPage
-		if err := c.get("/library/sections/"+sectionKey+"/all", params, &page); err != nil {
+		if err := c.get(context.Background(), "/library/sections/"+sectionKey+"/all", params, &page); err != nil {
 			return nil, err
 		}
 		// A page that starts with the album that started the page before
@@ -251,7 +271,7 @@ func (c *Client) Playlists() ([]Playlist, error) {
 			} `json:"Metadata"`
 		} `json:"MediaContainer"`
 	}
-	if err := c.get("/playlists", nil, &result); err != nil {
+	if err := c.get(context.Background(), "/playlists", nil, &result); err != nil {
 		return nil, fmt.Errorf("plex: list playlists: %w", err)
 	}
 
@@ -299,7 +319,7 @@ func (c *Client) PlaylistTracks(playlistRatingKey string) ([]Track, error) {
 			"X-Plex-Container-Size":  {fmt.Sprintf("%d", playlistPageSize)},
 		}
 		var page trackPage
-		if err := c.get("/playlists/"+playlistRatingKey+"/items", params, &page); err != nil {
+		if err := c.get(context.Background(), "/playlists/"+playlistRatingKey+"/items", params, &page); err != nil {
 			return nil, fmt.Errorf("plex: playlist %s items: %w", playlistRatingKey, err)
 		}
 		// A playlist can hold one track twice, so the entry ID marks the
@@ -337,7 +357,7 @@ func (c *Client) Tracks(albumRatingKey string) ([]Track, error) {
 			Metadata []trackJSON `json:"Metadata"`
 		} `json:"MediaContainer"`
 	}
-	if err := c.get("/library/metadata/"+albumRatingKey+"/children", nil, &result); err != nil {
+	if err := c.get(context.Background(), "/library/metadata/"+albumRatingKey+"/children", nil, &result); err != nil {
 		return nil, err
 	}
 
@@ -351,6 +371,11 @@ func (c *Client) Tracks(albumRatingKey string) ([]Track, error) {
 // Search searches the music library for tracks matching query.
 // Returns nil without making an HTTP call when query is empty.
 func (c *Client) Search(query string) ([]Track, error) {
+	return c.SearchContext(context.Background(), query)
+}
+
+// SearchContext searches the music library for tracks matching query under ctx.
+func (c *Client) SearchContext(ctx context.Context, query string) ([]Track, error) {
 	if query == "" {
 		return nil, nil
 	}
@@ -363,7 +388,7 @@ func (c *Client) Search(query string) ([]Track, error) {
 		"query": {query},
 		"type":  {"10"}, // 10 = track
 	}
-	if err := c.get("/library/search", params, &result); err != nil {
+	if err := c.get(ctx, "/library/search", params, &result); err != nil {
 		return nil, err
 	}
 
@@ -377,8 +402,13 @@ func (c *Client) Search(query string) ([]Track, error) {
 // StreamURL returns the authenticated HTTP URL for streaming a track part.
 // partKey is the relative path from the Part element, e.g. "/library/parts/…/file.flac".
 // The token is appended as a query parameter; Plex accepts it in either header or query form.
+//
+// download=1 asks for the original file, as Plexamp does. Without it Plex
+// checks the part against the client's direct-play profile; cliamp has none,
+// so Plex falls back to a generic profile without FLAC and answers 500 for
+// every FLAC whose audio stream it has analyzed.
 func (c *Client) StreamURL(partKey string) string {
-	return c.baseURL + partKey + "?X-Plex-Token=" + url.QueryEscape(c.token)
+	return c.baseURL + partKey + "?download=1&X-Plex-Token=" + url.QueryEscape(c.token)
 }
 
 // IsStreamURL reports whether the given URL looks like a Plex library part
@@ -399,8 +429,9 @@ type trackJSON struct {
 	GrandparentTitle string `json:"grandparentTitle"` // artist
 	ParentTitle      string `json:"parentTitle"`      // album
 	Year             int    `json:"year"`
-	Index            int    `json:"index"`    // track number within album
-	Duration         int    `json:"duration"` // milliseconds
+	ParentYear       int    `json:"parentYear"` // album year; tracks rarely carry their own
+	Index            int    `json:"index"`      // track number within album
+	Duration         int    `json:"duration"`   // milliseconds
 	Media            []struct {
 		Part []struct {
 			Key string `json:"key"`
@@ -413,12 +444,16 @@ func trackFromJSON(m trackJSON) Track {
 	if len(m.Media) > 0 && len(m.Media[0].Part) > 0 {
 		partKey = m.Media[0].Part[0].Key
 	}
+	year := m.Year
+	if year == 0 {
+		year = m.ParentYear
+	}
 	return Track{
 		RatingKey:   m.RatingKey,
 		Title:       m.Title,
 		ArtistName:  m.GrandparentTitle,
 		AlbumName:   m.ParentTitle,
-		Year:        m.Year,
+		Year:        year,
 		TrackNumber: m.Index,
 		Duration:    m.Duration,
 		PartKey:     partKey,

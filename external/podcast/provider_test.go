@@ -602,13 +602,16 @@ func TestProviderCategoriesCache(t *testing.T) {
 func TestProviderTracksMetadata(t *testing.T) {
 	for _, tt := range []struct {
 		name, prefix, title, channelArt, wantArt string
+		wantGenre                                string
 		context                                  bool
+		subscribe                                bool
+		refresh                                  bool
 	}{
-		{"catalog", "c:", "Directory Show", "https://example.com/channel.jpg", "https://example.com/channel.jpg", false},
-		{"subscription", "f:", "Directory Show", "", "https://example.com/directory.jpg", false},
-		{"search after refresh", "s:", "Directory Show", "", "https://example.com/directory.jpg", false},
-		{"album context", "", "Directory Show", "", "https://example.com/directory.jpg", true},
-		{"feed metadata fallback", "", "", "https://example.com/channel.jpg", "https://example.com/channel.jpg", true},
+		{"catalog", "c:", "Directory Show", "https://example.com/channel.jpg", "https://example.com/channel.jpg", "Science", false, false, false},
+		{"subscription", "f:", "Directory Show", "", "https://example.com/directory.jpg", "Science", false, true, true},
+		{"search after refresh", "s:", "", "", "", "", false, false, true},
+		{"album context", "", "Directory Show", "", "https://example.com/directory.jpg", "Science", true, false, false},
+		{"feed metadata fallback", "", "", "https://example.com/channel.jpg", "https://example.com/channel.jpg", "Science", true, false, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var calls atomic.Int32
@@ -621,8 +624,14 @@ func TestProviderTracksMetadata(t *testing.T) {
 				io.WriteString(w, strings.Replace(providerTestRSS, "https://example.com/channel.jpg", tt.channelArt, 1))
 			})
 			feedURL := p.client.directoryURL + "/feed?token=original"
-			p.shows[feedURL] = show{Title: tt.title, FeedURL: feedURL, Author: "Directory Author", Genre: "Science", Artwork: "https://example.com/directory.jpg"}
-			p.Refresh()
+			s := show{Title: tt.title, FeedURL: feedURL, Author: "Directory Author", Genre: "Science", Artwork: "https://example.com/directory.jpg"}
+			p.shows[feedURL] = s
+			if tt.subscribe {
+				p.subscriptions = []show{s}
+			}
+			if tt.refresh {
+				p.Refresh()
+			}
 			var tracks []playlist.Track
 			var err error
 			if tt.context {
@@ -636,10 +645,10 @@ func TestProviderTracksMetadata(t *testing.T) {
 			}
 			want := []playlist.Track{
 				{Path: "https://example.com/audio?episode=9&token=yes", Title: "Episode Nine", Artist: title, Album: title,
-					Genre: "Science", TrackNumber: 9, DurationSecs: 3723, Stream: true, AlbumArtURL: "https://example.com/episode.jpg",
+					Genre: tt.wantGenre, TrackNumber: 9, DurationSecs: 3723, Stream: true, AlbumArtURL: "https://example.com/episode.jpg",
 					ProviderMeta: map[string]string{"podcast.feed": feedURL, "podcast.guid": "episode-nine"}},
 				{Path: "https://example.com/fallback.mp3", Title: "Untitled episode", Artist: title, Album: title,
-					Genre: "Science", Stream: true, AlbumArtURL: tt.wantArt,
+					Genre: tt.wantGenre, Stream: true, AlbumArtURL: tt.wantArt,
 					ProviderMeta: map[string]string{"podcast.feed": feedURL, "podcast.guid": "https://example.com/fallback.mp3"}},
 			}
 			if err != nil || !reflect.DeepEqual(tracks, want) {
@@ -649,6 +658,27 @@ func TestProviderTracksMetadata(t *testing.T) {
 				t.Errorf("requests = %d, want one feed GET and no media requests", calls.Load())
 			}
 		})
+	}
+}
+
+func TestProviderRefreshResetsShowsToSubscriptions(t *testing.T) {
+	p := newProviderTest(t, nil)
+	sub := show{Title: "Sub", FeedURL: "https://example.com/sub"}
+	stale := show{Title: "Stale", FeedURL: "https://example.com/stale"}
+	p.subscriptions = []show{sub}
+	p.shows[sub.FeedURL] = sub
+	p.shows[stale.FeedURL] = stale
+
+	p.Refresh()
+
+	if len(p.shows) != 1 {
+		t.Fatalf("shows after Refresh = %+v, want only active subscription", p.shows)
+	}
+	if _, ok := p.shows[sub.FeedURL]; !ok {
+		t.Fatal("active subscription missing from shows after Refresh")
+	}
+	if _, ok := p.shows[stale.FeedURL]; ok {
+		t.Fatal("unsubscribed show remained in shows after Refresh")
 	}
 }
 
@@ -740,12 +770,14 @@ func TestProviderSubscriptionPersistence(t *testing.T) {
 		var wantLists []playlist.PlaylistInfo
 		for _, s := range tt.want {
 			wantLists = append(wantLists, playlist.PlaylistInfo{ID: "f:" + s.FeedURL, Name: "[subscribed] " + s.Title, TrackCount: s.EpisodeCount, Section: "Subscriptions", Favorite: true})
+		}
+		checkProviderPlaylists(t, p, wantLists)
+		checkProviderPlaylists(t, restored, wantLists)
+		for _, s := range tt.want {
 			if restored.shows[s.FeedURL] != s {
 				t.Errorf("restored metadata = %+v, want %+v", restored.shows[s.FeedURL], s)
 			}
 		}
-		checkProviderPlaylists(t, p, wantLists)
-		checkProviderPlaylists(t, restored, wantLists)
 	}
 }
 
@@ -772,13 +804,13 @@ func TestProviderSubscriptionStoreValidation(t *testing.T) {
 			restored := New("us")
 			restored.client = p.client
 			if !tt.corrupt {
-				if restored.storeErr != nil || len(restored.shows) != 2 {
-					t.Errorf("loaded store = %+v, %v", restored.shows, restored.storeErr)
-				}
 				checkProviderPlaylists(t, restored, []playlist.PlaylistInfo{
 					{ID: "f:https://example.com/first", Name: "[subscribed] First", Section: "Subscriptions", Favorite: true},
 					{ID: "f:https://example.com/second", Name: "[subscribed] Second", Section: "Subscriptions", Favorite: true},
 				})
+				if restored.storeErr != nil || len(restored.shows) != 2 {
+					t.Errorf("loaded store = %+v, %v", restored.shows, restored.storeErr)
+				}
 			} else {
 				checkProviderPlaylists(t, restored, nil)
 				s := show{Title: "New", FeedURL: "https://example.com/new"}
@@ -855,4 +887,135 @@ func TestProviderRejectsUnsafeShowIDs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestProviderLazyLoadsStores(t *testing.T) {
+	subJSON := `[{"id":"1","title":"Lazy Show","feed_url":"https://example.com/lazy","author":"Host"}]`
+	track := episodeTrack("guid-lazy", "https://cdn.example.com/lazy.mp3")
+	progressData, err := json.Marshal(progressFile{
+		Version: progressFormat,
+		Episodes: map[string]episodeState{
+			episodeKey(track): {
+				Feed:        "https://example.com/feed",
+				PositionSec: 1200,
+				DurationSec: 3600,
+				UpdatedUnix: 1,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name  string
+		check func(t *testing.T, p *Provider)
+	}{
+		{
+			name: "Playlists triggers subscription load once",
+			check: func(t *testing.T, p *Provider) {
+				lists, err := p.Playlists()
+				if err != nil || len(lists) != 1 || lists[0].ID != "f:https://example.com/lazy" {
+					t.Fatalf("Playlists() = %+v, %v", lists, err)
+				}
+			},
+		},
+		{
+			name: "Subscriptions triggers subscription load once",
+			check: func(t *testing.T, p *Provider) {
+				subs := p.Subscriptions()
+				if len(subs) != 1 || subs[0].ID != "https://example.com/lazy" {
+					t.Fatalf("Subscriptions() = %+v", subs)
+				}
+			},
+		},
+		{
+			name: "Refresh triggers subscription load once",
+			check: func(t *testing.T, p *Provider) {
+				p.Refresh()
+				if subs := p.Subscriptions(); len(subs) != 1 || subs[0].ID != "https://example.com/lazy" {
+					t.Fatalf("Subscriptions() after Refresh = %+v", subs)
+				}
+			},
+		},
+		{
+			name: "HasPlaybackState triggers progress load once",
+			check: func(t *testing.T, p *Provider) {
+				if !p.HasPlaybackState() {
+					t.Fatal("HasPlaybackState() = false, want true")
+				}
+			},
+		},
+		{
+			name: "PlaybackState triggers progress load once",
+			check: func(t *testing.T, p *Provider) {
+				state, ok := p.PlaybackState(track)
+				if !ok || state.Position != 20*time.Minute {
+					t.Fatalf("PlaybackState() = %+v, %v; want 20m", state, ok)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("CLIAMP_CONFIG_DIR", dir)
+			p := New("us")
+
+			// Write both files after New returns to verify New performs no disk read.
+			subPath := filepath.Join(dir, "podcast_subscriptions.json")
+			progPath := filepath.Join(dir, "podcast_progress.json")
+			if err := os.WriteFile(subPath, []byte(subJSON), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(progPath, progressData, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			tt.check(t, p)
+
+			// Remove both files and confirm the loaded state stays cached.
+			_ = os.Remove(subPath)
+			_ = os.Remove(progPath)
+			tt.check(t, p)
+		})
+	}
+
+	t.Run("Close on unused provider does not read or create progress file", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("CLIAMP_CONFIG_DIR", dir)
+		p := New("us")
+		p.Close()
+		if _, err := os.Stat(filepath.Join(dir, "podcast_progress.json")); !os.IsNotExist(err) {
+			t.Fatalf("Close() created progress file: %v", err)
+		}
+		if p.progress.loadErr != nil {
+			t.Fatalf("Close() set loadErr: %v", p.progress.loadErr)
+		}
+	})
+
+	t.Run("concurrent first access is race free", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("CLIAMP_CONFIG_DIR", dir)
+		if err := os.WriteFile(filepath.Join(dir, "podcast_subscriptions.json"), []byte(subJSON), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "podcast_progress.json"), progressData, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		p := New("us")
+		var wg sync.WaitGroup
+		for range 8 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, _ = p.Playlists()
+				_ = p.Subscriptions()
+				_ = p.HasPlaybackState()
+				_, _ = p.PlaybackState(track)
+			}()
+		}
+		wg.Wait()
+	})
 }

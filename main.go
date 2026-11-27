@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -32,6 +33,7 @@ import (
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/resolve"
 	"github.com/bjarneo/cliamp/theme"
+	"github.com/bjarneo/cliamp/ui"
 	"github.com/bjarneo/cliamp/ui/model"
 )
 
@@ -65,7 +67,7 @@ func checkTerminalOutput(headless bool, stdout *os.File) error {
 	return nil
 }
 
-func run(overrides config.Overrides, positional []string, headless, visualizer60FPS bool) error {
+func run(overrides config.Overrides, positional []string, headless bool) error {
 	if err := checkTerminalOutput(headless, os.Stdout); err != nil {
 		return err
 	}
@@ -168,7 +170,16 @@ func run(overrides config.Overrides, positional []string, headless, visualizer60
 		defer luaMgr.Close()
 	}
 
-	m := model.New(p, pl, providers.entries, defaultProvider, providers.localPlaylists(), providers.favorites, providers.history, theme.LoadAll(), luaMgr, config.SaveFunc{})
+	var themes []theme.Theme
+	if !headless {
+		themes = theme.LoadAll()
+	}
+	m := model.New(p, pl, providers.entries, defaultProvider, providers.localPlaylists(), providers.favorites, providers.history, themes, luaMgr, config.SaveFunc{})
+	panes := ui.NewPaneSet()
+	m.SetPaneSet(panes)
+	if luaMgr != nil {
+		luaMgr.SetLayoutProvider(panes)
+	}
 	m.SetRadioFavorites(providers.radioFavorites)
 	if resumeServer != nil {
 		m.SetResumeSaver(serverResumeSaver(resumeServer))
@@ -193,7 +204,7 @@ func run(overrides config.Overrides, positional []string, headless, visualizer60
 	if cfg.AutoPlay && !restoredContext {
 		m.SetAutoPlay(true)
 	}
-	configureModel(&m, cfg, headless, visualizer60FPS)
+	configureModel(&m, cfg, headless)
 
 	if resumeState.Path != "" && resumeState.PositionSec > 0 {
 		// Jellyfin and Emby resume the restored context above. Mixcloud is also commonly
@@ -208,6 +219,13 @@ func run(overrides config.Overrides, positional []string, headless, visualizer60
 	}
 
 	prog := tea.NewProgram(m, programOptions(headless, cfg.LowPower)...)
+
+	stopIPC, err := startIPC(prog.Send, pluginBroker, luaMgr, headless)
+	if err != nil {
+		return err
+	}
+	defer stopIPC()
+
 	stopSignals := quitOnSignals(prog.Send)
 	defer stopSignals()
 	defer providers.observeAuthURLs(prog.Send)()
@@ -223,20 +241,16 @@ func run(overrides config.Overrides, positional []string, headless, visualizer60
 		luaSend, stopLuaSend := newOrderedSender(prog.Send)
 		defer stopLuaSend()
 		luaMgr.SetControlProvider(luaControlProvider(luaSend))
-		luaMgr.SetUIProvider(luaUIProvider(luaSend))
+		luaMgr.SetUIProvider(luaUIProvider(luaSend, headless))
 	}
 
-	stopIPC, err := startIPC(prog.Send, pluginBroker, luaMgr, headless)
-	if err != nil {
-		return err
-	}
-	defer stopIPC()
 	if headless {
 		fmt.Fprintf(os.Stderr, "cliamp: running headless (socket: %s)\n", ipc.DefaultSocketPath())
 		applog.Info("running headless")
 	}
 
 	finalModel, err := mediactl.Run(prog, svc)
+	stopIPC()
 	if err != nil {
 		return err
 	}
@@ -320,7 +334,7 @@ func newPlayer(cfg config.Config) (p *player.Player, closePlayer func(), err err
 
 // configureModel applies the settings of cfg to m. Headless mode has no
 // screen, so the view settings do not apply there.
-func configureModel(m *model.Model, cfg config.Config, headless, visualizer60FPS bool) {
+func configureModel(m *model.Model, cfg config.Config, headless bool) {
 	m.SetCustomEQBands(cfg.EQ)
 	m.SetPadding(cfg.PaddingH, cfg.PaddingV)
 	m.SetVisVolumeLinked(cfg.VisVolumeLinked)
@@ -340,7 +354,6 @@ func configureModel(m *model.Model, cfg config.Config, headless, visualizer60FPS
 		return
 	}
 	m.SetVisRows(cfg.VisRows)
-	m.SetVisualizer60FPS(visualizer60FPS)
 	if cfg.Visualizer != "" {
 		m.SetVisualizer(cfg.Visualizer)
 	}
@@ -356,6 +369,9 @@ func configureModel(m *model.Model, cfg config.Config, headless, visualizer60FPS
 	if cfg.HideSettingsPane {
 		m.SetHideSettingsPane(true)
 	}
+	if cfg.KeepSearchOpen {
+		m.SetKeepSearchOpen(true)
+	}
 	if cfg.ShowMetadata {
 		m.SetShowMetadata(true)
 	}
@@ -369,8 +385,19 @@ func configureModel(m *model.Model, cfg config.Config, headless, visualizer60FPS
 // failure is an error. The TUI reports the failure and runs without the
 // socket.
 func startIPC(send func(tea.Msg), broker *ipc.Broker, plugins *luaplugin.Manager, headless bool) (stop func(), err error) {
-	srv, err := ipc.NewServerWithBroker(ipc.DefaultSocketPath(), broker)
+	// Program.Send may wait for the update loop, so the requests go through
+	// an ordered queue and the socket can acknowledge a job at once.
+	queue, stopQueue := newOrderedSender(send)
+	jobs := ipc.NewJobStore()
+	srv, err := ipc.NewServerWithOptions(
+		ipc.DefaultSocketPath(),
+		ipc.WithBroker(broker),
+		ipc.WithJobStore(jobs),
+		ipc.WithV2Dispatcher(newV2Dispatcher(queue, jobs, plugins)),
+		ipc.WithOperationRegistry(v2Operations(headless, plugins != nil)),
+	)
 	if err != nil {
+		stopQueue()
 		// The errors of the ipc package already start with "ipc: ".
 		if headless {
 			return nil, err
@@ -378,16 +405,11 @@ func startIPC(send func(tea.Msg), broker *ipc.Broker, plugins *luaplugin.Manager
 		fmt.Fprintln(os.Stderr, err)
 		return func() {}, nil
 	}
-	// Program.Send may wait for the update loop, so the requests go through
-	// an ordered queue and the socket can acknowledge a job at once.
-	queue, stopQueue := newOrderedSender(send)
-	srv.SetV2Dispatcher(newV2Dispatcher(queue, srv.JobStore(), plugins))
-	srv.SetOperationRegistry(v2Operations(headless, plugins != nil))
 	go publishV2JobEvents(srv.Done(), srv.JobStore(), broker)
-	return func() {
+	return sync.OnceFunc(func() {
 		_ = srv.Close()
 		stopQueue()
-	}, nil
+	}), nil
 }
 
 // saveOnExit keeps the theme and the resume position of the final Model.

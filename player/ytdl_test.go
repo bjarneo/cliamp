@@ -3,6 +3,7 @@ package player
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -208,11 +210,11 @@ func TestWaitCause(t *testing.T) {
 func TestYTDLPipeErrConcurrentWithStream(t *testing.T) {
 	readErr := errors.New("yt-dlp PCM read failed")
 	y := &ytdlPipeStreamer{
-		pipeReport: pipeReport{state: newPipeStreamState(0)},
-		reader:     bufio.NewReader(&readResult{data: []byte{1}, err: readErr}),
-		ytdlErr:    make(chan error),
-		ffmpegErr:  make(chan error),
+		reader:    bufio.NewReader(&readResult{data: []byte{1}, err: readErr}),
+		ytdlErr:   make(chan error),
+		ffmpegErr: make(chan error),
 	}
+	y.setState(newPipeStreamState(0))
 	testPipeErrConcurrentWithStream(t, y, readErr)
 }
 
@@ -318,5 +320,90 @@ func TestYTDLPipeDrainsOutputAfterFFmpegExits(t *testing.T) {
 	}
 	if err := y.Err(); err != nil {
 		t.Fatalf("Err() = %v after the output was read, want nil", err)
+	}
+}
+
+func TestMonitorExitWithCleanupRunsBeforeDone(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX process fixture")
+	}
+	cmd := exec.Command("sh", "-c", "exit 0")
+	var stderr limitedBuffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	var cleaned atomic.Bool
+	_, done := monitorExitWithCleanup(cmd, &stderr, "yt-dlp", func() {
+		time.Sleep(15 * time.Millisecond)
+		cleaned.Store(true)
+	})
+	<-done
+	if !cleaned.Load() {
+		t.Fatal("ytdlDone closed before cookieCleanup completed")
+	}
+}
+
+func TestBuildYTDLSourceAndProbeRespectStaleCancellation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX shell fixtures")
+	}
+	dir := t.TempDir()
+	writeExecutable(t, filepath.Join(dir, "yt-dlp"), "#!/bin/sh\nexec sleep 30\n")
+	writeExecutable(t, filepath.Join(dir, "ffmpeg"), "#!/bin/sh\nexec sleep 30\n")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	// Already cancelled context skips probe immediately.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if d := probeYTDLDuration(ctx, "https://www.youtube.com/watch?v=x"); d != 0 {
+		t.Fatalf("probeYTDLDuration(cancelled) = %v, want 0", d)
+	}
+
+	// Becoming stale while prefill is blocked aborts buildYTDLSource promptly.
+	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
+	var staleFlag atomic.Bool
+	go func() {
+		time.Sleep(80 * time.Millisecond)
+		staleFlag.Store(true)
+	}()
+	start := time.Now()
+	tp, err := p.buildYTDLSource("https://www.youtube.com/watch?v=stall", 0, true, staleFlag.Load)
+	elapsed := time.Since(start)
+	if tp != nil {
+		tp.close()
+	}
+	if !errors.Is(err, errSourceSuperseded) {
+		t.Fatalf("buildYTDLSource() error = %v, want errSourceSuperseded", err)
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("buildYTDLSource() took %v after becoming stale", elapsed)
+	}
+}
+
+func TestYTDLPipeStreamCapturesDelayedCauseWithinGraceWindow(t *testing.T) {
+	wantErr := errors.New("yt-dlp: mid-stream HTTP 403")
+	ytdlCh := make(chan error, 1)
+	ffmpegCh := make(chan error, 1)
+	go func() {
+		time.Sleep(15 * time.Millisecond)
+		ytdlCh <- wantErr
+		ffmpegCh <- nil
+	}()
+
+	y := &ytdlPipeStreamer{
+		reader:    bufio.NewReader(bytes.NewReader(encodeS16([2]int16{100, -100}))),
+		ytdlErr:   ytdlCh,
+		ffmpegErr: ffmpegCh,
+	}
+	y.setState(newPipeStreamState(0))
+
+	// Request 4 frames when only 1 exists so EOF triggers on the partial read.
+	n, ok := y.Stream(make([][2]float64, 4))
+	if n != 1 || !ok {
+		t.Fatalf("Stream() = (%d, %v), want (1, true)", n, ok)
+	}
+	if !errors.Is(y.Err(), wantErr) {
+		t.Fatalf("Err() = %v, want %v", y.Err(), wantErr)
 	}
 }

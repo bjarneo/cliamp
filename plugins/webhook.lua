@@ -23,7 +23,11 @@ p:on("track.change", function(track)
             path   = track.path,
         }
     })
-    if status and status >= 400 then
+    if not body then
+        cliamp.log.warn("webhook failed: " .. tostring(status))
+        return
+    end
+    if status >= 400 then
         cliamp.log.warn("webhook returned " .. tostring(status))
     end
 end)

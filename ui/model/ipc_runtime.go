@@ -97,15 +97,23 @@ type ipcV2ResponseMsg struct {
 	Response  ipc.Response
 }
 
-func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
+func (m *Model) handleReadOnlyV2Request(msg V2RequestMsg) bool {
 	switch strings.ToLower(strings.TrimSpace(msg.Request.Method)) {
 	case "state.get":
 		snapshot := m.runtimeSnapshot()
 		m.replyV2(msg.Reply, ipc.V2Result{Snapshot: &snapshot}, nil)
-		return nil
+		return true
 	case "spectrum.get":
 		response := m.v2BandsResponse()
 		m.replyV2(msg.Reply, ipc.V2Result{Result: marshalV2Result(response)}, nil)
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
+	if m.handleReadOnlyV2Request(msg) {
 		return nil
 	}
 
@@ -210,6 +218,7 @@ func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 	case "load":
 		request.Cmd = "provider.load"
 		request.Provider = "local"
+		request.Index = 0 // load has no index parameter
 		return m.handleV2LibraryRequest(ctx, msg.Jobs, msg.JobID, request)
 	case "url.load", "save", "lyrics", "history", "history.clear":
 		return m.handleV2DeferredRequest(ctx, msg.Jobs, msg.JobID, request)
@@ -332,10 +341,12 @@ func (m *Model) handleV2Theme(jobs *ipc.JobStore, jobID string, request ipc.Requ
 		m.completeV2Job(jobs, jobID, ipc.Response{OK: true, Items: items})
 		return nil
 	}
-	m.themes = theme.LoadAll()
 	if !m.SetTheme(request.Name) {
-		m.failV2Job(jobs, jobID, v2NotFoundError())
-		return nil
+		m.themes = theme.LoadAll()
+		if !m.SetTheme(request.Name) {
+			m.failV2Job(jobs, jobID, v2NotFoundError())
+			return nil
+		}
 	}
 	themeName := request.Name
 	if theme.IsDefaultName(themeName) {
@@ -537,21 +548,31 @@ func switchValue(name string, current bool) (on, ok bool) {
 }
 
 func (m *Model) handleV2LibraryRequest(ctx context.Context, jobs *ipc.JobStore, jobID string, request ipc.Request) tea.Cmd {
-	reply := make(chan ipc.Response, 1)
-	cmd := m.handleIPCLibrary(ipcLibraryRequest{
+	inline := request.Cmd == "provider.load" || request.Cmd == "provider.load_album"
+	req := ipcLibraryRequest{
 		Op: request.Cmd, Provider: request.Provider, Playlist: request.Playlist, Query: request.Query,
 		Artist: request.Artist, Album: request.Album, Sort: request.Sort, Offset: request.Offset,
-		Limit: request.Limit, Index: request.Index, NewName: request.NewName, Track: request.Track, Tracks: request.Tracks, Context: ctx, Reply: reply,
-	})
+		Limit: request.Limit, Index: request.Index, NewName: request.NewName, Track: request.Track, Tracks: request.Tracks,
+		Context: ctx,
+	}
+	if inline {
+		req.Jobs = jobs
+		req.JobID = jobID
+		return m.handleIPCLibrary(req)
+	}
+	reply := make(chan ipc.Response, 1)
+	req.Reply = reply
+	cmd := m.handleIPCLibrary(req)
 	return tea.Batch(cmd, waitV2ResponseCmd(ctx, jobs, jobID, reply))
 }
 
 func (m *Model) handleV2DeferredRequest(ctx context.Context, jobs *ipc.JobStore, jobID string, request ipc.Request) tea.Cmd {
+	if request.Cmd == "url.load" {
+		return m.handleIPCURL(ipcURLRequest{URL: request.Path, Play: request.Play, Context: ctx, Jobs: jobs, JobID: jobID})
+	}
 	reply := make(chan ipc.Response, 1)
 	var cmd tea.Cmd
 	switch request.Cmd {
-	case "url.load":
-		cmd = m.handleIPCURL(ipcURLRequest{URL: request.Path, Play: request.Play, Context: ctx, Reply: reply})
 	case "save":
 		cmd = m.handleIPCSave(ipcSaveRequest{Context: ctx, Reply: reply})
 	case "lyrics":
@@ -595,8 +616,11 @@ func (m *Model) completeV2Job(jobs *ipc.JobStore, jobID string, result any) {
 	if !ok || ctx.Err() != nil {
 		return
 	}
-	m.publishIPCRuntimeState()
-	_ = jobs.SucceedWithSnapshot(jobID, marshalV2Result(result), m.runtimeSnapshot())
+	snapshot, published := m.publishIPCRuntimeStateWithSnapshot()
+	if !published {
+		snapshot = m.runtimeSnapshot()
+	}
+	_ = jobs.SucceedWithSnapshot(jobID, marshalV2Result(result), snapshot)
 }
 
 func (m *Model) failV2Job(jobs *ipc.JobStore, jobID string, err *ipc.V2Error) {
@@ -627,13 +651,14 @@ func (m *Model) runtimeSnapshot() ipc.RuntimeSnapshot {
 		snapshot.Revision = m.ipcRuntime.revision
 	}
 	if m.playlist != nil {
-		snapshot.PlaylistRevision = m.playlist.Revision()
-		snapshot.Index = m.playlist.Index()
-		snapshot.Total = m.playlist.Len()
-		snapshot.PlayNextTotal = m.playlist.QueueLen()
-		shuffled := m.playlist.Shuffled()
+		meta := m.playlist.Meta()
+		snapshot.PlaylistRevision = meta.Revision
+		snapshot.Index = meta.Index
+		snapshot.Total = meta.Len
+		snapshot.PlayNextTotal = meta.QueueLen
+		shuffled := meta.Shuffled
 		snapshot.Shuffle = &shuffled
-		snapshot.Repeat = m.playlist.Repeat().String()
+		snapshot.Repeat = meta.Repeat.String()
 		if track, index := m.playlist.Current(); index >= 0 {
 			info := ipcTrackInfo(track, index, m.playlist.QueuePosition(index), m.playlistTrackFavorited(track))
 			snapshot.LogicalTrack = &info
@@ -697,12 +722,18 @@ func (m *Model) runtimeSnapshot() ipc.RuntimeSnapshot {
 }
 
 func (m *Model) publishIPCRuntimeState() {
+	_, _ = m.publishIPCRuntimeStateWithSnapshot()
+}
+
+func (m *Model) publishIPCRuntimeStateWithSnapshot() (ipc.RuntimeSnapshot, bool) {
 	if m.ipcRuntime == nil || m.ipcRuntime.broker == nil || m.player == nil || m.playlist == nil {
-		return
+		return ipc.RuntimeSnapshot{}, false
 	}
 	fingerprint := m.runtimeFingerprint()
-	if m.ipcRuntime.initialized && fingerprint == m.ipcRuntime.last {
-		return
+	wasInit := m.ipcRuntime.initialized
+	prev := m.ipcRuntime.last
+	if wasInit && fingerprint == prev {
+		return ipc.RuntimeSnapshot{}, false
 	}
 	m.ipcRuntime.initialized = true
 	m.ipcRuntime.last = fingerprint
@@ -710,21 +741,68 @@ func (m *Model) publishIPCRuntimeState() {
 	snapshot := m.runtimeSnapshot()
 	payload, err := json.Marshal(snapshot)
 	if err != nil {
-		return
+		return snapshot, true
 	}
-	for _, topic := range []string{ipcRuntimeEventState, ipcRuntimeEventPlayback, ipcRuntimeEventPlaylist, ipcRuntimeEventSettings} {
-		_ = m.ipcRuntime.broker.Publish(topic, payload, true)
+	_ = m.ipcRuntime.broker.Publish(ipcRuntimeEventState, payload, true)
+	if !wasInit || playbackFingerprintChanged(prev, fingerprint) {
+		_ = m.ipcRuntime.broker.Publish(ipcRuntimeEventPlayback, payload, true)
 	}
+	if !wasInit || playlistFingerprintChanged(prev, fingerprint) {
+		_ = m.ipcRuntime.broker.Publish(ipcRuntimeEventPlaylist, payload, true)
+	}
+	if !wasInit || settingsFingerprintChanged(prev, fingerprint) {
+		_ = m.ipcRuntime.broker.Publish(ipcRuntimeEventSettings, payload, true)
+	}
+	return snapshot, true
+}
+
+func playbackFingerprintChanged(a, b ipcRuntimeFingerprint) bool {
+	return a.state != b.state ||
+		a.detached != b.detached ||
+		a.trackPath != b.trackPath ||
+		a.favorite != b.favorite ||
+		a.streamTitle != b.streamTitle ||
+		a.streamError != b.streamError ||
+		a.buffering != b.buffering ||
+		a.durationSecs != b.durationSecs ||
+		a.seekable != b.seekable
+}
+
+func playlistFingerprintChanged(a, b ipcRuntimeFingerprint) bool {
+	return a.playlist != b.playlist ||
+		a.playlistRevision != b.playlistRevision ||
+		a.index != b.index ||
+		a.total != b.total ||
+		a.playNextTotal != b.playNextTotal ||
+		a.shuffle != b.shuffle ||
+		a.repeat != b.repeat ||
+		a.logicalPath != b.logicalPath
+}
+
+func settingsFingerprintChanged(a, b ipcRuntimeFingerprint) bool {
+	return a.volume != b.volume ||
+		a.mono != b.mono ||
+		a.speed != b.speed ||
+		a.eq != b.eq ||
+		a.eqPreset != b.eqPreset ||
+		a.device != b.device ||
+		a.visualizer != b.visualizer ||
+		a.theme != b.theme
 }
 
 func (m *Model) runtimeFingerprint() ipcRuntimeFingerprint {
-	fingerprint := ipcRuntimeFingerprint{playlist: m.runtimePlaylist(), device: m.audioDevice}
-	fingerprint.playlistRevision = m.playlist.Revision()
-	fingerprint.index = m.playlist.Index()
-	fingerprint.total = m.playlist.Len()
-	fingerprint.playNextTotal = m.playlist.QueueLen()
-	fingerprint.shuffle = m.playlist.Shuffled()
-	fingerprint.repeat = m.playlist.Repeat().String()
+	meta := m.playlist.Meta()
+	fingerprint := ipcRuntimeFingerprint{
+		playlist:         m.runtimePlaylist(),
+		device:           m.audioDevice,
+		playlistRevision: meta.Revision,
+		index:            meta.Index,
+		total:            meta.Len,
+		playNextTotal:    meta.QueueLen,
+		shuffle:          meta.Shuffled,
+		repeat:           meta.Repeat.String(),
+		logicalPath:      meta.CurrentPath,
+	}
 	fingerprint.volume = m.player.Volume()
 	fingerprint.mono = m.player.Mono()
 	fingerprint.speed = m.player.Speed()
@@ -733,9 +811,9 @@ func (m *Model) runtimeFingerprint() ipcRuntimeFingerprint {
 	fingerprint.detached = m.playbackDetached
 	fingerprint.streamTitle = m.streamTitle
 	fingerprint.buffering = m.buffering
-	_, duration := m.playbackClock()
+	_, duration := m.cachedClock()
 	fingerprint.durationSecs = int64(duration / time.Second)
-	fingerprint.seekable = m.player.Seekable()
+	fingerprint.seekable = m.playerSeekable()
 	if m.player.IsPlaying() && !m.player.IsPaused() {
 		fingerprint.state = "playing"
 	} else if m.player.IsPaused() {
@@ -747,14 +825,11 @@ func (m *Model) runtimeFingerprint() ipcRuntimeFingerprint {
 		fingerprint.trackPath = track.Path
 		fingerprint.favorite = m.playlistTrackFavorited(track)
 	}
-	if track, _ := m.playlist.Current(); track.Path != "" {
-		fingerprint.logicalPath = track.Path
-	}
 	if m.vis != nil {
 		fingerprint.visualizer = m.vis.ModeName()
 	}
 	fingerprint.theme = m.ThemeName()
-	if err := m.player.StreamErr(); err != nil {
+	if err := m.playerStreamErr(); err != nil {
 		fingerprint.streamError = err.Error()
 	}
 	return fingerprint
@@ -784,8 +859,8 @@ func (m *Model) v2PlaylistResponsePage(offset, limit int) ipc.Response {
 	if offset < 0 || offset >= total {
 		return ipc.Response{OK: true, Index: m.playlist.Index(), Total: total}
 	}
-	if limit <= 0 || limit > 200 {
-		limit = 200
+	if limit <= 0 || limit > maxIPCResponseTracks {
+		limit = maxIPCResponseTracks
 	}
 	end := min(total, offset+limit)
 	items := make([]ipc.TrackInfo, end-offset)
@@ -806,8 +881,8 @@ func (m *Model) v2PlayNextResponsePage(offset, limit int) ipc.Response {
 	if offset < 0 || offset >= total {
 		return ipc.Response{OK: true, Total: total}
 	}
-	if limit <= 0 || limit > 200 {
-		limit = 200
+	if limit <= 0 || limit > maxIPCResponseTracks {
+		limit = maxIPCResponseTracks
 	}
 	end := min(total, offset+limit)
 	items := make([]ipc.TrackInfo, end-offset)

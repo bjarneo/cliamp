@@ -23,7 +23,10 @@ const (
 	modNoRepeat = 0x4000
 	modWin      = 0x0008
 
-	wmHotkey = 0x0312
+	wmHotkey   = 0x0312
+	pmNoRemove = 0x0000
+
+	maxDispatchQueue = 64
 
 	hotkeyIDPlayPause = 1
 	hotkeyIDNext      = 2
@@ -70,6 +73,7 @@ var (
 	user32                 = windows.NewLazySystemDLL("user32.dll")
 	procRegisterHotKey     = user32.NewProc("RegisterHotKey")
 	procUnregisterHotKey   = user32.NewProc("UnregisterHotKey")
+	procPeekMessageW       = user32.NewProc("PeekMessageW")
 	procGetMessageW        = user32.NewProc("GetMessageW")
 	procTranslateMessage   = user32.NewProc("TranslateMessage")
 	procDispatchMessageW   = user32.NewProc("DispatchMessageW")
@@ -94,6 +98,11 @@ type Service struct {
 	threadID  uint32
 	stopped   chan struct{}
 	closeOnce sync.Once
+
+	queueMu sync.Mutex
+	queue   []tea.Msg
+	wake    chan struct{}
+	done    chan struct{}
 }
 
 // New registers the media-key hotkeys and starts pumping their Win32 message
@@ -102,7 +111,14 @@ type Service struct {
 // to D-Bus and exports MPRIS. OS media-key integration is live once New
 // returns. Run only runs the program on Windows.
 func New(send func(tea.Msg)) (*Service, error) {
-	svc := &Service{send: send, stopped: make(chan struct{})}
+	svc := &Service{
+		send:    send,
+		stopped: make(chan struct{}),
+		wake:    make(chan struct{}, 1),
+		done:    make(chan struct{}),
+	}
+
+	go svc.forwardMessages()
 
 	ready := make(chan uint32, 1)
 	go svc.runMessageLoop(ready)
@@ -113,6 +129,65 @@ func New(send func(tea.Msg)) (*Service, error) {
 
 func Run(prog *tea.Program, svc *Service) (tea.Model, error) {
 	return prog.Run()
+}
+
+// dispatch queues msg without blocking the Win32 message loop thread.
+func (s *Service) dispatch(msg tea.Msg) {
+	if s == nil {
+		return
+	}
+	if s.done != nil {
+		select {
+		case <-s.done:
+			return
+		default:
+		}
+	}
+	s.queueMu.Lock()
+	if len(s.queue) >= maxDispatchQueue {
+		copy(s.queue, s.queue[1:])
+		s.queue[len(s.queue)-1] = msg
+	} else {
+		s.queue = append(s.queue, msg)
+	}
+	s.queueMu.Unlock()
+	if s.wake != nil {
+		select {
+		case s.wake <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// forwardMessages delivers queued hotkey messages until Close stops the loop.
+func (s *Service) forwardMessages() {
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-s.wake:
+		}
+		for {
+			s.queueMu.Lock()
+			if len(s.queue) == 0 {
+				s.queueMu.Unlock()
+				break
+			}
+			msgs := s.queue
+			s.queue = nil
+			s.queueMu.Unlock()
+			for _, msg := range msgs {
+				select {
+				case <-s.done:
+					return
+				default:
+				}
+				if s.send != nil {
+					s.send(msg)
+				}
+			}
+		}
+	}
 }
 
 // runMessageLoop must run on a dedicated OS thread: Win32 message queues are
@@ -134,9 +209,12 @@ func (s *Service) runMessageLoop(ready chan<- uint32) {
 		}
 	}()
 
+	var m win32Msg
+	// Create the thread message queue before New returns threadID to callers.
+	procPeekMessageW.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0, pmNoRemove)
+
 	ready <- windows.GetCurrentThreadId()
 
-	var m win32Msg
 	for {
 		ret, _, _ := procGetMessageW.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)
 		if int32(ret) <= 0 {
@@ -145,7 +223,7 @@ func (s *Service) runMessageLoop(ready chan<- uint32) {
 
 		if m.message == wmHotkey {
 			if msg, ok := hotkeyMsg(int32(m.wParam)); ok {
-				s.send(msg)
+				s.dispatch(msg)
 			}
 			continue
 		}
@@ -182,9 +260,31 @@ func unregisterHotKey(id int) {
 	procUnregisterHotKey.Call(0, uintptr(id))
 }
 
-func postThreadMessageW(threadID uint32) {
+func postThreadMessageW(threadID uint32) bool {
 	const wmQuit = 0x0012
-	procPostThreadMessageW.Call(uintptr(threadID), wmQuit, 0, 0)
+	ret, _, _ := procPostThreadMessageW.Call(uintptr(threadID), wmQuit, 0, 0)
+	return ret != 0
+}
+
+// stopMessageLoop posts WM_QUIT and retries until the post succeeds or the loop stops.
+func stopMessageLoop(threadID uint32, stopped <-chan struct{}, post func(uint32) bool) {
+	if post(threadID) {
+		<-stopped
+		return
+	}
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stopped:
+			return
+		case <-ticker.C:
+			if post(threadID) {
+				<-stopped
+				return
+			}
+		}
+	}
 }
 
 func (s *Service) Update(state playback.State) {}
@@ -199,7 +299,11 @@ func (s *Service) Close() {
 		return
 	}
 	s.closeOnce.Do(func() {
-		postThreadMessageW(s.threadID)
-		<-s.stopped
+		if s.done != nil {
+			close(s.done)
+		}
+		if s.stopped != nil {
+			stopMessageLoop(s.threadID, s.stopped, postThreadMessageW)
+		}
 	})
 }

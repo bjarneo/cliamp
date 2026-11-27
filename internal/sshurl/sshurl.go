@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"strings"
+	"unicode"
 )
 
 // Parsed holds the components of an ssh:// URL.
@@ -22,7 +23,7 @@ func (p Parsed) SSHArgs() []string {
 	if p.Port != "" {
 		args = append(args, "-p", p.Port)
 	}
-	args = append(args, p.Host)
+	args = append(args, "--", p.Host)
 	return args
 }
 
@@ -40,15 +41,21 @@ func Parse(raw string) (Parsed, error) {
 		return Parsed{}, fmt.Errorf("ssh URL missing path: %s", raw)
 	}
 
-	host := u.Hostname()
-	if u.User != nil {
-		host = u.User.Username() + "@" + host
+	hostname := u.Hostname()
+	if hostname == "" {
+		return Parsed{}, fmt.Errorf("invalid ssh URL %q: missing host", raw)
+	}
+	if !validSSHComponent(hostname) {
+		return Parsed{}, fmt.Errorf("invalid ssh URL %q: host %q contains disallowed characters", raw, hostname)
 	}
 
-	// Reject hostnames that start with - (ssh -o option prefix) or contain =
-	// (= would separate a key/value pair, neither a valid hostname pattern).
-	if strings.HasPrefix(host, "-") || strings.Contains(host, "=") {
-		return Parsed{}, fmt.Errorf("invalid ssh URL %q: host %q contains disallowed characters", raw, host)
+	host := hostname
+	if u.User != nil {
+		username := u.User.Username()
+		if username == "" || !validSSHComponent(username) {
+			return Parsed{}, fmt.Errorf("invalid ssh URL %q: username %q contains disallowed characters", raw, username)
+		}
+		host = username + "@" + hostname
 	}
 
 	port := u.Port()
@@ -64,4 +71,22 @@ func Parse(raw string) (Parsed, error) {
 		Port: port,
 		Path: u.Path,
 	}, nil
+}
+
+// validSSHComponent rejects leading dashes, whitespace, control characters,
+// equals signs, and shell metacharacters in SSH usernames and hostnames.
+func validSSHComponent(s string) bool {
+	if s == "" || strings.HasPrefix(s, "-") {
+		return false
+	}
+	for _, r := range s {
+		if unicode.IsSpace(r) || unicode.IsControl(r) {
+			return false
+		}
+		switch r {
+		case '=', '/', '@', '\\', ';', '&', '|', '`', '$', '(', ')', '<', '>', '\'', '"', '!', '*', '?', '[', ']', '{', '}', '~', '#', '%':
+			return false
+		}
+	}
+	return true
 }

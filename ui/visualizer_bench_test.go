@@ -77,55 +77,104 @@ var benchDriverModes = []VisMode{
 	VisScope,
 }
 
+// benchFullscreenModes lists the heavy modes covered at 200x40 fullscreen size.
+var benchFullscreenModes = []VisMode{
+	VisBars,
+	VisWave,
+	VisMatrix,
+	VisFlame,
+	VisClassicPeak,
+	VisClassicLED,
+	VisOmarchy,
+	VisEthereal,
+	VisYinYang,
+}
+
+func benchRenderMode(b *testing.B, mode VisMode, cols, rows int) {
+	samples := benchSamplesSine(classicPeakFFTSize)
+	v := NewVisualizer(benchSampleRate)
+	v.Mode = mode
+	v.Cols = cols
+	v.Rows = rows
+	now := time.Unix(1_700_000_000, 0)
+	ctx := VisTickContext{
+		Now:     now,
+		Playing: true,
+		Analyze: func(spec VisAnalysisSpec) []float64 {
+			spec = NormalizeAnalysisSpec(spec)
+			return v.Analyze(samples[:min(len(samples), spec.FFTSize)], spec)
+		},
+	}
+	for range 4 {
+		ctx.Now = ctx.Now.Add(TickFast)
+		v.Tick(ctx)
+	}
+	if v.Render() == "" {
+		b.Fatal("Render() returned empty output")
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		ctx.Now = ctx.Now.Add(TickFast)
+		_ = v.Render()
+	}
+}
+
+func benchTickPipelineMode(b *testing.B, mode VisMode, cols, rows int) {
+	samples := benchSamplesSine(classicPeakFFTSize)
+	v := NewVisualizer(benchSampleRate)
+	v.Mode = mode
+	v.Cols = cols
+	v.Rows = rows
+	now := time.Unix(1_700_000_000, 0)
+	ctx := VisTickContext{
+		Now:     now,
+		Playing: true,
+		Analyze: func(spec VisAnalysisSpec) []float64 {
+			spec = NormalizeAnalysisSpec(spec)
+			return v.Analyze(samples[:min(len(samples), spec.FFTSize)], spec)
+		},
+	}
+	ctx.Now = ctx.Now.Add(TickFast)
+	v.Tick(ctx)
+	if v.Render() == "" {
+		b.Fatal("Render() returned empty output")
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		ctx.Now = ctx.Now.Add(TickFast)
+		v.Tick(ctx)
+		_ = v.Render()
+	}
+}
+
 func BenchmarkRender(b *testing.B) {
-	samples := benchSamplesSine(defaultFFTSize)
 	for _, mode := range benchDriverModes {
 		name := visModes[mode].name
 		b.Run(name, func(b *testing.B) {
-			v := NewVisualizer(benchSampleRate)
-			v.Mode = mode
-			v.Rows = 5
-			// Prime driver state and bands so Render reflects realistic output.
-			ctx := VisTickContext{
-				Now:     time.Now(),
-				Playing: true,
-				Analyze: func(spec VisAnalysisSpec) []float64 {
-					return v.Analyze(samples, spec)
-				},
-			}
-			for range 4 {
-				v.Tick(ctx)
-			}
-			b.ReportAllocs()
-			b.ResetTimer()
-			for b.Loop() {
-				_ = v.Render()
-			}
+			benchRenderMode(b, mode, 80, 5)
+		})
+	}
+	for _, mode := range benchFullscreenModes {
+		name := visModes[mode].name
+		b.Run("200x40/"+name, func(b *testing.B) {
+			benchRenderMode(b, mode, 200, 40)
 		})
 	}
 }
 
 func BenchmarkTickPipeline(b *testing.B) {
-	samples := benchSamplesSine(defaultFFTSize)
 	for _, mode := range benchDriverModes {
 		name := visModes[mode].name
 		b.Run(name, func(b *testing.B) {
-			v := NewVisualizer(benchSampleRate)
-			v.Mode = mode
-			v.Rows = 5
-			ctx := VisTickContext{
-				Now:     time.Now(),
-				Playing: true,
-				Analyze: func(spec VisAnalysisSpec) []float64 {
-					return v.Analyze(samples, spec)
-				},
-			}
-			b.ReportAllocs()
-			b.ResetTimer()
-			for b.Loop() {
-				v.Tick(ctx)
-				_ = v.Render()
-			}
+			benchTickPipelineMode(b, mode, 80, 5)
+		})
+	}
+	for _, mode := range benchFullscreenModes {
+		name := visModes[mode].name
+		b.Run("200x40/"+name, func(b *testing.B) {
+			benchTickPipelineMode(b, mode, 200, 40)
 		})
 	}
 }

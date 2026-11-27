@@ -73,10 +73,10 @@ provider = "plex"
 cliamp calls the Plex HTTP API to list audio playlists (`/playlists`) and music library albums. When you select an entry, cliamp gets its track list from the playlist-items or album-children endpoint. It then creates authenticated streaming URLs in this form:
 
 ```
-http://<server>:32400/library/parts/<partID>/<timestamp>/file.<ext>?X-Plex-Token=<token>
+http://<server>:32400/library/parts/<partID>/<timestamp>/file.<ext>?download=1&X-Plex-Token=<token>
 ```
 
-These URLs serve files directly. Plex serves the original file without transcoding. cliamp handles playback through its HTTP streaming pipeline. cliamp can play MP3, FLAC, AAC, OGG, OPUS, WAV, and other supported source formats.
+These URLs serve files directly. Plex serves the original file without transcoding: cliamp asks for it with `download=1`, as Plexamp does, so Plex does not check the file against a client profile. Without it Plex refuses FLAC files it has analyzed with HTTP 500. cliamp handles playback through its HTTP streaming pipeline. cliamp can play MP3, FLAC, AAC, OGG, OPUS, WAV, and other supported source formats.
 
 ## Troubleshooting
 

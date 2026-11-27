@@ -21,14 +21,27 @@ import (
 const (
 	defaultAPIBase = "https://api.music.yandex.net"
 	// trackURISecret is the public signing secret used to build CDN stream URLs.
-	trackURISecret = "XGRlBW9FXlekgbPrRHuSiA"
-	apiTimeout     = 15 * time.Second
-	dlTimeout      = 30 * time.Second
-	timestampFmt   = "2006-01-02T15:04:05.999Z"
+	trackURISecret      = "XGRlBW9FXlekgbPrRHuSiA"
+	apiTimeout          = 15 * time.Second
+	dlTimeout           = 30 * time.Second
+	timestampFmt        = "2006-01-02T15:04:05.999Z"
+	maxResponseBody     = 20 << 20
+	maxDownloadInfoBody = 1 << 20
 )
 
 // downloadInfoClient fetches the download info documents, which need no token.
-var downloadInfoClient = httpclient.NewAPI(dlTimeout)
+var downloadInfoClient = newDownloadInfoClient()
+
+func newDownloadInfoClient() *http.Client {
+	c := httpclient.NewAPI(dlTimeout)
+	c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return fmt.Errorf("yandex: stopped after 10 redirects")
+		}
+		return fullDownloadInfoGuard(req.URL.String())
+	}
+	return c
+}
 
 // fullDownloadInfoGuard validates the API-provided download info URL before
 // it is fetched (token-free). Tests override it to point at httptest servers.
@@ -246,7 +259,7 @@ func decodeAPIResponse(resp *http.Response, out any) error {
 	var envelope struct {
 		Result json.RawMessage `json:"result"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+	if err := httpclient.ReadJSON(resp.Body, maxResponseBody, &envelope); err != nil {
 		return fmt.Errorf("yandex: decode response: %w", err)
 	}
 	if out != nil && len(envelope.Result) > 0 && string(envelope.Result) != "null" {
@@ -320,6 +333,28 @@ func (c *client) likedTracks(ctx context.Context, userID uint64) ([]string, erro
 	return ids, nil
 }
 
+// likeTracks adds the given tracks to the user's liked tracks.
+func (c *client) likeTracks(ctx context.Context, userID uint64, trackIDs []string) error {
+	if len(trackIDs) == 0 {
+		return nil
+	}
+	params := url.Values{
+		"track-ids": {strings.Join(trackIDs, ",")},
+	}
+	return c.apiPost(ctx, fmt.Sprintf("/users/%d/likes/tracks/add-multiple", userID), params, nil)
+}
+
+// unlikeTracks removes the given tracks from the user's liked tracks.
+func (c *client) unlikeTracks(ctx context.Context, userID uint64, trackIDs []string) error {
+	if len(trackIDs) == 0 {
+		return nil
+	}
+	params := url.Values{
+		"track-ids": {strings.Join(trackIDs, ",")},
+	}
+	return c.apiPost(ctx, fmt.Sprintf("/users/%d/likes/tracks/remove", userID), params, nil)
+}
+
 // tracks resolves track details for the given ids in one batched request.
 func (c *client) tracks(ctx context.Context, ids []string) ([]track, error) {
 	if len(ids) == 0 {
@@ -384,14 +419,25 @@ func (c *client) streamURL(ctx context.Context, trackID string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	return buildStreamURL(info, full), nil
+	return buildStreamURL(info, full)
 }
 
 // buildStreamURL constructs the self-authorizing CDN URL from download info.
-func buildStreamURL(info downloadInfo, full fullDownloadInfo) string {
+func buildStreamURL(info downloadInfo, full fullDownloadInfo) (string, error) {
+	if full.Host == "" || strings.ContainsAny(full.Host, "/?#@\\ \t\r\n") {
+		return "", fmt.Errorf("yandex: invalid stream host %q", full.Host)
+	}
+	if !strings.HasPrefix(full.Path, "/") || len(full.Path) < 2 || strings.ContainsAny(full.Path, "\r\n") {
+		return "", fmt.Errorf("yandex: invalid stream path %q", full.Path)
+	}
 	sum := md5.Sum([]byte(trackURISecret + full.Path[1:] + full.S))
 	hash := hex.EncodeToString(sum[:])
-	return "https://" + full.Host + "/get-" + info.Codec + "/" + hash + "/" + full.Ts + full.Path
+	raw := "https://" + full.Host + "/get-" + info.Codec + "/" + hash + "/" + full.Ts + full.Path
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host != full.Host || u.User != nil {
+		return "", fmt.Errorf("yandex: invalid stream URL for host %q", full.Host)
+	}
+	return u.String(), nil
 }
 
 func (c *client) fullDownloadInfo(ctx context.Context, infoURL string) (fullDownloadInfo, error) {
@@ -418,7 +464,7 @@ func (c *client) fullDownloadInfo(ctx context.Context, infoURL string) (fullDown
 	if resp.StatusCode != http.StatusOK {
 		return full, fmt.Errorf("yandex: download info status %s", resp.Status)
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&full); err != nil {
+	if err := httpclient.ReadJSON(resp.Body, maxDownloadInfoBody, &full); err != nil {
 		return full, fmt.Errorf("yandex: decode download info: %w", err)
 	}
 	if full.Host == "" || len(full.Path) < 2 {

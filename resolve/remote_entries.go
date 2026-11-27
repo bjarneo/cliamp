@@ -21,15 +21,62 @@ import (
 // transport, and quietly dropping them would change what users see in their
 // playlists. A single-letter prefix is treated as a Windows drive rather than
 // a scheme, so "C:\music\a.mp3" survives.
+// isAllowedRemoteEntry reports whether a remote playlist entry path uses no
+// scheme or an http or https scheme.
+func isAllowedRemoteEntry(path string) bool {
+	switch URIScheme(path) {
+	case "", "http", "https":
+		return true
+	default:
+		return false
+	}
+}
+
 func filterRemoteEntries(tracks []playlist.Track) []playlist.Track {
 	filtered := make([]playlist.Track, 0, len(tracks))
 	for _, t := range tracks {
-		switch URIScheme(t.Path) {
-		case "", "http", "https":
+		if isAllowedRemoteEntry(t.Path) {
 			filtered = append(filtered, t)
 		}
 	}
 	return filtered
+}
+
+// filterRemoteM3UEntries removes disallowed URI schemes before track conversion.
+func filterRemoteM3UEntries(entries []m3uEntry) []m3uEntry {
+	filtered := make([]m3uEntry, 0, len(entries))
+	for _, e := range entries {
+		if isAllowedRemoteEntry(e.Path) {
+			filtered = append(filtered, e)
+		}
+	}
+	return filtered
+}
+
+// filterRemotePLSEntries removes disallowed URI schemes before track conversion.
+func filterRemotePLSEntries(entries []plsEntry) []plsEntry {
+	filtered := make([]plsEntry, 0, len(entries))
+	for _, e := range entries {
+		if isAllowedRemoteEntry(e.File) {
+			filtered = append(filtered, e)
+		}
+	}
+	return filtered
+}
+
+// remoteTrackFromPath builds a Track for a remote playlist entry without
+// opening local files.
+func remoteTrackFromPath(path string) playlist.Track {
+	if playlist.IsURL(path) {
+		return playlist.TrackFromPath(path)
+	}
+	scheme := URIScheme(path)
+	if scheme == "http" || scheme == "https" {
+		t := playlist.TrackFromPath(scheme + path[len(scheme):])
+		t.Path = path
+		return t
+	}
+	return playlist.TrackFromFilename(path)
 }
 
 // URIScheme returns the lowercased scheme of s, or "" when s does not begin

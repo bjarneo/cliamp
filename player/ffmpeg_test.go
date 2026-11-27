@@ -109,6 +109,16 @@ func TestStreamFromReaderDecodesBlock(t *testing.T) {
 			f32:  true,
 			want: [][2]float64{{0.5, -0.5}, {1, -1}, {0.25, 0.75}},
 		},
+		{
+			name: "f32 non-finite sanitized to zero",
+			pcm: encodeF32(
+				[2]float32{float32(math.NaN()), 0.5},
+				[2]float32{-0.25, float32(math.NaN())},
+				[2]float32{float32(math.Inf(1)), float32(math.Inf(-1))},
+			),
+			f32:  true,
+			want: [][2]float64{{0, 0.5}, {-0.25, 0}, {0, 0}},
+		},
 	}
 
 	for _, tt := range tests {
@@ -228,7 +238,8 @@ func TestFFmpegPipeEmptyDestinationDoesNotWait(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	f := &ffmpegPipe{pipeReport: pipeReport{state: newPipeStreamState(0)}, proc: proc}
+	f := &ffmpegPipe{proc: proc}
+	f.setState(newPipeStreamState(0))
 	defer f.stop()
 
 	done := make(chan struct{})
@@ -252,9 +263,9 @@ func TestFFmpegPipeEmptyDestinationDoesNotWait(t *testing.T) {
 func TestFFmpegPipeErrConcurrentWithStream(t *testing.T) {
 	readErr := errors.New("pcm read failed")
 	f := &ffmpegPipe{
-		pipeReport: pipeReport{state: newPipeStreamState(0)},
-		reader:     bufio.NewReader(&readResult{data: []byte{1}, err: readErr}),
+		reader: bufio.NewReader(&readResult{data: []byte{1}, err: readErr}),
 	}
+	f.setState(newPipeStreamState(0))
 	testPipeErrConcurrentWithStream(t, f, readErr)
 }
 
@@ -274,10 +285,10 @@ func TestFFmpegPipeLiveEOF(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := &ffmpegPipe{
-				pipeReport: pipeReport{state: newPipeStreamState(0)},
-				reader:     bufio.NewReader(bytes.NewReader(nil)), // immediate EOF
-				live:       tt.live,
+				reader: bufio.NewReader(bytes.NewReader(nil)), // immediate EOF
+				live:   tt.live,
 			}
+			f.setState(newPipeStreamState(0))
 			samples := make([][2]float64, 8)
 			n, ok := f.Stream(samples)
 			if n != 0 || ok {
@@ -314,7 +325,7 @@ printf '2.5\n'
 		t.Fatal(err)
 	}
 	p := &Player{sr: beep.SampleRate(100), bitDepth: 16}
-	tp, err := p.buildPipeline(path, 0)
+	tp, err := p.buildPipeline(path, 0, nil)
 	if err != nil {
 		t.Fatalf("buildPipeline() error = %v", err)
 	}
@@ -932,6 +943,11 @@ func TestPipeReport(t *testing.T) {
 	failed := errors.New("pipe failed")
 	state := newPipeStreamState(40)
 	state.err.publish(failed)
+	localPipe := &localFFmpegStreamer{}
+	localPipe.setState(state)
+	localPipe.setTotal(100)
+	ytdlPipe := &ytdlPipeStreamer{}
+	ytdlPipe.setState(state)
 	tests := []struct {
 		name    string
 		decoder beep.StreamSeekCloser
@@ -940,9 +956,9 @@ func TestPipeReport(t *testing.T) {
 		wantPos int
 	}{
 		{name: "ffmpeg pipe before start", decoder: &ffmpegPipeStreamer{}},
-		{name: "ffmpeg pipe", decoder: &localFFmpegStreamer{ffmpegPipe: ffmpegPipe{pipeReport: pipeReport{state: state, total: 100}}}, wantErr: failed, wantLen: 100, wantPos: 40},
+		{name: "ffmpeg pipe", decoder: localPipe, wantErr: failed, wantLen: 100, wantPos: 40},
 		{name: "yt-dlp pipe before start", decoder: &ytdlPipeStreamer{}},
-		{name: "yt-dlp pipe", decoder: &ytdlPipeStreamer{pipeReport: pipeReport{state: state}}, wantErr: failed, wantPos: 40},
+		{name: "yt-dlp pipe", decoder: ytdlPipe, wantErr: failed, wantPos: 40},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -956,5 +972,259 @@ func TestPipeReport(t *testing.T) {
 				t.Errorf("Position() = %d, want %d", got, tt.wantPos)
 			}
 		})
+	}
+}
+
+func TestDecodePCMFrameRejectsNonFiniteF32(t *testing.T) {
+	tests := []struct {
+		name string
+		in   [2]float32
+		want [2]float64
+	}{
+		{name: "finite values", in: [2]float32{0.5, -0.25}, want: [2]float64{0.5, -0.25}},
+		{name: "NaN left", in: [2]float32{float32(math.NaN()), 0.5}, want: [2]float64{0, 0.5}},
+		{name: "NaN right", in: [2]float32{0.5, float32(math.NaN())}, want: [2]float64{0.5, 0}},
+		{name: "positive and negative Inf", in: [2]float32{float32(math.Inf(1)), float32(math.Inf(-1))}, want: [2]float64{0, 0}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := decodePCMFrame(encodeF32(tt.in), true)
+			if got != tt.want {
+				t.Fatalf("decodePCMFrame() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+type blockingCloser struct {
+	mu      sync.Mutex
+	closed  int
+	release chan struct{}
+}
+
+func (b *blockingCloser) Close() error {
+	b.mu.Lock()
+	b.closed++
+	b.mu.Unlock()
+	if b.release != nil {
+		<-b.release
+	}
+	return nil
+}
+
+func TestFFmpegPipeStreamDoesNotBlockOnInputOrProcess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX process fixture")
+	}
+	cmd := exec.Command("sleep", "30")
+	proc := newFFmpegProcess(cmd)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	proc.startMonitor()
+
+	bc := &blockingCloser{release: make(chan struct{})}
+	f := &ffmpegPipe{
+		proc:   proc,
+		reader: bufio.NewReader(bytes.NewReader(nil)),
+		input:  bc,
+	}
+	f.setState(newPipeStreamState(0))
+
+	start := time.Now()
+	n, ok := f.Stream(make([][2]float64, 4))
+	elapsed := time.Since(start)
+	if n != 0 || ok {
+		t.Fatalf("Stream() = (%d, %v), want (0, false)", n, ok)
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("Stream() blocked for %v on active process", elapsed)
+	}
+	bc.mu.Lock()
+	closedInStream := bc.closed
+	bc.mu.Unlock()
+	if closedInStream != 0 {
+		t.Fatalf("Stream() called input.Close %d times, want 0", closedInStream)
+	}
+
+	close(bc.release)
+	if err := f.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	bc.mu.Lock()
+	closedAfterClose := bc.closed
+	bc.mu.Unlock()
+	if closedAfterClose == 0 {
+		t.Fatal("Close() did not close input")
+	}
+	if proc.cmd.ProcessState == nil {
+		t.Fatal("Close() did not reap FFmpeg process")
+	}
+}
+
+func TestFFmpegPipePartialFinalReadReportsErrorAndTotal(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX shell fixtures")
+	}
+	tests := []struct {
+		name      string
+		script    string
+		wantN     int
+		wantTotal int
+		wantErr   string
+	}{
+		{
+			name:      "partial final read captures mid-stream ffmpeg error",
+			script:    "printf '\\000\\100\\000\\300'\nprintf 'mid-stream failure\\n' >&2\nexit 8\n",
+			wantN:     1,
+			wantTotal: 1,
+			wantErr:   "mid-stream failure",
+		},
+		{
+			name:      "partial final read updates unknown local total",
+			script:    "printf '\\000\\100\\000\\300\\000\\100\\000\\300'\n",
+			wantN:     2,
+			wantTotal: 2,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeExecutable(t, filepath.Join(dir, "ffmpeg"), "#!/bin/sh\n"+tt.script)
+			writeExecutable(t, filepath.Join(dir, "ffprobe"), "#!/bin/sh\nprintf '0\\n'\n")
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+			decoder, _, err := decodeFFmpegLocal(filepath.Join(dir, "partial.m4a"), beep.SampleRate(100), 16)
+			if err != nil {
+				t.Fatalf("decodeFFmpegLocal() error = %v", err)
+			}
+			defer decoder.Close()
+
+			// Request more frames than ffmpeg writes so EOF hits on a partial read.
+			n, ok := decoder.Stream(make([][2]float64, 8))
+			if n != tt.wantN || !ok {
+				t.Fatalf("Stream() = (%d, %v), want (%d, true)", n, ok, tt.wantN)
+			}
+			if got := decoder.Len(); got != tt.wantTotal {
+				t.Fatalf("Len() = %d after partial final read, want %d", got, tt.wantTotal)
+			}
+			if tt.wantErr != "" {
+				if err := decoder.Err(); err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("Err() = %v, want containing %q", err, tt.wantErr)
+				}
+			} else if err := decoder.Err(); err != nil {
+				t.Fatalf("Err() = %v, want nil", err)
+			}
+		})
+	}
+}
+
+func TestLocalFFmpegSafeFilePaths(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX shell fixtures")
+	}
+	tests := []struct {
+		name     string
+		filename string
+	}{
+		{name: "leading dash", filename: "-leading-dash.m4a"},
+		{name: "colon in name", filename: "http:colon-name.m4a"},
+		{name: "dash and colon", filename: "-a:b.m4a"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			ffmpegArgsPath := filepath.Join(dir, "ffmpeg.args")
+			ffprobeArgsPath := filepath.Join(dir, "ffprobe.args")
+			writeExecutable(t, filepath.Join(dir, "ffmpeg"), `#!/bin/sh
+printf '%s\n' "$@" > "$TEST_FFMPEG_ARGS"
+printf '\000\100\000\300'
+`)
+			writeExecutable(t, filepath.Join(dir, "ffprobe"), `#!/bin/sh
+printf '%s\n' "$@" > "$TEST_FFPROBE_ARGS"
+printf '1.0\n'
+`)
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv("TEST_FFMPEG_ARGS", ffmpegArgsPath)
+			t.Setenv("TEST_FFPROBE_ARGS", ffprobeArgsPath)
+
+			target := filepath.Join(dir, tt.filename)
+			decoder, _, err := decodeFFmpegLocal(target, beep.SampleRate(100), 16)
+			if err != nil {
+				t.Fatalf("decodeFFmpegLocal() error = %v", err)
+			}
+			_ = decoder.Close()
+
+			wantInput := "file:" + target
+			for label, argsFile := range map[string]string{"ffmpeg": ffmpegArgsPath, "ffprobe": ffprobeArgsPath} {
+				raw, err := os.ReadFile(argsFile)
+				if err != nil {
+					t.Fatalf("read %s args: %v", label, err)
+				}
+				lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+				foundWhitelist := false
+				foundInput := false
+				for i := range lines {
+					if lines[i] == "-protocol_whitelist" && i+1 < len(lines) && lines[i+1] == "file" {
+						foundWhitelist = true
+					}
+					if lines[i] == "-i" && i+1 < len(lines) && lines[i+1] == wantInput {
+						foundInput = true
+					}
+				}
+				if !foundWhitelist {
+					t.Errorf("%s args missing -protocol_whitelist file: %q", label, lines)
+				}
+				if !foundInput {
+					t.Errorf("%s args missing -i %q: %q", label, wantInput, lines)
+				}
+			}
+		})
+	}
+}
+
+func TestNavFFmpegCloseCancelsProbeAndKillsBeforeInputDone(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX shell fixtures")
+	}
+	dir := t.TempDir()
+	probeStarted := filepath.Join(dir, "probe-started")
+	writeExecutable(t, filepath.Join(dir, "ffmpeg"), `#!/bin/sh
+# Leave stdout and stdin unread to exercise full-pipe shutdown ordering.
+exec sleep 30
+`)
+	writeExecutable(t, filepath.Join(dir, "ffprobe"), `#!/bin/sh
+: > "$TEST_PROBE_STARTED"
+exec sleep 30
+`)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("TEST_PROBE_STARTED", probeStarted)
+
+	// Large payload fills the OS stdin pipe buffer while ffmpeg sleeps.
+	payload := bytes.Repeat([]byte("A"), 512*1024)
+	nb := newCompletedTestNavBuffer(t, payload)
+	decoder, _, err := decodeNavFFmpeg(nb, beep.SampleRate(100), 16)
+	if err != nil {
+		t.Fatalf("decodeNavFFmpeg() error = %v", err)
+	}
+	if !waitForPath(probeStarted) {
+		_ = decoder.Close()
+		t.Fatal("background ffprobe did not start")
+	}
+
+	start := time.Now()
+	if err := decoder.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Fatalf("Close() took %v with active probe and full stdin pipe", elapsed)
+	}
+	select {
+	case <-decoder.probeDone:
+	default:
+		t.Fatal("Close() returned before probeDownloadedLength exited")
+	}
+	if decoder.proc.cmd.ProcessState == nil {
+		t.Fatal("Close() returned before FFmpeg was reaped")
 	}
 }

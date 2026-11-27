@@ -9,33 +9,49 @@ func (v *Visualizer) renderColumns(bands []float64) string {
 	bandCount := len(bands)
 	width := v.columns()
 
-	// Compute per-band column counts; cols below is a flat level per display column.
-	bandCols := make([]int, bandCount)
+	// Reuse per-band column counts and flat interpolated display columns.
+	if cap(v.bandColsBuf) < bandCount {
+		v.bandColsBuf = make([]int, bandCount)
+	} else {
+		v.bandColsBuf = v.bandColsBuf[:bandCount]
+	}
+	bandCols := v.bandColsBuf
 	for b := range bandCount {
 		bandCols[b] = visBandWidth(bandCount, b, width)
 	}
 
-	cols := interpolateBandColumns(bands, bandCols)
-	lines := make([]string, height)
+	v.interpColsBuf = interpolateBandColumnsInto(v.interpColsBuf, bands, bandCols)
+	cols := v.interpColsBuf
+
+	var sb strings.Builder
+	sb.Grow(height * (width*3 + 24))
 
 	for row := range height {
-		var content strings.Builder
+		if row > 0 {
+			sb.WriteByte('\n')
+		}
 		rowBottom := float64(height-1-row) / float64(height)
 		rowTop := float64(height-row) / float64(height)
+		style := specANSI[specTag(rowBottom)]
+		if style.prefix != "" {
+			sb.WriteString(style.prefix)
+		}
 		offset := 0
 
 		for b := range bandCount {
 			for c := range bandCols[b] {
 				level := cols[offset+c]
-				content.WriteString(fracBlock(level, rowBottom, rowTop))
+				sb.WriteString(fracBlock(level, rowBottom, rowTop))
 			}
 			offset += bandCols[b]
 			if bandGapAfter(bandCount, b, width) {
-				content.WriteByte(' ')
+				sb.WriteByte(' ')
 			}
 		}
-		lines[row] = specWrap(rowBottom, content.String())
+		if style.prefix != "" {
+			sb.WriteString(style.suffix)
+		}
 	}
 
-	return strings.Join(lines, "\n")
+	return sb.String()
 }

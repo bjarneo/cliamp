@@ -40,6 +40,9 @@ func (m *Model) notifyPlaybackChange() {
 		return
 	}
 	track, state := m.playbackState()
+	if m.artRef != nil && m.artRef.get() != state.Track.ArtURL {
+		m.artRef.set(state.Track.ArtURL)
+	}
 	key := state
 	key.Position = key.Position.Truncate(time.Second)
 	if m.notice.sent && key == m.notice.state {
@@ -51,6 +54,9 @@ func (m *Model) notifyPlaybackChange() {
 	}
 	if hook {
 		data := trackEventData(track, state.Track.Duration)
+		// state.Track.ArtURL is the cover the provider resolved for this track,
+		// which is not on the playlist row when the provider reads it on demand.
+		data["album_art_url"] = state.Track.ArtURL
 		data["status"] = m.playerStatus()
 		data["title"] = state.Track.Title
 		data["artist"] = state.Track.Artist
@@ -72,7 +78,7 @@ func (m *Model) playbackState() (playlist.Track, playback.State) {
 	}
 	track, _ := m.currentPlaybackTrack()
 	artist, title := m.resolveTrackDisplay(track)
-	position, duration := m.playbackClock()
+	position, duration := m.cachedClock()
 	return track, playback.State{
 		Status: status,
 		Track: playback.Track{
@@ -81,15 +87,78 @@ func (m *Model) playbackState() (playlist.Track, playback.State) {
 			Album:       track.Album,
 			Genre:       track.Genre,
 			TrackNumber: track.TrackNumber,
+			UserRating:  track.UserRating,
 			URL:         track.Path,
-			ArtURL:      track.AlbumArtURL,
+			ArtURL:      m.artworkURL(track),
 			Duration:    duration,
 		},
 		VolumeDB:    m.player.Volume(),
 		VolumeMinDB: m.player.VolumeMin(),
 		Position:    position,
-		Seekable:    m.player.Seekable(),
+		Seekable:    m.playerSeekable(),
 	}
+}
+
+type artworkCacheKey struct {
+	path            string
+	albumArtURL     string
+	playingProvider string
+	providerName    string
+}
+
+type artworkCache struct {
+	key artworkCacheKey
+	url string
+}
+
+func (m *Model) clearArtworkCache() {
+	if m.artworkCache != nil {
+		*m.artworkCache = artworkCache{}
+	}
+}
+
+// artworkURL resolves the cover of the current track. Providers that keep the
+// art inside the audio file expose it on demand, so the image can appear
+// without blocking the track list.
+//
+// The track can outlive a provider switch: the tracks queued from the previous
+// provider keep playing while m.provider points at the new one. Ask the
+// provider that owns the track, and fall back to the active one.
+func (m *Model) artworkURL(track playlist.Track) string {
+	key := artworkCacheKey{
+		path:            track.Path,
+		albumArtURL:     track.AlbumArtURL,
+		playingProvider: m.playingProvider,
+		providerName:    providerName(m.provider),
+	}
+	if m.artworkCache != nil && m.artworkCache.url != "" && m.artworkCache.key == key {
+		return m.artworkCache.url
+	}
+	prov := m.provider
+	if name := m.playingProvider; name != "" && (prov == nil || prov.Name() != name) {
+		for _, entry := range m.providers {
+			if entry.Name == name {
+				prov = entry.Provider
+				break
+			}
+		}
+	}
+	resolved := track.AlbumArtURL
+	if artwork, ok := prov.(provider.ArtworkProvider); ok {
+		if url, found := artwork.ArtworkFor(track); found {
+			resolved = url
+		}
+	}
+	if resolved != "" {
+		if m.artworkCache == nil {
+			m.artworkCache = &artworkCache{}
+		}
+		m.artworkCache.key = key
+		m.artworkCache.url = resolved
+	} else {
+		m.clearArtworkCache()
+	}
+	return resolved
 }
 
 // playerStatus returns the player state that Lua plugins see: "playing",
@@ -169,6 +238,7 @@ func pluginTrack(track playlist.Track) luaplugin.Track {
 		Year:     track.Year,
 		Number:   track.TrackNumber,
 		Duration: track.DurationSecs,
+		ArtURL:   track.AlbumArtURL,
 		Stream:   track.Stream,
 	}
 }
@@ -185,7 +255,10 @@ func (m *Model) stopByUser() {
 func (m *Model) nowPlaying(track playlist.Track) {
 	m.playingTrackStarted = true
 	if m.luaMgr != nil && m.luaMgr.HasHook(luaplugin.EventTrackChange) {
-		m.emitPlugin(luaplugin.EventTrackChange, trackEventData(track, m.player.Duration()))
+		data := trackEventData(track, m.player.Duration())
+		// The cover is resolved on demand, so the playlist row may not carry it.
+		data["album_art_url"] = m.artworkURL(track)
+		m.emitPlugin(luaplugin.EventTrackChange, data)
 	}
 
 	reporter := m.findPlaybackReporter(track)
@@ -343,15 +416,21 @@ func (m *Model) tickProgressReport(now time.Time) {
 	})
 }
 
-// hasPlaybackState reports whether any provider stores local listening state,
-// so a render pass can decide whether to reserve the played-marker column.
-func (m Model) hasPlaybackState() bool {
-	for _, p := range m.playbackStateReporters() {
+// hasPlaybackStateFrom reports whether any reporter in reporters stores local
+// listening state.
+func hasPlaybackStateFrom(reporters []provider.PlaybackStateReporter) bool {
+	for _, p := range reporters {
 		if p.HasPlaybackState() {
 			return true
 		}
 	}
 	return false
+}
+
+// hasPlaybackState reports whether any provider stores local listening state,
+// so a render pass can decide whether to reserve the played-marker column.
+func (m Model) hasPlaybackState() bool {
+	return hasPlaybackStateFrom(m.playbackStateReporters())
 }
 
 // playbackStateReporters returns the providers that keep listening state

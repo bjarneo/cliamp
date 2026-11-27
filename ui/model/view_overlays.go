@@ -13,11 +13,18 @@ import (
 // layout (renderPlaylistHeader / renderHelp).
 func (m Model) renderVisPickerList() string {
 	budget := m.effectivePlaylistVisible()
-	items := shownRows(&m.visPicker.filterList, m.visPicker.modes)
-	if len(items) == 0 {
+	total := len(m.visPicker.modes)
+	count := m.visPicker.viewCount(total)
+	if count == 0 {
 		return bodyMessage("No matches.", budget)
 	}
-	return windowList(items, m.visPicker.cursor, m.visPicker.scroll, budget)
+	return windowListFunc(count, m.visPicker.cursor, m.visPicker.scroll, budget, func(i int) string {
+		raw, ok := m.visPicker.rawIndex(i, total)
+		if !ok {
+			return ""
+		}
+		return m.visPicker.modes[raw]
+	})
 }
 
 func (m Model) visPickerHeaderLine() string {
@@ -114,67 +121,56 @@ func (m Model) renderPlMgrListBody() string {
 		}, budget)
 	}
 
-	type plRow struct {
-		label   string
-		realIdx int // -1 for "New" or spacer
-		viewIdx int // logical index for cursor comparison
-		spacer  bool
+	startView := m.plManager.scroll
+	if startView < 0 || startView > visibleN {
+		startView = 0
 	}
-
-	var rows []plRow
 	foundUser := false
-	for i := 0; i < visibleN; i++ {
-		idx := m.plMgrPlaylistRealIndex(i)
-		p := m.plManager.playlists[idx]
-
-		if p.Name != history.PlaylistName {
-			if !foundUser && i > 0 {
-				rows = append(rows, plRow{spacer: true, viewIdx: -1})
-			}
+	for i := range startView {
+		if m.plManager.playlists[m.plMgrPlaylistRealIndex(i)].Name != history.PlaylistName {
 			foundUser = true
-		}
-
-		rows = append(rows, plRow{
-			label:   playlistLabel("", p),
-			realIdx: idx,
-			viewIdx: i,
-		})
-	}
-
-	if visibleN > 0 {
-		rows = append(rows, plRow{spacer: true, viewIdx: -1})
-	}
-
-	newLabel := "+ New Playlist..."
-	if m.plManager.filter != "" {
-		newLabel = "+ New Playlist \"" + m.plManager.filter + "\"..."
-	}
-	rows = append(rows, plRow{label: newLabel, realIdx: -1, viewIdx: visibleN})
-
-	// Map the logical scroll position to our row index.
-	startIndex := 0
-	for i, r := range rows {
-		if r.viewIdx == m.plManager.scroll {
-			startIndex = i
 			break
 		}
 	}
 
 	lines := make([]string, 0, budget)
-	for i := startIndex; i < len(rows) && len(lines) < budget; i++ {
-		r := rows[i]
-		if r.spacer {
-			lines = append(lines, "")
-			continue
+	for i := startView; i < visibleN && len(lines) < budget; i++ {
+		idx := m.plMgrPlaylistRealIndex(i)
+		p := m.plManager.playlists[idx]
+		if p.Name != history.PlaylistName {
+			if !foundUser && i > startView {
+				lines = append(lines, "")
+				if len(lines) >= budget {
+					break
+				}
+			}
+			foundUser = true
 		}
-		if r.viewIdx == m.plManager.cursor {
-			if m.plManager.confirmDel && r.realIdx >= 0 {
-				lines = append(lines, playlistSelectedStyle.Render("> Delete \""+m.plManager.playlists[r.realIdx].Name+"\"? [y/n]"))
+		if i == m.plManager.cursor {
+			if m.plManager.confirmDel {
+				lines = append(lines, playlistSelectedStyle.Render("> Delete \""+p.Name+"\"? [y/n]"))
 			} else {
-				lines = append(lines, playlistSelectedStyle.Render("> "+r.label))
+				lines = append(lines, playlistSelectedStyle.Render("> "+playlistLabel("", p)))
 			}
 		} else {
-			lines = append(lines, dimStyle.Render("  "+r.label))
+			lines = append(lines, dimStyle.Render("  "+playlistLabel("", p)))
+		}
+	}
+
+	if len(lines) < budget {
+		if visibleN > 0 && startView < visibleN {
+			lines = append(lines, "")
+		}
+		if len(lines) < budget {
+			newLabel := "+ New Playlist..."
+			if m.plManager.filter != "" {
+				newLabel = "+ New Playlist \"" + m.plManager.filter + "\"..."
+			}
+			if visibleN == m.plManager.cursor {
+				lines = append(lines, playlistSelectedStyle.Render("> "+newLabel))
+			} else {
+				lines = append(lines, dimStyle.Render("  "+newLabel))
+			}
 		}
 	}
 	return bodyLines(lines, budget)
@@ -218,7 +214,7 @@ func (m Model) renderPlMgrTracksBody() string {
 	}
 
 	lines := make([]string, 0, budget)
-	for row := range m.playlistRows(m.plManager.tracks, scroll, m.showAlbumHeaders) {
+	for row := range m.playlistRows(m.plManager.tracks, scroll, m.plManager.showAlbumHeaders) {
 		if len(lines) >= budget {
 			break
 		}
@@ -271,7 +267,7 @@ func (m Model) plMgrTrackLabel(realIdx int) string {
 	if realIdx < len(m.plManager.missingLocal) && m.plManager.missingLocal[realIdx] {
 		missing = "! "
 	}
-	return mark + missing + formatTrackRow(realIdx+1, trackViewName(t)+trackAlbumSuffix(t, m.showAlbumHeaders), t.DurationSecs, m.layout.panelWidth)
+	return mark + missing + formatTrackRow(realIdx+1, trackViewName(t)+trackAlbumSuffix(t, m.plManager.showAlbumHeaders), t.DurationSecs, m.layout.panelWidth)
 }
 
 // renderSearchList renders the playlist-search results for the playlist region
@@ -294,6 +290,9 @@ func (m Model) renderSearchList() string {
 	currentIdx := m.playlist.Index()
 	isPlaying := m.player.IsPlaying()
 	scroll := m.search.scroll
+	// Pad numbers to the widest one, as the playlist does, so the names line
+	// up whatever the results are.
+	numWidth := len(fmt.Sprintf("%d", m.playlist.Len()))
 
 	lines := make([]string, 0, budget)
 	for j := scroll; j < len(m.search.results) && len(lines) < budget; j++ {
@@ -314,9 +313,10 @@ func (m Model) renderSearchList() string {
 		if qp := m.playlist.QueuePosition(i); qp > 0 {
 			queueSuffix = fmt.Sprintf(" [Q%d]", qp)
 		}
-		name = truncate(name, m.layout.panelWidth-8-len([]rune(queueSuffix)))
+		// The cursor and row prefixes take two cells each, ". " two more.
+		name = truncate(name, m.layout.panelWidth-6-numWidth-len([]rune(queueSuffix)))
 
-		line := fmt.Sprintf("%s%d. %s", prefix, i+1, name)
+		line := fmt.Sprintf("%s%*d. %s", prefix, numWidth, i+1, name)
 		item := style.Render(line)
 		if queueSuffix != "" {
 			item += activeToggle.Render(queueSuffix)

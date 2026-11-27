@@ -206,7 +206,7 @@ func (s *Store) saveLocked(entries []Entry) error {
 		}
 		writeEntry(&b, e)
 	}
-	return fileutil.WriteFileAtomic(s.path, []byte(b.String()), 0o644)
+	return fileutil.WriteFileAtomic(s.path, []byte(b.String()), 0o600)
 }
 
 // mergeTrackMeta keeps any non-empty metadata from the previous entry when a

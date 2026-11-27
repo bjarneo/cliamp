@@ -101,7 +101,8 @@ func (m Model) playlistScroll(visible int) int {
 	if visible <= 0 {
 		return cursor
 	}
-	if !m.showAlbumHeaders {
+	showHeaders := m.plShowsAlbumHeaders()
+	if !showHeaders {
 		if cursor-scroll >= visible {
 			return cursor - visible + 1
 		}
@@ -112,8 +113,8 @@ func (m Model) playlistScroll(visible int) int {
 	// the cursor visible. Include one lookback track for sticky album headers.
 	scroll = max(scroll, cursor-visible+1)
 	start := max(0, scroll-1)
-	_, tracks := m.playlist.OrderWindow(start, cursor-start+1)
-	return start + m.fitHeaderScroll(tracks, scroll-start, cursor-start, visible, m.showAlbumHeaders)
+	_, tracks := m.playlist.OrderWindowShallow(start, cursor-start+1)
+	return start + m.fitHeaderScroll(tracks, scroll-start, cursor-start, visible, showHeaders)
 }
 
 // fitHeaderScroll moves scroll down until the rows from scroll through cursor

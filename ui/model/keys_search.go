@@ -22,6 +22,7 @@ func (m *Model) openProviderSearchWith(prov playlist.Provider) {
 	if _, ok := prov.(provider.Searcher); ok {
 		m.cancelSearchOverlayRequest()
 		nextRequest(&m.requests.searchOverlay)
+		nextRequest(&m.requests.searchOverlayAlbum)
 		nextRequest(&m.requests.searchOverlayLists)
 		nextRequest(&m.requests.searchOverlayMutation)
 		m.searchOverlay = searchOverlayState{
@@ -188,12 +189,10 @@ func (m *Model) updateProvSearch() {
 	if m.provSearch.query == "" {
 		return
 	}
-	q := strings.ToLower(m.provSearch.query)
-	for i, pl := range m.provPane.lists {
-		if strings.Contains(strings.ToLower(pl.Name), q) {
-			m.provSearch.results = append(m.provSearch.results, i)
-		}
-	}
+	lists := m.provPane.lists
+	m.provSearch.results = fuzzyRank(m.provSearch.query, len(lists), func(i int) string {
+		return lists[i].Name
+	})
 }
 
 func (m *Model) searchMaybeAdjustScroll(visible int) {
@@ -369,13 +368,17 @@ func (m *Model) handleNetSearchResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "a":
 		if count > 0 && !m.netSearch.loading {
 			track := m.netSearch.results[m.netSearch.cursor]
-			m.closeNetSearch()
+			if !m.keepSearchOpen {
+				m.closeNetSearch()
+			}
 			return m.appendTrack(track)
 		}
 	case "q":
 		if count > 0 && !m.netSearch.loading {
 			track := m.netSearch.results[m.netSearch.cursor]
-			m.closeNetSearch()
+			if !m.keepSearchOpen {
+				m.closeNetSearch()
+			}
 			return m.queueTrackNext(track)
 		}
 	case "f":

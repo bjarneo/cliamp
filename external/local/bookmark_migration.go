@@ -41,7 +41,7 @@ func (p *Provider) MigrateBookmarks() (int, error) {
 		return 0, fmt.Errorf("import bookmarks: %w", err)
 	}
 	note := fmt.Sprintf("cliamp copied %d bookmarks into favorites.toml. Delete this file to copy them again.\n", added)
-	if err := fileutil.WriteFileAtomic(marker, []byte(note), 0o644); err != nil {
+	if err := fileutil.WriteFileAtomic(marker, []byte(note), 0o600); err != nil {
 		return added, fmt.Errorf("record bookmark migration: %w", err)
 	}
 	return added, nil

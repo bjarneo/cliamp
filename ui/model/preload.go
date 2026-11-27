@@ -54,9 +54,9 @@ func (m *Model) preloadNext() tea.Cmd {
 	isYTDL := playlist.IsYTDL(next.Path)
 	// Preload yt-dlp tracks with the same lead-time deferral as HTTP streams.
 	if isYTDL {
-		dur := m.player.Duration()
+		pos, dur := m.cachedClock()
 		if dur > 0 {
-			remaining := dur - m.player.Position()
+			remaining := dur - pos
 			if remaining > ytdlPreloadLeadTime {
 				return nil
 			}
@@ -69,11 +69,10 @@ func (m *Model) preloadNext() tea.Cmd {
 		// For streams, only arm gapless if we're within the lead-time window.
 		// Without a known boundary, opening the next connection now can leave it
 		// stale for the entire track or pause and turn one EOF into several skips.
-		dur := m.player.Duration()
+		pos, dur := m.cachedClock()
 		if dur <= 0 {
 			return nil
 		}
-		pos := m.player.Position()
 		remaining := dur - pos
 		if remaining > streamPreloadLeadTime {
 			// Too early — caller should retry from the tick loop.
@@ -126,6 +125,8 @@ func (m *Model) dropStalePreload() {
 	if next, ok := m.preloadTarget(); ok && next.Path == m.preloadFor {
 		return
 	}
+	nextRequest(&m.requests.preload)
 	m.preloading = false
+	m.preloadFor = ""
 	m.player.ClearPreload()
 }

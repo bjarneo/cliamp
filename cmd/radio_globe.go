@@ -43,7 +43,7 @@ func RadioGlobe(ctx context.Context, themeName string) error {
 	if err != nil {
 		return err
 	}
-	m := newGlobeModel(world, globeStylesFromTheme(globeTheme(themeName)))
+	m := newGlobeModel(ctx, world, globeStylesFromTheme(globeTheme(themeName)))
 	_, err = tea.NewProgram(m, tea.WithContext(ctx)).Run()
 	return err
 }
@@ -75,7 +75,14 @@ type globeStyles struct {
 func globeStylesFromTheme(t theme.Theme) globeStyles {
 	p := ui.PaletteFor(t)
 	fg := func(c color.Color) lipgloss.Style { return lipgloss.NewStyle().Foreground(c) }
-	sgr := func(c color.Color) ansi.Style { return ansi.Style{}.ForegroundColor(c) }
+	sgr := func(c color.Color) ansi.Style {
+		// ansi.Style renders NoColor as black. A nil color is the
+		// terminal's default foreground, which NoColor stands for.
+		if _, ok := c.(lipgloss.NoColor); ok {
+			c = nil
+		}
+		return ansi.Style{}.ForegroundColor(c)
+	}
 	return globeStyles{
 		colors: p,
 		title:  fg(p.Title).Bold(true),
@@ -114,6 +121,7 @@ func (s *listenerSurface) At(lat, lon float64) globe.Terrain {
 }
 
 type globeModel struct {
+	ctx       context.Context
 	surface   *listenerSurface
 	globe     *globe.Globe
 	styles    globeStyles
@@ -143,19 +151,42 @@ type globeFrameMsg time.Time
 
 type globeRefreshMsg struct{}
 
-func newGlobeModel(world *worldmap.Map, styles globeStyles) *globeModel {
+func newGlobeModel(ctx context.Context, world *worldmap.Map, styles globeStyles) *globeModel {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	surface := &listenerSurface{world: world}
 	g := globe.New(surface)
 	g.SetLon(-20)
-	return &globeModel{surface: surface, globe: g, styles: styles, spinning: true, dirty: true}
+	return &globeModel{ctx: ctx, surface: surface, globe: g, styles: styles, spinning: true, dirty: true}
+}
+
+func (m *globeModel) requestContext() context.Context {
+	if m.ctx != nil {
+		return m.ctx
+	}
+	return context.Background()
 }
 
 func (m *globeModel) Init() tea.Cmd {
-	return tea.Batch(fetchGlobeStats, fetchGlobeNames, refreshTick(), globeTick())
+	ctx := m.requestContext()
+	return tea.Batch(fetchGlobeStatsCmd(ctx), fetchGlobeNamesCmd(ctx), refreshTick(), globeTick())
 }
 
-func fetchGlobeStats() tea.Msg {
-	ctx, cancel := context.WithTimeout(context.Background(), statsTimeout)
+func fetchGlobeStatsCmd(ctx context.Context) tea.Cmd {
+	return func() tea.Msg {
+		return fetchGlobeStats(ctx)
+	}
+}
+
+func fetchGlobeNamesCmd(ctx context.Context) tea.Cmd {
+	return func() tea.Msg {
+		return fetchGlobeNames(ctx)
+	}
+}
+
+func fetchGlobeStats(parent context.Context) tea.Msg {
+	ctx, cancel := context.WithTimeout(parent, statsTimeout)
 	defer cancel()
 	playlists := make(chan radio.TrackStatistics, 1)
 	go func() { playlists <- fetchPlaylistStats(ctx) }()
@@ -163,8 +194,10 @@ func fetchGlobeStats() tea.Msg {
 	return globeStatsMsg{stats: stats, playlists: <-playlists, err: err}
 }
 
-func fetchGlobeNames() tea.Msg {
-	return globeNamesMsg(channelNames())
+func fetchGlobeNames(parent context.Context) tea.Msg {
+	ctx, cancel := context.WithTimeout(parent, statsTimeout)
+	defer cancel()
+	return globeNamesMsg(channelNames(ctx))
 }
 
 func globeTick() tea.Cmd {
@@ -192,7 +225,7 @@ func (m *globeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, globeTick()
 	case globeRefreshMsg:
-		return m, tea.Batch(fetchGlobeStats, refreshTick())
+		return m, tea.Batch(fetchGlobeStatsCmd(m.requestContext()), refreshTick())
 	case globeStatsMsg:
 		m.err = msg.err
 		if msg.err == nil {
@@ -225,7 +258,7 @@ func (m *globeModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "space", " ":
 		m.spinning = !m.spinning
 	case "r":
-		return m, fetchGlobeStats
+		return m, fetchGlobeStatsCmd(m.requestContext())
 	}
 	return m, nil
 }

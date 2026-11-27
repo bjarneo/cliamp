@@ -4,8 +4,11 @@
 package model
 
 import (
+	"context"
 	"fmt"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bjarneo/cliamp/applog"
@@ -14,6 +17,30 @@ import (
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
+
+// cancelSlot holds one active cancel function behind a pointer.
+// Value copies of Model share the slot and cancel the same request.
+type cancelSlot struct {
+	mu     sync.Mutex
+	cancel context.CancelFunc
+}
+
+func (s *cancelSlot) replace(cancel context.CancelFunc) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	prev := s.cancel
+	s.cancel = cancel
+	s.mu.Unlock()
+	if prev != nil {
+		prev()
+	}
+}
+
+func (s *cancelSlot) cancelActive() {
+	s.replace(nil)
+}
 
 // searchState holds state for the playlist search overlay.
 type searchState struct {
@@ -91,13 +118,52 @@ type seekState struct {
 // providerPane holds the playlist list of the active provider on the left
 // of the main screen.
 type providerPane struct {
-	lists   []playlist.PlaylistInfo
-	cursor  int
-	scroll  int
-	loading bool
-	signIn  bool   // true when provider needs interactive sign-in
-	askLoc  bool   // true while the location question is on screen
-	authURL string // OAuth URL to display while interactive auth is in flight
+	lists          []playlist.PlaylistInfo
+	hasSections    bool
+	sectionsCached bool
+	sectionsLen    int
+	sectionsFirst  *playlist.PlaylistInfo
+	cursor         int
+	scroll         int
+	loading        bool
+	signIn         bool   // true when provider needs interactive sign-in
+	askLoc         bool   // true while the location question is on screen
+	authURL        string // OAuth URL to display while interactive auth is in flight
+
+	// Chat picker: the pane swaps its rows for every dialog of the provider
+	// and marks the current filter.
+	picking  bool
+	pickLoad bool
+	picked   map[string]bool
+	pickPrev []playlist.PlaylistInfo
+	pickCur  int
+	pickScr  int
+}
+
+func (p *providerPane) setLists(lists []playlist.PlaylistInfo) {
+	p.lists = lists
+	p.hasSections = slices.ContainsFunc(lists, func(item playlist.PlaylistInfo) bool {
+		return item.Section != ""
+	})
+	p.sectionsCached = true
+	p.sectionsLen = len(lists)
+	if len(lists) > 0 {
+		p.sectionsFirst = &lists[0]
+	} else {
+		p.sectionsFirst = nil
+	}
+}
+
+func (p providerPane) listHasSections() bool {
+	if len(p.lists) == 0 {
+		return false
+	}
+	if p.sectionsCached && p.sectionsLen == len(p.lists) && p.sectionsFirst == &p.lists[0] {
+		return p.hasSections
+	}
+	return slices.ContainsFunc(p.lists, func(item playlist.PlaylistInfo) bool {
+		return item.Section != ""
+	})
 }
 
 // jumpState holds the jump-to-time input.
@@ -113,6 +179,17 @@ type urlInputState struct {
 	active bool
 	input  string
 	err    string
+}
+
+// authCodeState collects the one-time code a provider asked for through
+// provider.CodeAuthenticator, so the sign-in runs from the pane and never
+// takes the terminal.
+type authCodeState struct {
+	active bool
+	input  string
+	err    string
+	name   string // display name of the provider asking
+	hint   string // the provider's Prompt()
 }
 
 // infoOverlay holds state for the track info overlay.
@@ -187,23 +264,24 @@ type subsOverlay struct {
 
 // plManagerState holds state for the playlist manager overlay.
 type plManagerState struct {
-	visible       bool
-	screen        plMgrScreenType
-	cursor        int // view-index: offset into filtered when filter != "", else direct index
-	scroll        int
-	playlists     []playlist.PlaylistInfo
-	selPlaylist   string               // playlist name open in screen 1
-	tracks        []playlist.Track     // tracks in the selected playlist
-	missingLocal  []bool               // cached missing-file state, indexed with tracks
-	dirs          []playlist.DirSource // [[dir]] sources for the selected playlist (screen 2)
-	newName       string
-	confirmDel    bool
-	renameOldName string
-	renameName    string
-	inputErr      string
-	marked        map[int]bool // real track indices marked on the tracks screen
-	sortMode      int
-	undo          plManagerUndo
+	visible          bool
+	screen           plMgrScreenType
+	cursor           int // view-index: offset into filtered when filter != "", else direct index
+	scroll           int
+	playlists        []playlist.PlaylistInfo
+	selPlaylist      string               // playlist name open in screen 1
+	tracks           []playlist.Track     // tracks in the selected playlist
+	missingLocal     []bool               // cached missing-file state, indexed with tracks
+	dirs             []playlist.DirSource // [[dir]] sources for the selected playlist (screen 2)
+	newName          string
+	confirmDel       bool
+	renameOldName    string
+	renameName       string
+	inputErr         string
+	marked           map[int]bool // real track indices marked on the tracks screen
+	sortMode         int
+	showAlbumHeaders bool
+	undo             plManagerUndo
 
 	// Filter (`/`) state. Reset on screen change. `filtered` indexes into
 	// `playlists` (list screen) or `tracks` (tracks screen).
@@ -265,34 +343,35 @@ type fileBrowserState struct {
 
 // navBrowserState holds state for the provider browser overlay.
 type navBrowserState struct {
-	prov            playlist.Provider
-	genreBrowser    provider.GenreBrowser
-	visible         bool
-	mode            navBrowseModeType
-	screen          navBrowseScreenType
-	cursor          int
-	scroll          int
-	artists         []provider.ArtistInfo
-	albums          []provider.AlbumInfo
-	tracks          []playlist.Track
-	genres          []provider.GenreInfo
-	genreSorts      []provider.SortType
-	selArtist       provider.ArtistInfo
-	selAlbum        provider.AlbumInfo
-	selGenre        provider.GenreInfo
-	selGenreSort    provider.SortType
-	genreQuery      string
-	sortType        string
-	albumLoading    bool
-	albumDone       bool
-	loading         bool
-	searching       bool
-	search          string
-	searchIdx       []int
-	confirmReplace  bool
-	directTrackJump bool
-	fromProvList    bool
-	openInPlaylist  bool
+	prov             playlist.Provider
+	genreBrowser     provider.GenreBrowser
+	visible          bool
+	mode             navBrowseModeType
+	screen           navBrowseScreenType
+	cursor           int
+	scroll           int
+	artists          []provider.ArtistInfo
+	albums           []provider.AlbumInfo
+	tracks           []playlist.Track
+	genres           []provider.GenreInfo
+	genreSorts       []provider.SortType
+	selArtist        provider.ArtistInfo
+	selAlbum         provider.AlbumInfo
+	selGenre         provider.GenreInfo
+	selGenreSort     provider.SortType
+	genreQuery       string
+	sortType         string
+	albumLoading     bool
+	albumDone        bool
+	loading          bool
+	searching        bool
+	search           string
+	searchIdx        []int
+	confirmReplace   bool
+	directTrackJump  bool
+	fromProvList     bool
+	openInPlaylist   bool
+	showAlbumHeaders bool
 }
 
 // requestState tracks the latest request in each independently asynchronous UI
@@ -303,6 +382,7 @@ type requestState struct {
 	tracks                uint64
 	nav                   uint64
 	lyrics                uint64
+	ytdlArtist            uint64
 	netSearch             uint64
 	searchOverlay         uint64
 	searchOverlayAlbum    uint64
@@ -314,6 +394,8 @@ type requestState struct {
 	stream                uint64
 	preload               uint64
 	queue                 uint64
+	devices               uint64
+	pick                  uint64
 }
 
 func nextRequest(gen *uint64) uint64 {
@@ -344,11 +426,14 @@ type searchOverlayState struct {
 	// albumLoading is separate from loading so the results screen can say an
 	// album is being expanded without claiming so during the playlist fetch.
 	albumLoading bool
-	playlists    []playlist.PlaylistInfo // playlists of the searched provider for the picker
-	selTrack     playlist.Track          // track selected to add
-	newName      string                  // new playlist name input
-	err          string
-	cancel       func()
+	// confirmReplace holds the "Replace current queue?" prompt that R opens
+	// when the queue is non-empty.
+	confirmReplace bool
+	playlists      []playlist.PlaylistInfo // playlists of the searched provider for the picker
+	selTrack       playlist.Track          // track selected to add
+	newName        string                  // new playlist name input
+	err            string
+	cancel         func()
 }
 
 // catalogBatchState holds state for lazy-loading catalog entries from a provider.CatalogLoader.

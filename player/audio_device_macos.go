@@ -38,9 +38,13 @@ static int caOutputChannels(AudioDeviceID id) {
 		kAudioObjectPropertyElementMain,
 	};
 	UInt32 sz = 0;
-	if (AudioObjectGetPropertyDataSize(id, &addr, 0, NULL, &sz) != noErr || sz == 0) return 0;
+	if (AudioObjectGetPropertyDataSize(id, &addr, 0, NULL, &sz) != noErr || sz < sizeof(UInt32)) return 0;
 	AudioBufferList *bl = (AudioBufferList *)malloc(sz);
-	if (AudioObjectGetPropertyData(id, &addr, 0, NULL, &sz, bl) != noErr) { free(bl); return 0; }
+	if (bl == NULL) return 0;
+	if (AudioObjectGetPropertyData(id, &addr, 0, NULL, &sz, bl) != noErr || sz < sizeof(UInt32)) {
+		free(bl);
+		return 0;
+	}
 	int ch = 0;
 	for (UInt32 i = 0; i < bl->mNumberBuffers; i++) ch += bl->mBuffers[i].mNumberChannels;
 	free(bl);
@@ -49,9 +53,17 @@ static int caOutputChannels(AudioDeviceID id) {
 
 static char* caStr(CFStringRef s) {
 	if (s == NULL) return NULL;
-	CFIndex len = CFStringGetMaximumSizeForEncoding(CFStringGetLength(s), kCFStringEncodingUTF8)+1;
-	char *buf = (char*)malloc(len);
-	CFStringGetCString(s, buf, len, kCFStringEncodingUTF8);
+	CFIndex len = CFStringGetMaximumSizeForEncoding(CFStringGetLength(s), kCFStringEncodingUTF8) + 1;
+	char *buf = (char*)malloc((size_t)len);
+	if (buf == NULL) {
+		CFRelease(s);
+		return NULL;
+	}
+	if (!CFStringGetCString(s, buf, len, kCFStringEncodingUTF8)) {
+		free(buf);
+		CFRelease(s);
+		return NULL;
+	}
 	CFRelease(s);
 	return buf;
 }
@@ -75,24 +87,56 @@ typedef struct { AudioDeviceID id; char *name; char *uid; } CADev;
 static int caListOutputs(CADev **out, int *count) {
 	AudioObjectPropertyAddress a = {kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
 	UInt32 sz = 0;
-	if (AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &a, 0, NULL, &sz) != noErr) { *count=0; return -1; }
-	int n = sz / sizeof(AudioDeviceID);
-	AudioDeviceID *ids = (AudioDeviceID*)malloc(sz);
-	if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &a, 0, NULL, &sz, ids) != noErr) { free(ids); *count=0; return -1; }
-	int oc = 0;
-	for (int i=0; i<n; i++) { if (caOutputChannels(ids[i])>0) oc++; }
-	CADev *devs = (CADev*)calloc(oc, sizeof(CADev));
-	int j = 0;
-	for (int i=0; i<n && j<oc; i++) {
-		if (caOutputChannels(ids[i])<=0) continue;
-		devs[j].id = ids[i]; devs[j].name = caDevName(ids[i]); devs[j].uid = caDevUID(ids[i]); j++;
+	*out = NULL;
+	*count = 0;
+	if (AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &a, 0, NULL, &sz) != noErr) {
+		return -1;
 	}
-	free(ids); *out = devs; *count = oc;
+	if (sz < sizeof(AudioDeviceID)) {
+		return 0;
+	}
+	AudioDeviceID *ids = (AudioDeviceID*)malloc(sz);
+	if (ids == NULL) {
+		return -1;
+	}
+	if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &a, 0, NULL, &sz, ids) != noErr) {
+		free(ids);
+		return -1;
+	}
+	int n = (int)(sz / sizeof(AudioDeviceID));
+	int oc = 0;
+	for (int i = 0; i < n; i++) {
+		if (caOutputChannels(ids[i]) > 0) oc++;
+	}
+	if (oc == 0) {
+		free(ids);
+		return 0;
+	}
+	CADev *devs = (CADev*)calloc((size_t)oc, sizeof(CADev));
+	if (devs == NULL) {
+		free(ids);
+		return -1;
+	}
+	int j = 0;
+	for (int i = 0; i < n && j < oc; i++) {
+		if (caOutputChannels(ids[i]) <= 0) continue;
+		devs[j].id = ids[i];
+		devs[j].name = caDevName(ids[i]);
+		devs[j].uid = caDevUID(ids[i]);
+		j++;
+	}
+	free(ids);
+	*out = devs;
+	*count = j;
 	return 0;
 }
 
 static void caFreeDevs(CADev *devs, int count) {
-	for (int i=0; i<count; i++) { free(devs[i].name); free(devs[i].uid); }
+	if (devs == NULL) return;
+	for (int i = 0; i < count; i++) {
+		free(devs[i].name);
+		free(devs[i].uid);
+	}
 	free(devs);
 }
 */
@@ -111,6 +155,9 @@ func ListAudioDevices() ([]AudioDevice, error) {
 		return nil, fmt.Errorf("Core Audio: failed to enumerate devices")
 	}
 	defer C.caFreeDevs(cdevs, count)
+	if count <= 0 || cdevs == nil {
+		return nil, nil
+	}
 
 	defaultID := C.caDefaultOutput()
 	slice := unsafe.Slice(cdevs, int(count))

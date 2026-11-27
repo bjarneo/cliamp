@@ -153,10 +153,7 @@ func TestIPCPodcastTrackActions(t *testing.T) {
 				}
 				if op == "track.queue" {
 					for _, track := range queued {
-						if next := m.nextTrack(); next != nil {
-							updated, _ = m.Update(next())
-							m = updated.(Model)
-						}
+						settlePlay(t, &m, m.nextTrack())
 						if len(engine.playCalls) == 0 || engine.playCalls[len(engine.playCalls)-1] != track.Path {
 							t.Fatalf("played = %v, want next queued track %q", engine.playCalls, track.Path)
 						}

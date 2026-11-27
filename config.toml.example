@@ -60,7 +60,7 @@ eq_preset = "Flat"
 # Saved Custom curve; applied when eq_preset is "Custom" or empty
 eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-# Default provider on startup: "cliamp" (the cliamp radio channels), "radio", "podcast", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "soundcloud", "mixcloud", "netease", "yandex", "audiobookshelf", or a YouTube provider
+# Default provider on startup: "cliamp" (the cliamp radio channels), "radio", "podcast", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "bandcamp", "plex", "jellyfin", "emby", "soundcloud", "mixcloud", "netease", "yandex", "audiobookshelf", "telegram", or a YouTube provider
 # provider = "cliamp"
 
 # Simplified mode: artist/title and time strip without a visualizer or playlist.
@@ -77,6 +77,10 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # source and the volume meter; the EQ, speed, and download readouts are not
 # drawn. The pane is open unless this is set; Ctrl+B toggles it and saves here.
 # hide_settings_pane = true
+
+# Keep the Ctrl+F search results open after q (queue next) or a (append), so
+# several results can be queued from one search. Enter still closes them.
+# keep_search_open = true
 
 # Show read-only metadata below Settings for the highlighted playlist item.
 # Hidden by default; Ctrl+I toggles and saves. Enabling it without room for the
@@ -102,7 +106,7 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # and coming back on the left; taller panels have them circle a lily pad
 # whose lotus opens with the music.
 # Ethereal: Flame-style Braille clouds and stars, with no painted background.
-# Keeps Omarchy Ethereal's cosmic palette under any UI theme; no Omarchy needed.
+# Follows terminal colors by default and the selected UI theme; no Omarchy needed.
 # visualizer = "Bars"
 
 # Reduce CPU usage by lowering UI cadence and disabling visualization.
@@ -188,6 +192,27 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # client_secret = ""
 
 # ---
+# Bandcamp (optional)
+# Streams your purchased Bandcamp collection via Bandcamp's official
+# Subsonic API (open beta). Generate dedicated Subsonic credentials on
+# bandcamp.com: Fan Settings -> Subsonic -> generate username/password.
+# These are NOT your Bandcamp login. No developer registration needed.
+# See docs/bandcamp.md. Run "cliamp bandcamp probe" for diagnostics.
+# [bandcamp]
+# user = "your-subsonic-username"
+# password = "your-subsonic-password"
+#
+# Optional: API endpoint override (default shown; the beta URL may move).
+# Must be https (plain http only for localhost): credentials travel in the
+# query string of every request.
+# url = "https://bandcamp.com/api/subsonic"
+#
+# Optional: default album browse sort (persisted automatically when you
+# cycle sort with `s` in the browser): "newest", "alphabeticalByName",
+# "alphabeticalByArtist".
+# browse_sort = "newest"
+
+# ---
 # Navidrome / Subsonic server (optional)
 # When configured, cliamp opens the playlist browser on startup and streams
 # tracks directly from your server.
@@ -200,7 +225,7 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 #
 # Album browse sort order for the Navidrome browser (press N to open).
 # Valid values: alphabeticalByName, alphabeticalByArtist, newest, recent,
-#               frequent, starred, byYear, byGenre
+#               frequent, starred, byYear, byGenre, random
 # This is updated automatically when you press [s] inside the browser.
 # browse_sort = alphabeticalByName
 #
@@ -261,9 +286,12 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # Sign in to music.163.com in your browser, then run `cliamp setup` or set
 # cookies_from manually. The provider lists your account playlists, saved
 # playlists, liked songs, and public charts. Playback uses yt-dlp.
+# When yt-dlp cannot read the browser cookies (the DPAPI error on Windows),
+# set cookies_file to an exported Netscape cookies.txt instead of cookies_from.
 # [netease]
 # enabled = true
 # cookies_from = "chrome"
+# cookies_file = "/path/to/cookies.txt"
 # user_id = "optional-account-user-id"
 
 # ---
@@ -331,6 +359,7 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # Audiobooks and podcasts from your own Audiobookshelf server. Authenticate
 # either with an API key (Settings -> Users -> API Keys) or with your
 # username/password.
+
 # [audiobookshelf]
 # url = "https://abs.example.com"
 # token = "your-api-key"
@@ -339,6 +368,23 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 #
 # Restrict to specific libraries (default: all).
 # libraries = ["Audiobooks", "Podcasts"]
+
+# ---
+# Telegram user account. The provider browses your own chats and plays the
+# audio documents they hold. It is not a bot: create an application at
+# https://my.telegram.org/apps and use its api_id and api_hash.
+#
+# The first run asks for the login code before the interface starts and stores
+# the session in session_file.
+#
+# [telegram]
+# api_id    = 123456
+# api_hash  = "0123456789abcdef0123456789abcdef"
+# phone     = "+5491100000000"
+# password  = ""                    # only when the account has 2FA
+# chats     = []                    # optional: ids picked with ctrl+p in setup, or usernames; empty = every dialog
+# buffer_mb = 1                     # megabytes buffered before playback starts
+# session_file = "~/.local/share/cliamp/telegram.session"
 
 # Destination for TUI Ctrl+S saves. Empty uses ~/Music/cliamp.
 # Use an absolute path; mount external drives before saving.

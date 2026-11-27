@@ -11,13 +11,13 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bjarneo/cliamp/internal/sshurl"
 
 	"github.com/gopxl/beep/v2"
 	"github.com/gopxl/beep/v2/flac"
-	"github.com/gopxl/beep/v2/mp3"
 	"github.com/gopxl/beep/v2/vorbis"
 	"github.com/gopxl/beep/v2/wav"
 
@@ -39,30 +39,42 @@ func isSSH(path string) bool {
 }
 
 // sshReadCloser wraps an SSH subprocess stdout pipe as an io.ReadCloser.
-// Closing it kills the SSH process and reaps the child.
+// Close kills the SSH process and reaps the child once.
 type sshReadCloser struct {
-	pipe io.ReadCloser // cmd.StdoutPipe()
-	cmd  *exec.Cmd
+	pipe      io.ReadCloser // cmd.StdoutPipe()
+	cmd       *exec.Cmd
+	closeOnce sync.Once
+	closeErr  error
 }
 
 func (s *sshReadCloser) Read(p []byte) (int, error) {
 	return s.pipe.Read(p)
 }
 
-func (s *sshReadCloser) Close() error {
-	// Kill the SSH process if still running.
-	if s.cmd.Process != nil {
+// interrupt stops the SSH child and closes its pipe without waiting for exit.
+func (s *sshReadCloser) interrupt() {
+	if s.cmd != nil && s.cmd.Process != nil {
 		_ = s.cmd.Process.Kill()
 	}
-	_ = s.pipe.Close()
-	waitErr := s.cmd.Wait() // reap zombie
-	// Process.Kill causes Wait to return "signal: killed" — that's expected.
-	if waitErr != nil {
-		if exitErr, ok := waitErr.(*exec.ExitError); ok && exitErr.ExitCode() != -1 {
-			return fmt.Errorf("ssh: %w", waitErr)
-		}
+	if s.pipe != nil {
+		_ = s.pipe.Close()
 	}
-	return nil
+}
+
+func (s *sshReadCloser) Close() error {
+	s.closeOnce.Do(func() {
+		s.interrupt()
+		if s.cmd == nil || s.cmd.Process == nil {
+			return
+		}
+		waitErr := s.cmd.Wait() // reap child process
+		if waitErr != nil {
+			if exitErr, ok := waitErr.(*exec.ExitError); ok && exitErr.ExitCode() != -1 {
+				s.closeErr = fmt.Errorf("ssh: %w", waitErr)
+			}
+		}
+	})
+	return s.closeErr
 }
 
 // shellQuoteSSH wraps a string in single quotes for safe use in a remote shell command.
@@ -98,7 +110,7 @@ func openSSHSource(path string) (sourceResult, error) {
 		return sourceResult{}, fmt.Errorf("ssh start: %w", err)
 	}
 	rc := &sshReadCloser{pipe: stdout, cmd: cmd}
-	return sourceResult{body: rc, contentLength: -1}, nil
+	return sourceResult{body: rc, contentLength: -1, prefetch: true}, nil
 }
 
 // matchCustomURI returns the StreamerFactory for the given path if it matches
@@ -151,25 +163,62 @@ type sourceResult struct {
 const streamStallTimeout = 10 * time.Second
 
 // stallReader wraps a streaming HTTP body and enforces a per-read stall timeout.
-// Each Read arms a timer that cancels the underlying request if the read does
-// not complete in time; a healthy read stops the timer before it fires. Cancel
-// closes the connection, so the blocked Read returns promptly with an error
-// instead of hanging indefinitely.
+// Each Read resets one reusable timer that cancels the request on a stall.
+// A healthy Read stops the timer before it fires.
 type stallReader struct {
 	rc      io.ReadCloser
 	cancel  context.CancelFunc
 	timeout time.Duration
+
+	mu       sync.Mutex
+	timer    *time.Timer
+	deadline time.Time
+	closed   bool
+}
+
+func (s *stallReader) onTimeout() {
+	s.mu.Lock()
+	fire := !s.closed && !s.deadline.IsZero() && !time.Now().Before(s.deadline)
+	s.mu.Unlock()
+	if fire && s.cancel != nil {
+		s.cancel()
+	}
 }
 
 func (s *stallReader) Read(p []byte) (int, error) {
-	timer := time.AfterFunc(s.timeout, s.cancel)
+	s.mu.Lock()
+	if !s.closed && s.timeout > 0 {
+		s.deadline = time.Now().Add(s.timeout)
+		if s.timer == nil {
+			s.timer = time.AfterFunc(s.timeout, s.onTimeout)
+		} else {
+			s.timer.Reset(s.timeout)
+		}
+	}
+	s.mu.Unlock()
+
 	n, err := s.rc.Read(p)
-	timer.Stop()
+
+	s.mu.Lock()
+	s.deadline = time.Time{}
+	if s.timer != nil {
+		s.timer.Stop()
+	}
+	s.mu.Unlock()
 	return n, err
 }
 
 func (s *stallReader) Close() error {
-	s.cancel()
+	s.mu.Lock()
+	s.closed = true
+	s.deadline = time.Time{}
+	if s.timer != nil {
+		s.timer.Stop()
+	}
+	s.mu.Unlock()
+	if s.cancel != nil {
+		s.cancel()
+	}
 	return s.rc.Close()
 }
 
@@ -288,7 +337,7 @@ func formatExt(path string) string {
 // needsFFmpeg reports whether the given extension requires ffmpeg to decode.
 func needsFFmpeg(ext string) bool {
 	switch ext {
-	case ".m4a", ".aac", ".aacp", ".m4b", ".alac", ".wma", ".opus", ".webm":
+	case ".m4a", ".mp4", ".aac", ".aacp", ".m4b", ".alac", ".wma", ".opus", ".webm":
 		return true
 	}
 	return false
@@ -335,6 +384,6 @@ func decodeWithExt(rc io.ReadCloser, ext string) (beep.StreamSeekCloser, beep.Fo
 	case ".ogg":
 		return vorbis.Decode(rc)
 	default:
-		return mp3.Decode(rc)
+		return decodeMP3(rc)
 	}
 }

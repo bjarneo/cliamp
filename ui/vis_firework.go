@@ -19,11 +19,14 @@ func (v *Visualizer) renderFirework(bands []float64) string {
 
 	grid := v.dotMaskFor(dotRows * dotCols)
 
-	var totalEnergy float64
-	for _, e := range bands {
-		totalEnergy += e
+	var avgEnergy float64
+	if len(bands) > 0 {
+		var totalEnergy float64
+		for _, e := range bands {
+			totalEnergy += e
+		}
+		avgEnergy = totalEnergy / float64(len(bands))
 	}
-	avgEnergy := totalEnergy / float64(len(bands))
 
 	// Number of simultaneous firework bursts: 5 quiet, up to 14 loud.
 	numBursts := 5 + int(avgEnergy*9)
@@ -35,17 +38,21 @@ func (v *Visualizer) renderFirework(bands []float64) string {
 		cycle := (v.frame + uint64(i)*7) / cycleLen
 		seed := cycle*104729 + uint64(i)*7919
 
-		// Stagger starts so bursts don't all fire simultaneously.
+		// Stagger starts so bursts do not all fire simultaneously.
 		offset := (uint64(i)*cycleLen/uint64(numBursts) + (seed/3)%5)
 		localFrame := (v.frame + offset) % cycleLen
 
-		// Burst center — spread across the panel, upper portion.
+		// Burst center spread across the upper portion of the panel.
 		cx := int((seed * 6271) % uint64(dotCols))
 		cy := int((seed*4391)%uint64(dotRows/2)) + dotRows/8
 
 		// Associated band for energy-driven sizing.
-		bandIdx := int(seed % uint64(len(bands)))
-		energy := bands[bandIdx]
+		bandIdx := 0
+		energy := 0.0
+		if len(bands) > 0 {
+			bandIdx = int(seed % uint64(len(bands)))
+			energy = bands[bandIdx]
+		}
 
 		if localFrame < launchLen {
 			// Rising trail from bottom to burst center.

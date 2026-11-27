@@ -8,10 +8,16 @@ import (
 )
 
 // renderTimeout bounds one render call. RenderVis runs on the UI goroutine,
-// so a slow render must not delay the frame for long. The limit leaves room
-// for a full-screen render on a slow CPU, which can take more than 20 ms. It
-// is a var so tests can change it.
+// so a slow render must not delay the frame for long. It is a var so tests can
+// change it.
 var renderTimeout = 50 * time.Millisecond
+
+// visFrame caches a rendered frame alongside the dimensions it matched.
+type visFrame struct {
+	text string
+	rows int
+	cols int
+}
 
 // luaVis wraps a Lua visualizer plugin, caching function references
 // for render() and optional init()/destroy() callbacks.
@@ -22,8 +28,8 @@ type luaVis struct {
 	render  *lua.LFunction
 	init    *lua.LFunction
 	destroy *lua.LFunction
-	last    atomic.Value // string: the previous frame, reused on error or while the plugin is busy
-	pending atomic.Int32 // init and destroy calls that wait in the queue of the plugin
+	last    atomic.Pointer[visFrame] // previous frame, reused on error or while busy
+	pending atomic.Int32             // init and destroy calls that wait in the queue of the plugin
 }
 
 // registerVisPlugin is called during plugin.register() for type="visualizer".
@@ -81,21 +87,22 @@ func (m *Manager) InitVis(name string, rows, cols int) {
 	}
 }
 
-// DestroyVis queues a call of a Lua visualizer's destroy() if it exists. It
-// returns at once, so it is safe to call from the UI goroutine.
+// DestroyVis clears the cached frame and queues a call of a Lua visualizer's
+// destroy() if it exists. It returns at once.
 func (m *Manager) DestroyVis(name string) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if vis, ok := m.visMap[name]; ok && vis.destroy != nil {
-		m.queueVis(vis, "destroy", vis.destroy)
+	if vis, ok := m.visMap[name]; ok {
+		vis.last.Store(nil)
+		if vis.destroy != nil {
+			m.queueVis(vis, "destroy", vis.destroy)
+		}
 	}
 }
 
 // queueVis queues a call of fn, the init or destroy of vis, in order with the
-// events of the plugin. It never waits for the plugin lock, because a hook of
-// the plugin can hold that lock while it waits for the UI goroutine. RenderVis
-// returns the last frame while the call waits, so render never runs before
-// init. The caller holds m.mu for reading.
+// events of the plugin. It never waits for the plugin lock. RenderVis returns
+// the last frame while the call waits so render never runs before init.
 func (m *Manager) queueVis(vis *luaVis, label string, fn *lua.LFunction, args ...lua.LValue) {
 	if m.closing {
 		return
@@ -112,10 +119,9 @@ func (m *Manager) queueVis(vis *luaVis, label string, fn *lua.LFunction, args ..
 }
 
 // RenderVis calls a Lua visualizer's render(bands, frame, rows, cols) and
-// returns the terminal text. It runs on the UI goroutine, so it never waits:
-// it returns the previous frame when another callback of the plugin holds the
-// lock, when an init or destroy call waits in the queue, when render fails,
-// or when render runs past renderTimeout.
+// returns the terminal text. It runs on the UI goroutine and never waits for
+// the plugin lock. When busy or on error, it returns the last cached frame for
+// matching dimensions.
 func (m *Manager) RenderVis(name string, bands [10]float64, rows, cols int, frame uint64) string {
 	m.mu.RLock()
 	vis, ok := m.visMap[name]
@@ -125,14 +131,26 @@ func (m *Manager) RenderVis(name string, bands [10]float64, rows, cols int, fram
 	}
 
 	if vis.pending.Load() == 0 && vis.plugin.mu.TryLock() {
-		ret, _ := m.callLocked(m.ctx, vis.plugin, renderLabel, renderTimeout, 1, func(L *lua.LState) (*lua.LFunction, []lua.LValue) {
-			return vis.render, []lua.LValue{vis.obj, floatsToTable(L, bands[:]), lua.LNumber(frame), lua.LNumber(rows), lua.LNumber(cols)}
-		})
+		var ret lua.LValue = lua.LNil
+		if !vis.plugin.closed && m.ctx.Err() == nil {
+			args := [5]lua.LValue{
+				vis.obj,
+				floatsToTable(vis.plugin.L, bands[:]),
+				lua.LNumber(frame),
+				lua.LNumber(rows),
+				lua.LNumber(cols),
+			}
+			ret, _ = m.callFnLocked(m.ctx, vis.plugin, renderLabel, renderTimeout, 1, vis.render, args[:])
+		}
 		vis.plugin.mu.Unlock()
 		if str, ok := ret.(lua.LString); ok {
-			vis.last.Store(string(str))
+			s := string(str)
+			vis.last.Store(&visFrame{text: s, rows: rows, cols: cols})
+			return s
 		}
 	}
-	last, _ := vis.last.Load().(string)
-	return last
+	if cached := vis.last.Load(); cached != nil && cached.rows == rows && cached.cols == cols {
+		return cached.text
+	}
+	return ""
 }

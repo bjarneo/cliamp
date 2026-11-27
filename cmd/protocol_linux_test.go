@@ -43,7 +43,7 @@ func TestProtocolRoundTrip(t *testing.T) {
 	body := string(entry)
 	for _, want := range []string{
 		"MimeType=x-scheme-handler/cliamp;",
-		" open %u",
+		" open -- %u",
 		"Terminal=true",
 		"NoDisplay=true",
 	} {
@@ -148,8 +148,8 @@ func TestHandlerEntryUsesAbsoluteExecutable(t *testing.T) {
 			t.Errorf("Exec line %q does not use an absolute path", line)
 		}
 		// Field codes must sit outside the quotes to be expanded.
-		if strings.TrimSpace(rest) != "open %u" {
-			t.Errorf("Exec line %q does not end with an unquoted `open %%u`", line)
+		if strings.TrimSpace(rest) != "open -- %u" {
+			t.Errorf("Exec line %q does not end with an unquoted `open -- %%u`", line)
 		}
 		return
 	}
@@ -159,19 +159,28 @@ func TestHandlerEntryUsesAbsoluteExecutable(t *testing.T) {
 // TestDesktopExecArgQuoting covers the paths that break an unquoted Exec line.
 func TestDesktopExecArgQuoting(t *testing.T) {
 	tests := []struct {
-		path string
-		want string
+		name    string
+		path    string
+		want    string
+		wantErr bool
 	}{
-		{"/usr/bin/cliamp", `"/usr/bin/cliamp"`},
-		{"/home/a b/cliamp", `"/home/a b/cliamp"`},
-		{"/home/a\"b/cliamp", "\"/home/a\\\"b/cliamp\""},
-		{`/home/a\b/cliamp`, `"/home/a\\b/cliamp"`},
-		{"/home/a$b/cliamp", `"/home/a\$b/cliamp"`},
-		{"/home/a`b/cliamp", "\"/home/a\\`b/cliamp\""},
+		{name: "plain", path: "/usr/bin/cliamp", want: `"/usr/bin/cliamp"`},
+		{name: "space", path: "/home/a b/cliamp", want: `"/home/a b/cliamp"`},
+		{name: "quote", path: "/home/a\"b/cliamp", want: "\"/home/a\\\"b/cliamp\""},
+		{name: "backslash", path: `/home/a\b/cliamp`, want: `"/home/a\\b/cliamp"`},
+		{name: "dollar", path: "/home/a$b/cliamp", want: `"/home/a\$b/cliamp"`},
+		{name: "backtick", path: "/home/a`b/cliamp", want: "\"/home/a\\`b/cliamp\""},
+		{name: "percent", path: "/home/100%u/cliamp", want: `"/home/100%%u/cliamp"`},
+		{name: "newline rejected", path: "/home/a\nExec=evil/cliamp", wantErr: true},
+		{name: "carriage return rejected", path: "/home/a\rExec=evil/cliamp", wantErr: true},
 	}
 	for _, tt := range tests {
-		t.Run(tt.path, func(t *testing.T) {
-			if got := desktopExecArg(tt.path); got != tt.want {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := desktopExecArg(tt.path)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("desktopExecArg(%q) error = %v, wantErr %v", tt.path, err, tt.wantErr)
+			}
+			if !tt.wantErr && got != tt.want {
 				t.Errorf("desktopExecArg(%q) = %q, want %q", tt.path, got, tt.want)
 			}
 		})

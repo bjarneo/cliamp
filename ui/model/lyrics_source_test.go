@@ -47,7 +47,7 @@ func TestFetchTrackLyricsCmdSources(t *testing.T) {
 				&fakeLyricsSource{prefix: "spotify:track:", lines: spotifyLines},
 				&fakeLyricsSource{prefix: "other:track:", lines: otherLines},
 			}
-			msg := fetchTrackLyricsCmd(tt.track, "Artist", "Title", "Artist\nTitle", 1, sources)().(lyricsLoadedMsg)
+			msg := fetchTrackLyricsCmd(context.Background(), tt.track, "Artist", "Title", "Artist\nTitle", 1, sources)().(lyricsLoadedMsg)
 			if msg.err != nil {
 				t.Fatalf("err = %v, want nil", msg.err)
 			}

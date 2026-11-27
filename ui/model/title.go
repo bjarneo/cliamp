@@ -53,6 +53,9 @@ func titleIntroMaxOffset(viewport, introLen int) int {
 }
 
 func titleIntroFrame(offset, viewport int, introRunes []rune) string {
+	if viewport <= 0 {
+		return ""
+	}
 	maxOffset := titleIntroMaxOffset(viewport, len(introRunes))
 	switch {
 	case offset < 0:
@@ -61,11 +64,25 @@ func titleIntroFrame(offset, viewport int, introRunes []rune) string {
 		offset = maxOffset
 	}
 
-	padded := make([]rune, 0, viewport+len(introRunes)+viewport)
-	padded = append(padded, []rune(strings.Repeat(" ", viewport))...)
-	padded = append(padded, introRunes...)
-	padded = append(padded, []rune(strings.Repeat(" ", viewport))...)
-	return string(padded[offset : offset+viewport])
+	end := offset + viewport
+	leadSpaces := max(0, min(end, viewport)-offset)
+	introStart := max(0, offset-viewport)
+	introEnd := min(len(introRunes), max(0, end-viewport))
+	introCount := max(0, introEnd-introStart)
+	trailSpaces := viewport - leadSpaces - introCount
+
+	var b strings.Builder
+	b.Grow(viewport + introCount)
+	for range leadSpaces {
+		b.WriteByte(' ')
+	}
+	for i := introStart; i < introEnd; i++ {
+		b.WriteRune(introRunes[i])
+	}
+	for range trailSpaces {
+		b.WriteByte(' ')
+	}
+	return b.String()
 }
 
 func renderTerminalTitle(values terminalTitleValues) string {
@@ -137,6 +154,59 @@ func sanitizeTerminalTitle(title string) string {
 
 func (m *Model) advanceTerminalTitle() {
 	advanceTerminalTitleState(&m.termTitle, m.width)
+}
+
+func (m Model) cachedWindowTitle() string {
+	if m.titleCache == nil {
+		return currentTerminalTitle(m.termTitle, m.width, m.terminalTitleValues())
+	}
+
+	key := titleCacheKey{
+		width:       m.width,
+		introActive: m.termTitle.introActive,
+		introOffset: m.termTitle.introOffset,
+	}
+	var values terminalTitleValues
+	if !m.termTitle.introActive || len(defaultTerminalTitleIntroRunes) == 0 {
+		playing := m.isPlaying()
+		paused := m.isPaused()
+		switch {
+		case paused:
+			key.status = 2
+		case playing:
+			key.status = 1
+		}
+		var track playlist.Track
+		idx := -1
+		if key.status != 0 && m.playlist != nil {
+			track, idx = m.currentPlaybackTrack()
+			if idx >= 0 {
+				key.trackPath = track.Path
+				key.title = track.Title
+				key.artist = track.Artist
+				key.stream = track.Stream
+				if track.Stream {
+					key.streamTitle = m.streamTitle
+				}
+			}
+		}
+		if m.titleCache.valid && m.titleCache.key == key {
+			return m.titleCache.value
+		}
+		if idx >= 0 {
+			values = terminalTitleValuesForTrack(track, m.streamTitle, playing, paused)
+		} else {
+			values = terminalTitleStateValues(playing, paused)
+		}
+	} else if m.titleCache.valid && m.titleCache.key == key {
+		return m.titleCache.value
+	}
+
+	title := currentTerminalTitle(m.termTitle, m.width, values)
+	m.titleCache.key = key
+	m.titleCache.value = title
+	m.titleCache.valid = true
+	return title
 }
 
 func (m Model) terminalTitleValues() terminalTitleValues {

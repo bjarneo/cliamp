@@ -1,6 +1,6 @@
 # Configuration
 
-Use the interactive wizard to configure remote providers. Supported providers are Navidrome, Lyrion, Plex, Jellyfin, Emby, Spotify, Qobuz, Tidal, Mixcloud, NetEase, Audiobookshelf, and YouTube Music:
+Use the interactive wizard to configure remote providers. Supported providers are Navidrome, Lyrion, Plex, Jellyfin, Emby, Spotify, Qobuz, Tidal, Bandcamp, Mixcloud, NetEase, Audiobookshelf, and YouTube Music:
 
 ```sh
 cliamp setup
@@ -8,7 +8,7 @@ cliamp setup
 
 The wizard writes the provider keys into their section. It keeps your other keys and comments, and it leaves the rest of your config unchanged. The wizard drops the comment at the end of a key line that it rewrites.
 
-The wizard checks the server connection during setup for Navidrome, Lyrion, Plex, Jellyfin, Emby, and Audiobookshelf. For NetEase, it checks the browser session. OAuth providers such as Spotify, Qobuz, and Tidal sign in later in the player. Tidal uses a `link.tidal.com` device code. The wizard does not check Mixcloud credentials. See [cli.md](cli.md#setup-wizard) for details.
+The wizard checks the server connection during setup for Navidrome, Lyrion, Plex, Jellyfin, Emby, and Audiobookshelf. For Bandcamp, it checks the Subsonic credentials with an authenticated call. For NetEase, it checks the browser session. OAuth providers such as Spotify, Qobuz, and Tidal sign in later in the player. Tidal uses a `link.tidal.com` device code. The wizard does not check Mixcloud credentials. See [cli.md](cli.md#setup-wizard) for details.
 
 ## Config directory
 
@@ -16,7 +16,7 @@ cliamp searches for its config directory in this order:
 
 - `CLIAMP_CONFIG_DIR`
 - `XDG_CONFIG_HOME/cliamp`
-- On Windows, `%APPDATA%\cliamp`, unless `HOME` names a directory other than the profile directory. If `%APPDATA%\cliamp` has no `config.toml` and `HOME/.config/cliamp` has one, cliamp keeps the existing directory.
+- On Windows, `%APPDATA%\cliamp`, unless `HOME` names a directory other than the profile directory. If `%APPDATA%\cliamp` has no persisted config or resources yet and `HOME/.config/cliamp` does, cliamp keeps the existing directory.
 - `HOME/.config/cliamp`
 
 The examples below use `~/.config/cliamp`. On Windows, use `%APPDATA%\cliamp` unless you set a custom `HOME`.
@@ -78,15 +78,16 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # Mirror draws tapered Braille bars around a persistent horizontal center axis.
 # ClassicPeak uses smooth bars and floating peak caps, with sampling aligned
 # to audible playback and adaptive redraws for smooth motion.
-# ClassicLED redraws at 30 FPS during playback, like the Winamp LED meter.
+# ClassicLED updates its LED physics at 30 Hz during playback, like the Winamp LED meter.
 # Neighboring bands are averaged into each bar.
 # YinYang koi chase each other across a wide strip, leaving on the right and
 # coming back on the left. Taller panels have them circle a lily pad whose
 # lotus follows recent bass levels, including after silence or time in the strip.
-# Ethereal draws Flame-style Braille pixels: drifting blue-violet clouds with
-# peach highlights and treble-reactive stars, leaving the background untouched.
+# Ethereal draws Flame-style Braille pixels: drifting clouds with bright
+# highlights and treble-reactive stars, leaving the background untouched.
 # Inspired by Omarchy's Ethereal cosmic wallpaper.
-# It keeps its own palette under any UI theme; Omarchy is not required.
+# It follows terminal colors by default and the selected UI theme.
+# Omarchy is not required.
 visualizer = "Bars"
 
 # Visualizer volume linking (default: true)
@@ -119,6 +120,9 @@ expanded = false
 # Close the Settings pane beside the playlist (Ctrl+B toggles and saves).
 hide_settings_pane = false
 
+# Keep the Ctrl+F search results open after q (queue next) or a (append).
+keep_search_open = false
+
 # Show highlighted-playlist metadata below Settings (Ctrl+I toggles and saves).
 show_metadata = false
 
@@ -129,6 +133,12 @@ padding_vertical = 1
 
 # UI theme name (see available themes in ~/.config/cliamp/themes/)
 theme = "Tokyo Night"
+
+# Start playing the first track automatically on launch (default: false)
+auto_play = false
+
+# Synced lyrics drift adjustment in milliseconds (-10000 to 10000, default: 0)
+lyrics_offset_ms = 0
 
 # Log level: "debug", "info", "warn", or "error" (default "info")
 # Logs are written to ~/.config/cliamp/cliamp.log
@@ -204,6 +214,12 @@ bar comes back the way you left it. Use `cliamp --no-help-bar` to hide it for
 one session, or `cliamp --help-bar` to show it despite this setting. Simplified
 mode draws neither the hint bar nor a playlist, so it is unaffected by this
 setting.
+
+`keep_search_open = true` keeps the `Ctrl+F` search results open after `q`
+(queue next) or `a` (append), with the same query and cursor, so you can queue
+several results without searching again. This covers provider search and the
+YouTube or SoundCloud search. The status line confirms each added track.
+`Enter` still plays the selected result and closes the search.
 
 `expanded = true` starts with the playlist at the expanded height, so the list
 gets every body row the terminal has left instead of the shorter default, and
@@ -299,7 +315,7 @@ cliamp reads a subset of TOML. These rules apply to every key:
 - A number such as `volume`, `speed` or an `eq` band must be finite. cliamp ignores `nan`, `inf` and any other text and keeps the default.
 - In a list, a comma inside a quoted item stays part of the item, as in `libraries = ["Rock, Pop", "Jazz"]`.
 - To add a comment at the end of a line, put whitespace and then `#`. This works after a quoted string, a number, a bool, a list in square brackets such as `eq` or `libraries`, or a section header such as `[navidrome]`. After a closing quote or a closing square bracket, the whitespace is optional. After an unquoted string, the `#` and the text after it stay part of the value. This rule also applies to an unquoted last string item of a list without square brackets, such as `libraries = Music, Jazz # x`.
-- A plugin gets each key of its `[plugins.<name>]` section as a string. cliamp reads `enabled`, and the `disabled` and `allowed_binaries` lists of `[plugins]`, with these rules.
+- A plugin gets each key of its `[plugins.<name>]` section as a string. cliamp reads `enabled`, and the `disabled`, `allowed_binaries` and `allowed_private_addresses` lists of `[plugins]`, with these rules.
 
 ```toml
 volume = -6                       # quieter start
@@ -368,7 +384,7 @@ Each provider section turns on its provider in one of three ways:
 
 | Rule | Providers | The provider starts when |
 | --- | --- | --- |
-| Credentials | Navidrome, Lyrion, Plex, Jellyfin, Emby, Audiobookshelf | The section holds the required credentials. Lyrion needs only `url`. |
+| Credentials | Navidrome, Lyrion, Bandcamp, Plex, Jellyfin, Emby, Audiobookshelf, Telegram | The section holds the required credentials. Lyrion needs only `url`. Bandcamp needs `user` and `password` (its `url` is optional); Telegram needs `api_id` and `api_hash`. |
 | Section | Spotify, Qobuz, Tidal, YouTube Music | The section header exists. Set `enabled = false` to turn the provider off. |
 | Opt-in | SoundCloud, Mixcloud, NetEase, Yandex | The section sets `enabled = true`. Yandex also needs `token`. |
 
@@ -393,9 +409,11 @@ provider = "cliamp"
 
 The default, `cliamp`, opens on the cliamp radio channels. See [radio.md](radio.md#cliamp-radio).
 
-Valid values: `cliamp` (default), `radio`, `podcast`, `navidrome`, `lyrion`, `plex`, `jellyfin`, `emby`, `spotify`, `qobuz`, `tidal`, `soundcloud`, `mixcloud`, `netease`, `yandex`, `audiobookshelf`, `yt`, `youtube`, `ytmusic`. The `--provider` flag also accepts `abs` for `audiobookshelf`.
+Valid values: `cliamp` (default), `radio`, `podcast`, `navidrome`, `lyrion`, `plex`, `jellyfin`, `emby`, `spotify`, `qobuz`, `tidal`, `bandcamp`, `soundcloud`, `mixcloud`, `netease`, `yandex`, `audiobookshelf`, `telegram`, `yt`, `youtube`, `ytmusic`. The `--provider` flag also accepts `abs` for `audiobookshelf`.
 
 You can also override this setting on the CLI: `cliamp --provider jellyfin`.
+
+When `provider` names a provider that is not configured, cliamp opens on cliamp radio. The status line then shows the setup step for that provider.
 
 ## Podcasts
 
@@ -511,6 +529,8 @@ user_id = "your-account-user-id"
 
 After you enable NetEase, the provider shows liked songs, created playlists, saved playlists, and public charts. Use `Ctrl+F` to search. Playback uses `yt-dlp` with the same browser cookie source.
 
+If `yt-dlp` cannot read the browser cookies, for example with the DPAPI error on Windows, export the `music.163.com` cookies to a Netscape-format `cookies.txt` file and set `cookies_file = "/path/to/cookies.txt"` instead. See [netease.md](netease.md#cookies-file).
+
 ## Radio
 
 The Radio provider is always on. The `[radio]` block only tunes it:
@@ -540,7 +560,7 @@ name = "Ambient Radio"
 url = "https://ambient.example.com/stream.m3u"
 ```
 
-These stations appear with the built-in cliamp radio in the Radio provider.
+These stations appear with the built-in cliamp radio in the Radio provider. Each one needs its own `[[station]]` header. cliamp warns about any other section header in this file, such as `[[stations]]`, and skips the entries under it.
 
 See [audio-quality.md](audio-quality.md) for sample rate, buffer, bit depth, and resample quality settings.
 
@@ -569,7 +589,8 @@ WSLg must be active. `echo $PULSE_SERVER` should print a path. If it is empty, u
 
 ## ffmpeg (optional)
 
-AAC, ALAC (`.m4a`), Opus, and WMA playback require [ffmpeg](https://ffmpeg.org/):
+AAC, ALAC (`.m4a`), Opus, WMA, and the audio streams of `.mp4` and `.webm` files
+require [ffmpeg](https://ffmpeg.org/):
 
 ```sh
 # Arch

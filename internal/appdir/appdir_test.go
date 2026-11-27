@@ -169,6 +169,111 @@ func TestResolveWindowsDir(t *testing.T) {
 	})
 }
 
+// TestLegacyResourcesWithoutConfig verifies that persisted legacy user state
+// under HOME/.config/cliamp (custom radio stations, favorites, playlists,
+// themes, plugins, credentials, etc.) keeps the legacy dir selected even when
+// config.toml is absent, while runtime logs or empty dirs alone do not.
+func TestLegacyResourcesWithoutConfig(t *testing.T) {
+	writeFile := func(t *testing.T, path, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	resourceCases := []struct {
+		name    string
+		relPath string
+	}{
+		{name: "radios.toml", relPath: "radios.toml"},
+		{name: "radio_favorites.toml", relPath: "radio_favorites.toml"},
+		{name: "radio_countries.toml", relPath: "radio_countries.toml"},
+		{name: "favorites.toml", relPath: "favorites.toml"},
+		{name: "history.toml", relPath: "history.toml"},
+		{name: "podcast_subscriptions.json", relPath: "podcast_subscriptions.json"},
+		{name: "spotify_credentials.json", relPath: "spotify_credentials.json"},
+		{name: "resume.json", relPath: "resume.json"},
+		{name: "playlist file", relPath: filepath.Join("playlists", "chill.toml")},
+		{name: "plugin file", relPath: filepath.Join("plugins", "custom.lua")},
+		{name: "theme file", relPath: filepath.Join("themes", "custom.toml")},
+	}
+
+	for _, tc := range resourceCases {
+		t.Run("preserves legacy "+tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			profile := filepath.Join(root, "profile")
+			legacy := filepath.Join(profile, ".config", "cliamp")
+			appData := filepath.Join(root, "AppData", "Roaming")
+			writeFile(t, filepath.Join(legacy, tc.relPath), "# persisted\n")
+
+			got, ok := resolveWindowsDir(appData, profile, true, profile)
+			if !ok {
+				t.Fatal("expected ok=true")
+			}
+			if got != legacy {
+				t.Fatalf("selected %q; expected legacy %q", got, legacy)
+			}
+		})
+	}
+
+	t.Run("runtime logs and empty dirs in appdata do not hide legacy radios", func(t *testing.T) {
+		root := t.TempDir()
+		profile := filepath.Join(root, "profile")
+		legacy := filepath.Join(profile, ".config", "cliamp")
+		appData := filepath.Join(root, "AppData", "Roaming")
+		appDir := filepath.Join(appData, "cliamp")
+
+		writeFile(t, filepath.Join(legacy, "radios.toml"), "# custom stations\n")
+		writeFile(t, filepath.Join(appDir, "cliamp.log"), "started\n")
+		writeFile(t, filepath.Join(appDir, "plugins.log"), "loaded\n")
+		if err := os.MkdirAll(filepath.Join(appDir, "plugins"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+
+		got, ok := resolveWindowsDir(appData, profile, true, profile)
+		if !ok || got != legacy {
+			t.Fatalf("resolveWindowsDir() = (%q, %v), want (%q, true)", got, ok, legacy)
+		}
+	})
+
+	t.Run("logs and empty subdirs alone in legacy do not keep legacy", func(t *testing.T) {
+		root := t.TempDir()
+		profile := filepath.Join(root, "profile")
+		legacy := filepath.Join(profile, ".config", "cliamp")
+		appData := filepath.Join(root, "AppData", "Roaming")
+
+		writeFile(t, filepath.Join(legacy, "cliamp.log"), "old log\n")
+		if err := os.MkdirAll(filepath.Join(legacy, "themes"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+
+		got, ok := resolveWindowsDir(appData, profile, true, profile)
+		want := filepath.Join(appData, "cliamp")
+		if !ok || got != want {
+			t.Fatalf("resolveWindowsDir() = (%q, %v), want (%q, true)", got, ok, want)
+		}
+	})
+
+	t.Run("appdata wins once it holds persisted resources", func(t *testing.T) {
+		root := t.TempDir()
+		profile := filepath.Join(root, "profile")
+		legacy := filepath.Join(profile, ".config", "cliamp")
+		appData := filepath.Join(root, "AppData", "Roaming")
+		appDir := filepath.Join(appData, "cliamp")
+
+		writeFile(t, filepath.Join(legacy, "radios.toml"), "# old stations\n")
+		writeFile(t, filepath.Join(appDir, "radios.toml"), "# migrated stations\n")
+
+		got, ok := resolveWindowsDir(appData, profile, true, profile)
+		if !ok || got != appDir {
+			t.Fatalf("resolveWindowsDir() = (%q, %v), want (%q, true)", got, ok, appDir)
+		}
+	})
+}
+
 // TestSameHomeDirEquivalentSpellings checks that Windows home paths differing
 // only in case or separators count as the same directory, so a daemon with no
 // HOME and a child with an equivalent HOME spelling agree on the config dir.

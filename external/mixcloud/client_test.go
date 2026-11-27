@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/bjarneo/cliamp/internal/httpclient"
 )
 
 func testClient(server *httptest.Server, token string) *client {
@@ -177,5 +179,17 @@ func TestClientRedactsTokenFromTransportError(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "top-secret-token") || strings.Contains(err.Error(), "access_token") {
 		t.Fatalf("error leaked credentials: %v", err)
+	}
+}
+
+func TestGetJSONRejectsOversizedBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"name":"` + strings.Repeat("a", maxResponseBody) + `"}]}`))
+	}))
+	defer server.Close()
+
+	_, err := testClient(server, "").searchCloudcasts(context.Background(), "house", 5)
+	if !errors.Is(err, httpclient.ErrTooLarge) {
+		t.Fatalf("searchCloudcasts() error = %v, want %v", err, httpclient.ErrTooLarge)
 	}
 }

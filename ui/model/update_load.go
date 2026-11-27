@@ -40,7 +40,9 @@ func (m *Model) handleYTDLBatch(msg ytdlBatchMsg) tea.Cmd {
 // and plays the first one. It drops the episodes when a track started or
 // stopped, or another queue replace started, after the feed resolve began.
 func (m *Model) handleFeedTrackResolved(msg feedTrackResolvedMsg) tea.Cmd {
-	m.feedLoading = false
+	if msg.queue == m.feedRequest {
+		m.feedLoading = false
+	}
 	if msg.gen != m.requests.stream || msg.queue != m.requests.queue {
 		return nil
 	}
@@ -67,6 +69,9 @@ func (m *Model) handleFeedTrackResolved(msg feedTrackResolvedMsg) tea.Cmd {
 // handleFeedsLoaded appends the tracks that URLs resolved to. It can start
 // playback and the batch load of a YouTube radio playlist.
 func (m *Model) handleFeedsLoaded(msg feedsLoadedMsg) tea.Cmd {
+	if msg.gen != 0 && msg.gen != m.feedRequest {
+		return nil
+	}
 	m.feedLoading = false
 	if msg.err != nil {
 		m.err = withRetryHint(msg.err)
@@ -134,20 +139,13 @@ func (m *Model) handleFBTracksResolved(msg fbTracksResolvedMsg) tea.Cmd {
 		return nil
 	}
 	if msg.replace {
-		m.stopPlayback()
-		m.player.ClearPreload()
-		m.retireTracksPaging()
-		m.replacePlaylist(msg.tracks)
-		m.clearLoadedPlaylist()
-		m.setHeaderStateFromTracks(msg.tracks)
-		m.plCursor = 0
-		m.plScroll = 0
+		m.replaceQueue(msg.tracks)
 	} else {
 		m.appendTracks(msg.tracks...)
+		m.focus = focusPlaylist
+		m.applyHeightMode()
+		m.adjustScroll()
 	}
-	m.focus = focusPlaylist
-	m.applyHeightMode()
-	m.adjustScroll()
 	if msg.replace {
 		m.status.Successf(statusTTLDefault, "Replaced queue with %d track(s)", len(msg.tracks))
 	} else {

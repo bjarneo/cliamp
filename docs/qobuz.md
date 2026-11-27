@@ -24,6 +24,22 @@ Run `cliamp`, select Qobuz, and press `Enter` to sign in. A browser window opens
 
 > **Click "Back" to finish.** After authorization, Qobuz shows a *"You are signed in, you can leave this page"* screen with a **Back** button. It does not redirect automatically. Click **Back**. This sends the sign-in code to cliamp and completes authentication. cliamp waits for up to 5 minutes.
 
+### Sign in on a remote machine
+
+cliamp gets the sign-in redirect on a random port on `127.0.0.1` of the machine that runs cliamp. When cliamp runs on a remote machine over SSH, the browser on your computer cannot reach this port. The `redirect_url` parameter of the sign-in URL names the port, for example `redirect_url=http://localhost:41234`. To sign in:
+
+1. On the remote machine, run `cliamp`, select Qobuz, and press `Enter`.
+2. Read the port from the `redirect_url` parameter of the sign-in URL. The provider panel shows the URL, and cliamp also writes it to `~/.config/cliamp/cliamp.log` on the remote machine.
+3. On your computer, open a second SSH connection that forwards this port. Replace `41234` with the port from step 2:
+
+   ```sh
+   ssh -N -L 41234:127.0.0.1:41234 user@remote-host
+   ```
+
+4. Open the sign-in URL in the browser on your computer. Sign in and click **Back**. SSH forwards the redirect to cliamp on the remote machine.
+
+The port changes with each sign-in. Do these steps in 5 minutes, before the sign-in times out.
+
 ### Quality
 
 `quality` selects the Qobuz `format_id`. If you omit it, cliamp uses `6` (FLAC CD). Supported values:
@@ -74,7 +90,7 @@ After you load a playlist or album, cliamp returns to the standard playlist view
 
 ## Troubleshooting
 
-- **"OAuth failed" / browser doesn't open**: cliamp opens a localhost redirect listener on a random port. Ensure that nothing blocks outbound access to `qobuz.com` and that a default browser is set. The flow times out after 5 minutes.
+- **"OAuth failed" / browser doesn't open**: cliamp opens a localhost redirect listener on a random port. Ensure that nothing blocks outbound access to `qobuz.com` and that a default browser is set. The flow times out after 5 minutes. On a remote machine, see [Sign in on a remote machine](#sign-in-on-a-remote-machine).
 - **Sign-in seems to hang / "you can leave this page"**: The Qobuz OAuth page shows a confirmation screen with a **Back** button after authorization. It does not redirect automatically. Click **Back** to complete sign-in. cliamp waits for the redirect for up to 5 minutes.
 - **Re-authenticate**: Run `cliamp qobuz reset` to clear stored credentials. Then restart cliamp, select Qobuz, and sign in again. This is the same as deleting `~/.config/cliamp/qobuz_credentials.json`.
 - **"session expired, sign in again"**: Qobuz rejected the stored sign-in with HTTP 401. The provider panel shows `Sign in to Qobuz. Press Enter to continue.` If this happens when a track starts, the status line shows `Sign-in required to play <track>.` Press `Enter` to sign in again. You do not need to restart cliamp.

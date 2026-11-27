@@ -204,7 +204,7 @@ func (m *Model) plMgrDirsMaybeAdjustScroll(visible int) {
 }
 
 func (m *Model) plMgrTracksMaybeAdjustScroll(visible int) {
-	if m.plManager.filter != "" || !m.showAlbumHeaders {
+	if m.plManager.filter != "" || !m.plManager.showAlbumHeaders {
 		clampScroll(&m.plManager.cursor, &m.plManager.scroll, m.plMgrTracksViewCount(), visible)
 		return
 	}
@@ -214,6 +214,9 @@ func (m *Model) plMgrTracksMaybeAdjustScroll(visible int) {
 	}
 	if m.plManager.cursor < m.plManager.scroll {
 		m.plManager.scroll = m.plManager.cursor
+	}
+	if visible > 0 {
+		m.plManager.scroll = max(m.plManager.scroll, m.plManager.cursor-visible+1)
 	}
 	m.plManager.scroll = m.fitHeaderScroll(tracks, m.plManager.scroll, m.plManager.cursor, visible, true)
 }
@@ -269,7 +272,7 @@ func (m *Model) plMgrEnterTrackList(name string) {
 	m.plMgrLoadTracks(tracks)
 	m.plManager.marked = make(map[int]bool)
 	m.plManager.sortMode = 0
-	m.setHeaderStateFromTracks(tracks)
+	m.plManager.showAlbumHeaders = tracksHaveAlbumCohesion(tracks)
 	m.plManager.screen = plMgrScreenTracks
 	m.plManager.cursor = 0
 	m.plManager.scroll = 0
@@ -288,7 +291,7 @@ func (m *Model) plMgrReloadTracks(name string) {
 		return
 	}
 	m.plMgrLoadTracks(tracks)
-	m.setHeaderStateFromTracks(tracks)
+	m.plManager.showAlbumHeaders = tracksHaveAlbumCohesion(tracks)
 	m.plManager.marked = make(map[int]bool)
 	if m.plManager.filter != "" {
 		m.plMgrRecomputeFilter()
@@ -408,7 +411,7 @@ func (m *Model) plMgrRefreshTracksForSel() {
 	// track slice; assigning tracks directly would leave stale per-track
 	// missing-file indicators mapped onto the wrong entries.
 	m.plMgrLoadTracks(tracks)
-	m.setHeaderStateFromTracks(tracks)
+	m.plManager.showAlbumHeaders = tracksHaveAlbumCohesion(tracks)
 }
 
 // fbAddDirSource adds directories as [[dir]] sources on the target playlist:

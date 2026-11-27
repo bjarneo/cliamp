@@ -261,7 +261,7 @@ func (p *SpotifyProvider) AddTrackToPlaylist(ctx context.Context, playlistID str
 	}
 
 	body, _ := json.Marshal(map[string]any{"uris": []string{trackURI}})
-	path := fmt.Sprintf("/v1/playlists/%s/items", playlistID)
+	path := fmt.Sprintf("/v1/playlists/%s/items", url.PathEscape(playlistID))
 
 	resp, err := p.webAPIWithRetry(ctx, "POST", path, nil, bytes.NewReader(body), "application/json", http.StatusOK, http.StatusCreated)
 	if err != nil {

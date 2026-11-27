@@ -1,6 +1,7 @@
 package lyrics
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -31,7 +33,7 @@ var httpClient = httpclient.NewAPI(10 * time.Second)
 // server.
 var (
 	lrclibBaseURL  = "https://lrclib.net"
-	neteaseBaseURL = "http://music.163.com"
+	neteaseBaseURL = "https://music.163.com"
 )
 
 // sourceTimeout limits each Source that Lookup calls.
@@ -59,7 +61,8 @@ type ncmLyricResponse struct {
 	} `json:"lrc"`
 }
 
-var lrcRegex = regexp.MustCompile(`\[(\d{2,}):(\d{2})\.(\d{2,3})\](.*)`)
+// lrcTimeRegex matches one leading [mm:ss], [mm:ss.xx] or [mm:ss.xxx] tag.
+var lrcTimeRegex = regexp.MustCompile(`^\[(\d{2,}):(\d{2})(?:\.(\d{1,3}))?\]`)
 
 // cleanQuery strips noise from a search query: bracketed text like "[Official Video]",
 // parenthesized text like "(Lyric Video)", and common video/audio label suffixes.
@@ -95,12 +98,18 @@ func Lookup(ctx context.Context, embedded, artist, title string, sources ...Sour
 		return lines, nil
 	}
 	for _, source := range sources {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		sourceCtx, cancel := context.WithTimeout(ctx, sourceTimeout)
 		lines, err := source(sourceCtx)
 		cancel()
 		if err == nil && len(lines) > 0 {
 			return lines, nil
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	return fetch(ctx, artist, title)
 }
@@ -193,17 +202,23 @@ func fetchLRCLIB(ctx context.Context, query string) ([]Line, error) {
 		return nil, ErrNotFound
 	}
 
-	// Prefer synced lyrics.
+	// Prefer synced lyrics that contain at least one timestamped line.
 	for _, r := range results {
-		if r.SyncedLyrics != "" {
-			return parseLRC(r.SyncedLyrics), nil
+		if r.SyncedLyrics == "" {
+			continue
+		}
+		if lines := parseLRC(r.SyncedLyrics); len(lines) > 0 {
+			return lines, nil
 		}
 	}
 
-	// Fallback to plain lyrics (all lines at timestamp 0).
-	if results[0].PlainLyrics != "" {
+	// Fall back to the first result with non-empty plain lyrics.
+	for _, r := range results {
+		if strings.TrimSpace(r.PlainLyrics) == "" {
+			continue
+		}
 		var lines []Line
-		for raw := range strings.SplitSeq(results[0].PlainLyrics, "\n") {
+		for raw := range strings.SplitSeq(r.PlainLyrics, "\n") {
 			lines = append(lines, Line{Start: 0, Text: strings.TrimSpace(raw)})
 		}
 		return lines, nil
@@ -223,7 +238,7 @@ func fetchNetEase(ctx context.Context, query string) ([]Line, error) {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Referer", "http://music.163.com")
+	req.Header.Set("Referer", "https://music.163.com")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -280,24 +295,37 @@ func fetchNetEase(ctx context.Context, query string) ([]Line, error) {
 }
 
 // parseLRC converts standard LRC string blocks into a slice of timestamped Lines.
+// A line can carry several time tags ("[00:12.00][00:45.00]Chorus"); it is
+// shown at each of them, and the result is sorted by time.
 func parseLRC(data string) []Line {
 	var lines []Line
 	for raw := range strings.SplitSeq(data, "\n") {
-		matches := lrcRegex.FindStringSubmatch(raw)
-		if len(matches) == 5 {
+		rest := strings.TrimSpace(strings.TrimPrefix(raw, "\ufeff"))
+		var starts []time.Duration
+		for {
+			matches := lrcTimeRegex.FindStringSubmatch(rest)
+			if matches == nil {
+				break
+			}
 			mins, _ := strconv.Atoi(matches[1])
 			secs, _ := strconv.Atoi(matches[2])
-			ms, _ := strconv.Atoi(matches[3])
-
-			// If LRC millisecond part is hundredths (2 chars), scale it.
-			if len(matches[3]) == 2 {
-				ms *= 10
+			start := time.Duration(mins)*time.Minute + time.Duration(secs)*time.Second
+			if frac := matches[3]; frac != "" {
+				// tenths, hundredths or milliseconds
+				n, _ := strconv.Atoi(frac)
+				for range 3 - len(frac) {
+					n *= 10
+				}
+				start += time.Duration(n) * time.Millisecond
 			}
-
-			start := time.Duration(mins)*time.Minute + time.Duration(secs)*time.Second + time.Duration(ms)*time.Millisecond
-			text := strings.TrimSpace(matches[4])
+			starts = append(starts, start)
+			rest = rest[len(matches[0]):]
+		}
+		text := strings.TrimSpace(rest)
+		for _, start := range starts {
 			lines = append(lines, Line{Start: start, Text: text})
 		}
 	}
+	slices.SortStableFunc(lines, func(a, b Line) int { return cmp.Compare(a.Start, b.Start) })
 	return lines
 }

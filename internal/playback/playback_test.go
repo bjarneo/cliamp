@@ -95,3 +95,14 @@ func TestNotifierInterface(t *testing.T) {
 		t.Errorf("seeks = %v, want [1s]", f.seeks)
 	}
 }
+
+func TestTrackUserRatingField(t *testing.T) {
+	tr := Track{UserRating: 4}
+	if tr.UserRating != 4 {
+		t.Errorf("UserRating = %d, want 4", tr.UserRating)
+	}
+	s := State{Track: tr}
+	if s.Track.UserRating != 4 {
+		t.Errorf("State.Track.UserRating = %d, want 4", s.Track.UserRating)
+	}
+}

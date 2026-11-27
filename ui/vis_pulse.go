@@ -74,103 +74,147 @@ func (v *Visualizer) renderPulse(bands []float64) string {
 	bandCount := len(bands)
 	maxR := coords.maxR
 
-	var totalEnergy float64
-	for _, e := range bands {
-		totalEnergy += e
+	var avgEnergy, minBand, maxBand float64
+	if bandCount > 0 {
+		minBand = bands[0]
+		maxBand = bands[0]
+		var totalEnergy float64
+		for _, e := range bands {
+			totalEnergy += e
+			if e < minBand {
+				minBand = e
+			}
+			if e > maxBand {
+				maxBand = e
+			}
+		}
+		avgEnergy = totalEnergy / float64(bandCount)
 	}
-	avgEnergy := totalEnergy / float64(bandCount)
 
 	// Shockwave: expanding ring that fades as it grows.
 	shockPhase := math.Mod(float64(v.frame)*0.10, 1.0)
 	shockR := maxR * (0.3 + 0.7*shockPhase)
 	shockStrength := avgEnergy * avgEnergy * (1.0 - shockPhase*shockPhase)
+	hasShock := shockStrength > 0.05
+	shockThick := 0.6 + shockStrength*1.5
 
 	// Gentle breathing keeps the shape alive during silence.
 	breath := math.Sin(float64(v.frame)*0.05) * 0.02
 
-	// Per-frame rotation offset — added uniformly to every cached angle.
-	rotOffset := float64(v.frame) * (0.015 + avgEnergy*0.04)
+	// Wrap the rotation offset once per frame below one full turn.
 	twoPi := 2 * math.Pi
+	rotOffset := float64(v.frame) * (0.015 + avgEnergy*0.04)
+	rotOffset -= math.Floor(rotOffset/twoPi) * twoPi
+	if rotOffset >= twoPi {
+		rotOffset -= twoPi
+	}
 	bandScale := float64(bandCount) / twoPi
 
-	lines := make([]string, height)
+	// Compute the largest pulse radius this frame can reach at any angle.
+	maxBlended := max(math.Abs(maxBand*0.6+avgEnergy*0.4), math.Abs(minBand*0.6+avgEnergy*0.4))
+	maxPossibleR := maxR * (0.08 + breath + 0.92*maxBlended*maxBlended)
+	maxDotDist := -1.0
+	if maxPossibleR+1e-9 > 0.5 {
+		maxDotDist = maxPossibleR + 1.5 + 1e-9
+	}
 
+	dists := coords.dist
+	angles := coords.angle
+
+	var sb strings.Builder
+	sb.Grow(height * (width*5 + 16))
+	w := styleRunWriter{sb: &sb}
+
+	idx := 0
 	for row := range height {
-		var sb, run strings.Builder
+		if row > 0 {
+			sb.WriteByte('\n')
+		}
 		tag := -1
+		w.setTag(-1)
+		dotRowBase := row * 4
 
 		for col := range width {
-			var braille rune = '\u2800'
+			var mask byte
 			var maxNorm float64
+			dotColBase := col * 2
 
 			for dr := range 4 {
 				for dc := range 2 {
-					idx := pulseDotIndex(row, col, dr, dc, width)
-					dist := coords.dist[idx]
+					dist := dists[idx]
 
-					rotAngle := coords.angle[idx] + rotOffset
-					rotAngle -= math.Floor(rotAngle/twoPi) * twoPi
+					if dist < maxDotDist {
+						var energy float64
+						bandIdx := 0
+						if bandCount > 0 {
+							rotAngle := angles[idx] + rotOffset
+							if rotAngle >= twoPi {
+								rotAngle -= twoPi
+							}
 
-					// Cosine-interpolated band mapping.
-					bandPos := rotAngle * bandScale
-					bandIdx := int(bandPos) % bandCount
-					nextBand := (bandIdx + 1) % bandCount
-					frac := bandPos - math.Floor(bandPos)
-					t := (1 - math.Cos(frac*math.Pi)) / 2
-					energy := bands[bandIdx]*(1-t) + bands[nextBand]*t
-
-					// Blend per-band with overall so the whole shape beats.
-					blended := energy*0.6 + avgEnergy*0.4
-					punch := blended * blended
-					r := maxR * (0.08 + breath + 0.92*punch)
-
-					// --- Solid fill ---
-					if r > 0.5 && dist <= r {
-						norm := dist / r
-						if norm > maxNorm {
-							maxNorm = norm
+							bandPos := rotAngle * bandScale
+							bandIdx = int(bandPos)
+							frac := bandPos - float64(bandIdx)
+							if bandIdx >= bandCount {
+								bandIdx = 0
+							}
+							nextBand := bandIdx + 1
+							if nextBand >= bandCount {
+								nextBand = 0
+							}
+							t := (1 - math.Cos(frac*math.Pi)) / 2
+							energy = bands[bandIdx]*(1-t) + bands[nextBand]*t
 						}
-						braille |= brailleBit[dr][dc]
-					} else if r > 0.5 && dist < r+1.5 {
-						// Anti-aliased edge.
-						edgeFade := 1.0 - (dist-r)/1.5
-						if scatterHash(bandIdx, row*4+dr, col*2+dc, v.frame) < edgeFade*0.7 {
-							braille |= brailleBit[dr][dc]
-							if maxNorm < 0.9 {
-								maxNorm = 0.9
+
+						// Blend per-band with overall so the whole shape beats.
+						blended := energy*0.6 + avgEnergy*0.4
+						punch := blended * blended
+						r := maxR * (0.08 + breath + 0.92*punch)
+
+						if r > 0.5 && dist <= r {
+							norm := dist / r
+							if norm > maxNorm {
+								maxNorm = norm
+							}
+							mask |= brailleBit[dr][dc]
+						} else if r > 0.5 && dist < r+1.5 {
+							edgeFade := 1.0 - (dist-r)/1.5
+							if scatterHash(bandIdx, dotRowBase+dr, dotColBase+dc, v.frame) < edgeFade*0.7 {
+								mask |= brailleBit[dr][dc]
+								if maxNorm < 0.9 {
+									maxNorm = 0.9
+								}
 							}
 						}
 					}
 
-					// --- Shockwave ring ---
-					if shockStrength > 0.05 {
+					if hasShock {
 						shockDist := math.Abs(dist - shockR)
-						shockThick := 0.6 + shockStrength*1.5
 						if shockDist < shockThick {
 							fade := 1.0 - shockDist/shockThick
 							if fade > 0.4 {
-								braille |= brailleBit[dr][dc]
+								mask |= brailleBit[dr][dc]
 								if maxNorm < 0.65 {
 									maxNorm = 0.65
 								}
 							}
 						}
 					}
+					idx++
 				}
 			}
 
-			// Radial color gradient: green core → yellow → red edge.
+			// Radial color gradient: green core to yellow to red edge.
 			newTag := specTag(maxNorm)
 			if newTag != tag {
-				flushStyleRun(&sb, &run, tag)
 				tag = newTag
+				w.setTag(tag)
 			}
-			run.WriteRune(braille)
+			w.writeBraille(mask)
 		}
 
-		flushStyleRun(&sb, &run, tag)
-		lines[row] = sb.String()
+		w.flush()
 	}
 
-	return strings.Join(lines, "\n")
+	return sb.String()
 }

@@ -99,7 +99,7 @@ func coldStartDeepLink(action deeplink.Action) error {
 			applog.UserError("cliamp:// %s failed: %v", action.Verb, err)
 		}
 	}()
-	return run(config.Overrides{}, nil, false, false)
+	return run(config.Overrides{}, nil, false)
 }
 
 // waitForIPC polls until the socket accepts a request or timeout elapses.

@@ -238,8 +238,11 @@ func TestSetResumeSaverPreservesPlaylistState(t *testing.T) {
 	pl.SetIndex(2)
 	pl.ToggleShuffle()
 	pl.SetRepeat(playlist.RepeatAll)
-	pl.Queue(3)
-	pl.Queue(1)
+	// Queue the last two tracks of the shuffled order, so that neither is
+	// next in order and the four Next calls below do not reach a reshuffle.
+	order, _ := pl.OrderWindow(0, 4)
+	pl.Queue(order[3])
+	pl.Queue(order[2])
 	pl.Next()
 	want := playlist.New()
 	want.Restore(pl.Snapshot())

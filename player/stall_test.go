@@ -91,3 +91,38 @@ func TestStallReaderCloseCancels(t *testing.T) {
 		t.Fatal("Close did not cancel the request")
 	}
 }
+
+func TestStallReaderReusesTimer(t *testing.T) {
+	br := &blockingReader{fast: []byte("hello")}
+	var cancelled atomic.Bool
+	sr := &stallReader{
+		rc:      br,
+		cancel:  func() { cancelled.Store(true) },
+		timeout: time.Second,
+	}
+	defer sr.Close()
+
+	buf := make([]byte, 16)
+	if n, err := sr.Read(buf); err != nil || n != 5 {
+		t.Fatalf("warmup Read() = (%d, %v), want (5, nil)", n, err)
+	}
+	firstTimer := sr.timer
+	if firstTimer == nil {
+		t.Fatal("expected stallReader to allocate one reusable timer")
+	}
+
+	allocs := testing.AllocsPerRun(100, func() {
+		if n, err := sr.Read(buf); err != nil || n != 5 {
+			t.Fatalf("Read() = (%d, %v), want (5, nil)", n, err)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("steady-state stallReader.Read allocations = %v, want 0", allocs)
+	}
+	if sr.timer != firstTimer {
+		t.Fatal("stallReader replaced its reusable timer")
+	}
+	if cancelled.Load() {
+		t.Fatal("cancel fired during healthy fast reads")
+	}
+}

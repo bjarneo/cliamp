@@ -46,6 +46,8 @@ const favoritesPageSize = 100
 // fair cross-section. Matches the favorite tracks cap.
 const randomTracksLimit = 500
 
+const maxTrackCacheEntries = 1000
+
 // TrackURIPrefix is the custom URI scheme for Qobuz tracks. Track paths are
 // "qobuz://track/<id>". The player resolves them to a fresh signed URL at
 // play time through the SourceResolver registered in providers.go, so queue
@@ -281,6 +283,9 @@ func (p *QobuzProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 	tracks := tracksFromAPI(apiTracks, nil)
 
 	p.mu.Lock()
+	if _, exists := p.trackCache[playlistID]; !exists && len(p.trackCache) >= maxTrackCacheEntries {
+		clear(p.trackCache)
+	}
 	p.trackCache[playlistID] = tracks
 	p.mu.Unlock()
 	return slices.Clone(tracks), nil
@@ -383,7 +388,7 @@ func (p *QobuzProvider) Artists() ([]provider.ArtistInfo, error) {
 	defer cancel()
 
 	var artists []provider.ArtistInfo
-	for offset := 0; ; offset += favoritesPageSize {
+	for pageNum, offset := 0, 0; pageNum < maxPages; pageNum, offset = pageNum+1, offset+favoritesPageSize {
 		page, err := c.favoriteArtists(ctx, offset, favoritesPageSize)
 		if err != nil {
 			return nil, p.mapErr(c, err)

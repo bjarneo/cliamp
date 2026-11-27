@@ -6,10 +6,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/bjarneo/cliamp/applog"
 )
 
 func TestParseQueryParams(t *testing.T) {
@@ -46,6 +50,13 @@ func TestParseQueryParams(t *testing.T) {
 // sign-in URL and that the redirect to that URL completes the capture.
 func TestCaptureOAuthRedirectPublishesURL(t *testing.T) {
 	t.Setenv("PATH", t.TempDir()) // browser.Open finds no browser to start
+	logPath := filepath.Join(t.TempDir(), "qobuz.log")
+	closeLog, err := applog.Init(logPath, applog.LevelDebug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = closeLog() })
+
 	urls := make(chan string, 1)
 	SetAuthURLObserver(func(u string) { urls <- u })
 	t.Cleanup(func() { SetAuthURLObserver(nil) })
@@ -79,7 +90,7 @@ func TestCaptureOAuthRedirectPublishesURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:"+redirect.Port()+"/?user_auth_token=uat&user_id=7", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:"+redirect.Port()+"/cb?user_auth_token=supersecrettoken&user_id=7", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,8 +104,20 @@ func TestCaptureOAuthRedirectPublishesURL(t *testing.T) {
 	if got.err != nil {
 		t.Fatalf("captureOAuthRedirect() error = %v", got.err)
 	}
-	if want := (oauthResult{Token: "uat", UserID: "7"}); got.res != want {
+	if want := (oauthResult{Token: "supersecrettoken", UserID: "7"}); got.res != want {
 		t.Errorf("captureOAuthRedirect() = %+v, want %+v", got.res, want)
+	}
+
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logText := string(logBytes)
+	if strings.Contains(logText, "supersecrettoken") || strings.Contains(logText, "user_auth_token") {
+		t.Fatalf("debug log leaked OAuth query parameters: %s", logText)
+	}
+	if !strings.Contains(logText, "/cb") {
+		t.Fatalf("debug log missing redirect path /cb: %s", logText)
 	}
 }
 

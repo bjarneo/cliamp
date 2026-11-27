@@ -1,6 +1,7 @@
 package config
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -628,6 +629,87 @@ func TestLoadTidal(t *testing.T) {
 	}
 }
 
+func TestLoadBandcamp(t *testing.T) {
+	tests := []struct {
+		name      string
+		body      string
+		wantIsSet bool
+		wantCfg   BandcampConfig
+	}{
+		{
+			"full config",
+			"[bandcamp]\nuser = \"fan\"\npassword = \"secret\"\nurl = \"https://example.test/api/subsonic\"\nbrowse_sort = \"newest\"\n",
+			true,
+			BandcampConfig{URL: "https://example.test/api/subsonic", User: "fan", Password: "secret", BrowseSort: "newest"},
+		},
+		{
+			"minimal config",
+			"[bandcamp]\nuser = \"fan\"\npassword = \"secret\"\n",
+			true,
+			BandcampConfig{User: "fan", Password: "secret"},
+		},
+		{
+			// Fan Settings copies credentials with a stray leading space.
+			"whitespace trimmed",
+			"[bandcamp]\nuser = \" fan\"\npassword = \"secret \"\n",
+			true,
+			BandcampConfig{User: "fan", Password: "secret"},
+		},
+		{"missing password", "[bandcamp]\nuser = \"fan\"\n", false, BandcampConfig{User: "fan"}},
+		{"section only", "[bandcamp]\n", false, BandcampConfig{}},
+		{"absent", "", false, BandcampConfig{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			path := filepath.Join(os.Getenv("HOME"), ".config", "cliamp", "config.toml")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatalf("MkdirAll: %v", err)
+			}
+			if err := os.WriteFile(path, []byte(tt.body), 0o644); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if got := cfg.Bandcamp.IsSet(); got != tt.wantIsSet {
+				t.Errorf("Bandcamp.IsSet() = %v, want %v", got, tt.wantIsSet)
+			}
+			if cfg.Bandcamp != tt.wantCfg {
+				t.Errorf("Bandcamp = %+v, want %+v", cfg.Bandcamp, tt.wantCfg)
+			}
+		})
+	}
+}
+
+func TestSaveBandcampSort(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(os.Getenv("HOME"), ".config", "cliamp", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	body := "[bandcamp]\nuser = \"fan\"\npassword = \"secret\"\n\n[navidrome]\nbrowse_sort = \"recent\"\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if err := SaveBandcampSort("newest"); err != nil {
+		t.Fatalf("SaveBandcampSort() error: %v", err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.Bandcamp.BrowseSort != "newest" {
+		t.Errorf("Bandcamp.BrowseSort = %q, want newest", cfg.Bandcamp.BrowseSort)
+	}
+	// The [navidrome] section must be untouched.
+	if cfg.Navidrome.BrowseSort != "recent" {
+		t.Errorf("Navidrome.BrowseSort = %q, want recent (clobbered by bandcamp save)", cfg.Navidrome.BrowseSort)
+	}
+}
+
 func TestPlexIsSet(t *testing.T) {
 	tests := []struct {
 		name string
@@ -1020,6 +1102,7 @@ func TestLoadPluginKeysThatCliampReads(t *testing.T) {
 		{"disabled without brackets", "[plugins]\ndisabled = webhook, discord-rpc\n", "", "disabled", "webhook, discord-rpc"},
 		{"disabled as a quoted string", "[plugins]\ndisabled = \"webhook, x\" # two\n", "", "disabled", "webhook, x"},
 		{"allowed_binaries in square brackets", "[plugins]\nallowed_binaries = [\"ffprobe\", \"curl\"]\n", "", "allowed_binaries", "ffprobe,curl"},
+		{"allowed_private_addresses in square brackets", "[plugins]\nallowed_private_addresses = [\"127.0.0.1:8085\", \"[::1]:9000\"]\n", "", "allowed_private_addresses", "127.0.0.1:8085,[::1]:9000"},
 		{"other plugin key keeps the brackets", "[plugins.lastfm]\ntags = [\"a\", \"b\"]\n", "lastfm", "tags", `["a", "b"]`},
 		{"disabled in a plugin section stays a string", "[plugins.lastfm]\ndisabled = [\"a\"]\n", "lastfm", "disabled", `["a"]`},
 	}
@@ -1028,6 +1111,97 @@ func TestLoadPluginKeysThatCliampReads(t *testing.T) {
 			cfg := loadConfigText(t, tt.body)
 			if got := cfg.Plugins[tt.plugin][tt.key]; got != tt.want {
 				t.Errorf("Plugins[%q][%q] = %q, want %q", tt.plugin, tt.key, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCanonicalSectionPreservesPluginNameCase(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"navidrome", "navidrome"},
+		{"Navidrome", "navidrome"},
+		{"YT", "ytmusic"},
+		{"YouTube", "ytmusic"},
+		{"Plugins", "plugins"},
+		{"plugins.MyPlugin", "plugins.MyPlugin"},
+		{"PLUGINS.MyPlugin", "plugins.MyPlugin"},
+		{"Plugins.Camel.Sub", "plugins.Camel.Sub"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			if got := canonicalSection(tt.in); got != tt.want {
+				t.Errorf("canonicalSection(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+
+	cfg := loadConfigText(t, "[Plugins.MyPlugin]\ntoken = \"abc\"\nenabled = True\n")
+	if got := cfg.Plugins["MyPlugin"]["token"]; got != "abc" {
+		t.Errorf("Plugins[\"MyPlugin\"][\"token\"] = %q, want abc", got)
+	}
+	if got := cfg.Plugins["MyPlugin"]["enabled"]; got != "true" {
+		t.Errorf("Plugins[\"MyPlugin\"][\"enabled\"] = %q, want true", got)
+	}
+	if _, exists := cfg.Plugins["myplugin"]; exists {
+		t.Error("plugin section key was lowercased unexpectedly")
+	}
+}
+
+func TestClampResetsNonFiniteValues(t *testing.T) {
+	tests := []struct {
+		name      string
+		volumeMin float64
+		volume    float64
+		speed     float64
+		wantMin   float64
+		wantVol   float64
+		wantSpeed float64
+	}{
+		{name: "all NaN", volumeMin: math.NaN(), volume: math.NaN(), speed: math.NaN(), wantMin: -50, wantVol: 0, wantSpeed: 1.0},
+		{name: "all +Inf", volumeMin: math.Inf(1), volume: math.Inf(1), speed: math.Inf(1), wantMin: -50, wantVol: 0, wantSpeed: 1.0},
+		{name: "all -Inf", volumeMin: math.Inf(-1), volume: math.Inf(-1), speed: math.Inf(-1), wantMin: -50, wantVol: 0, wantSpeed: 1.0},
+		{name: "only VolumeMin NaN keeps valid Volume", volumeMin: math.NaN(), volume: -12, speed: 1.5, wantMin: -50, wantVol: -12, wantSpeed: 1.5},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := defaultConfig()
+			cfg.VolumeMin = tt.volumeMin
+			cfg.Volume = tt.volume
+			cfg.Speed = tt.speed
+			cfg.clamp()
+			if cfg.VolumeMin != tt.wantMin {
+				t.Errorf("VolumeMin = %v, want %v", cfg.VolumeMin, tt.wantMin)
+			}
+			if cfg.Volume != tt.wantVol {
+				t.Errorf("Volume = %v, want %v", cfg.Volume, tt.wantVol)
+			}
+			if cfg.Speed != tt.wantSpeed {
+				t.Errorf("Speed = %v, want %v", cfg.Speed, tt.wantSpeed)
+			}
+		})
+	}
+}
+
+func TestOverridesApplyResetsNonFiniteVolume(t *testing.T) {
+	tests := []struct {
+		name string
+		vol  float64
+	}{
+		{name: "NaN", vol: math.NaN()},
+		{name: "+Inf", vol: math.Inf(1)},
+		{name: "-Inf", vol: math.Inf(-1)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := defaultConfig()
+			cfg.Volume = -12
+			v := tt.vol
+			Overrides{Volume: &v}.Apply(&cfg)
+			if cfg.Volume != 0 {
+				t.Errorf("Volume = %v, want default 0", cfg.Volume)
 			}
 		})
 	}

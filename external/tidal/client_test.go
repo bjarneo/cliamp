@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -266,5 +268,115 @@ func TestDoRequestRetriesOn429(t *testing.T) {
 	}
 	if got := calls.Load(); got != 2 {
 		t.Errorf("calls = %d, want 2 (429 then success)", got)
+	}
+}
+
+func TestEnsureTokenDoesNotBlockClientMuDuringRefresh(t *testing.T) {
+	t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var refreshes atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if refreshes.Add(1) == 1 {
+			close(started)
+			<-release
+		}
+		_, _ = fmt.Fprint(w, `{"access_token":"fresh","token_type":"Bearer","expires_in":3600}`)
+	}))
+	defer srv.Close()
+
+	c := testClient(srv)
+	c.tokenURL = srv.URL + "/token"
+	c.expiresAt = time.Now().Add(-time.Hour)
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- c.ensureToken(context.Background(), "")
+		}()
+	}
+
+	<-started
+	// Reading c.user() requires c.mu and must not block while refresh is in flight.
+	userDone := make(chan string, 1)
+	go func() { userDone <- c.user() }()
+	select {
+	case uid := <-userDone:
+		if uid != "42" {
+			t.Errorf("user() = %q, want 42", uid)
+		}
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("c.user() blocked on c.mu during token refresh")
+	}
+
+	close(release)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("ensureToken() error = %v", err)
+		}
+	}
+	if got := refreshes.Load(); got != 1 {
+		t.Fatalf("refreshes = %d, want 1", got)
+	}
+}
+
+func TestDoRequestTruncatesErrorSnippet(t *testing.T) {
+	longBody := strings.Repeat("X", maxErrorSnippet+250)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(longBody))
+	}))
+	defer srv.Close()
+
+	_, err := testClient(srv).doRequest(context.Background(), "sessions", nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if len(err.Error()) >= len(longBody) {
+		t.Fatalf("error length = %d, expected truncated body", len(err.Error()))
+	}
+	if !strings.HasSuffix(err.Error(), "...") {
+		t.Fatalf("error = %q, want ellipsis suffix", err.Error())
+	}
+}
+
+func TestNormalizeVerificationURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		want    string
+		wantErr bool
+	}{
+		{name: "bare host gets https", raw: "link.tidal.com/ABCDE", want: "https://link.tidal.com/ABCDE"},
+		{name: "https preserved", raw: "https://link.tidal.com/ABCDE", want: "https://link.tidal.com/ABCDE"},
+		{name: "http rejected", raw: "http://link.tidal.com/ABCDE", wantErr: true},
+		{name: "javascript rejected", raw: "javascript:alert(1)", wantErr: true},
+		{name: "file rejected", raw: "file:///etc/passwd", wantErr: true},
+		{name: "empty host rejected", raw: "https:///ABCDE", wantErr: true},
+		{name: "empty string rejected", raw: "", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := normalizeVerificationURL(tt.raw)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("normalizeVerificationURL(%q) = %q, want error", tt.raw, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("normalizeVerificationURL(%q) error = %v", tt.raw, err)
+			}
+			if got != tt.want {
+				t.Fatalf("normalizeVerificationURL(%q) = %q, want %q", tt.raw, got, tt.want)
+			}
+		})
 	}
 }

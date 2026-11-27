@@ -6,15 +6,20 @@ package httpclient
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
+	"sync"
 	"time"
 
 	"golang.org/x/net/http/httpproxy"
 	"golang.org/x/net/proxy"
+
+	"github.com/bjarneo/cliamp/applog"
 )
 
 // UserAgent is shared by API and stream requests so Navidrome identifies them
@@ -35,6 +40,81 @@ const UserAgent = "cliamp/1.0 (https://github.com/bjarneo/cliamp)"
 // ignores ALL_PROXY.
 var Streaming = &http.Client{Transport: &socks5RoundTripper{transport: newStreamingTransport()}}
 
+// envProxyKey snapshots the raw proxy environment variables so cached
+// httpproxy.Config matchers invalidate immediately when tests or callers
+// update environment variables.
+type envProxyKey struct {
+	httpProxy     string
+	httpProxyLow  string
+	httpsProxy    string
+	httpsProxyLow string
+	allProxy      string
+	allProxyLow   string
+	noProxy       string
+	noProxyLow    string
+	requestMethod string
+}
+
+type cachedProxyFuncs struct {
+	key          envProxyKey
+	stdProxyFunc func(*url.URL) (*url.URL, error)
+	allProxyFunc func(*url.URL) (*url.URL, error)
+}
+
+var (
+	envProxyMu    sync.RWMutex
+	envProxyCache cachedProxyFuncs
+	envProxyInit  bool
+)
+
+func currentEnvProxyFuncs() (stdFn, allFn func(*url.URL) (*url.URL, error)) {
+	key := envProxyKey{
+		httpProxy:     os.Getenv("HTTP_PROXY"),
+		httpProxyLow:  os.Getenv("http_proxy"),
+		httpsProxy:    os.Getenv("HTTPS_PROXY"),
+		httpsProxyLow: os.Getenv("https_proxy"),
+		allProxy:      os.Getenv("ALL_PROXY"),
+		allProxyLow:   os.Getenv("all_proxy"),
+		noProxy:       os.Getenv("NO_PROXY"),
+		noProxyLow:    os.Getenv("no_proxy"),
+		requestMethod: os.Getenv("REQUEST_METHOD"),
+	}
+	envProxyMu.RLock()
+	if envProxyInit && envProxyCache.key == key {
+		stdFn, allFn = envProxyCache.stdProxyFunc, envProxyCache.allProxyFunc
+		envProxyMu.RUnlock()
+		return stdFn, allFn
+	}
+	envProxyMu.RUnlock()
+
+	noProxy := firstNonEmpty(key.noProxy, key.noProxyLow)
+	cgi := key.requestMethod != ""
+	stdFn = (&httpproxy.Config{
+		HTTPProxy:  firstNonEmpty(key.httpProxy, key.httpProxyLow),
+		HTTPSProxy: firstNonEmpty(key.httpsProxy, key.httpsProxyLow),
+		NoProxy:    noProxy,
+		CGI:        cgi,
+	}).ProxyFunc()
+	if allProxy := firstNonEmpty(key.allProxy, key.allProxyLow); allProxy != "" {
+		allFn = (&httpproxy.Config{
+			HTTPProxy:  allProxy,
+			HTTPSProxy: allProxy,
+			NoProxy:    noProxy,
+			CGI:        cgi,
+		}).ProxyFunc()
+	}
+
+	envProxyMu.Lock()
+	envProxyCache = cachedProxyFuncs{
+		key:          key,
+		stdProxyFunc: stdFn,
+		allProxyFunc: allFn,
+	}
+	envProxyInit = true
+	envProxyMu.Unlock()
+	return stdFn, allFn
+}
+
 // resolveEnvProxy resolves the proxy that applies to a request for the
 // given scheme+addr, honoring HTTP_PROXY/HTTPS_PROXY/ALL_PROXY/NO_PROXY
 // exactly like the standard library does: httpproxy.FromEnvironment()
@@ -45,7 +125,8 @@ var Streaming = &http.Client{Transport: &socks5RoundTripper{transport: newStream
 // one proxy for every request regardless of scheme.
 func resolveEnvProxy(scheme, addr string) (*url.URL, error) {
 	reqURL := &url.URL{Scheme: scheme, Host: addr}
-	u, err := httpproxy.FromEnvironment().ProxyFunc()(reqURL)
+	stdFn, allFn := currentEnvProxyFuncs()
+	u, err := stdFn(reqURL)
 	if err != nil {
 		return nil, fmt.Errorf("resolve environment proxy for %s://%s: %w", scheme, addr, err)
 	}
@@ -60,16 +141,10 @@ func resolveEnvProxy(scheme, addr string) (*url.URL, error) {
 	// directly instead of through the SOCKS5 proxy. Re-resolve using
 	// ALL_PROXY/all_proxy as both the HTTP and HTTPS proxy so
 	// httpproxy.Config still applies its own NO_PROXY bypass logic.
-	allProxy := firstNonEmpty(os.Getenv("ALL_PROXY"), os.Getenv("all_proxy"))
-	if allProxy == "" {
+	if allFn == nil {
 		return nil, nil
 	}
-	cfg := &httpproxy.Config{
-		HTTPProxy:  allProxy,
-		HTTPSProxy: allProxy,
-		NoProxy:    firstNonEmpty(os.Getenv("NO_PROXY"), os.Getenv("no_proxy")),
-	}
-	u, err = cfg.ProxyFunc()(reqURL)
+	u, err = allFn(reqURL)
 	if err != nil {
 		return nil, fmt.Errorf("resolve ALL_PROXY for %s://%s: %w", scheme, addr, err)
 	}
@@ -143,10 +218,25 @@ type socks5RoundTripper struct {
 	transport *http.Transport
 }
 
+// redactedRequestURL returns u with only scheme, host, and path so proxy errors
+// do not include userinfo or query parameters.
+func redactedRequestURL(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	clean := url.URL{
+		Scheme:  u.Scheme,
+		Host:    u.Host,
+		Path:    u.Path,
+		RawPath: u.RawPath,
+	}
+	return clean.String()
+}
+
 func (rt *socks5RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	decision, err := dialDecisionFor(req)
 	if err != nil {
-		return nil, fmt.Errorf("resolve proxy dial decision for %s: %w", req.URL, err)
+		return nil, fmt.Errorf("resolve proxy dial decision for %s: %w", redactedRequestURL(req.URL), err)
 	}
 	ctx := context.WithValue(req.Context(), dialDecisionKey{}, decision)
 	return rt.transport.RoundTrip(req.WithContext(ctx))
@@ -170,7 +260,7 @@ func socks5DialerFromURL(u *url.URL) (proxy.Dialer, error) {
 		// instead of silently sending (or silently dropping) them.
 		return nil, fmt.Errorf("SOCKS5 credentials in proxy URL for %q are not supported: RFC 1929 auth is sent in cleartext, even over loopback", u.Host)
 	}
-	return proxy.SOCKS5("tcp", u.Host, nil, proxy.Direct)
+	return proxy.SOCKS5("tcp", u.Host, nil, streamDialer)
 }
 
 // socks5DialerFor returns a SOCKS5 dialer to use for a request of the
@@ -205,9 +295,10 @@ func socks5DialerFor(scheme, addr string) (proxy.Dialer, error) {
 // so NO_PROXY and the scheme-specific *_PROXY variable are both honored,
 // not just baked in once at transport-construction time.
 func transportProxy(req *http.Request) (*url.URL, error) {
-	u, err := httpproxy.FromEnvironment().ProxyFunc()(req.URL)
+	stdFn, _ := currentEnvProxyFuncs()
+	u, err := stdFn(req.URL)
 	if err != nil {
-		return nil, fmt.Errorf("resolve proxy for %s: %w", req.URL, err)
+		return nil, fmt.Errorf("resolve proxy for %s: %w", redactedRequestURL(req.URL), err)
 	}
 	if u == nil {
 		return nil, nil
@@ -218,9 +309,23 @@ func transportProxy(req *http.Request) (*url.URL, error) {
 	return u, nil
 }
 
+const (
+	streamDialTimeout       = 30 * time.Second
+	streamKeepAlive         = 30 * time.Second
+	streamTLSHandshakeLimit = 15 * time.Second
+	streamIdleConnTimeout   = 90 * time.Second
+)
+
+var streamDialer = &net.Dialer{
+	Timeout:   streamDialTimeout,
+	KeepAlive: streamKeepAlive,
+}
+
 func newStreamingTransport() *http.Transport {
 	tr := &http.Transport{
 		ResponseHeaderTimeout: 30 * time.Second,
+		TLSHandshakeTimeout:   streamTLSHandshakeLimit,
+		IdleConnTimeout:       streamIdleConnTimeout,
 		TLSNextProto:          make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
 		Proxy:                 transportProxy,
 	}
@@ -232,6 +337,11 @@ func newStreamingTransport() *http.Transport {
 		}
 		return newICYConn(conn), nil
 	}
+	// Behind an http or https proxy, Transport runs the TLS handshake with
+	// the stream server itself, through a CONNECT tunnel and with
+	// TLSClientConfig. The legacy TLS fallback below does not cover that
+	// handshake.
+	var legacy legacyTLSAddrs
 	tr.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		config := &tls.Config{}
 		if tr.TLSClientConfig != nil {
@@ -247,18 +357,123 @@ func newStreamingTransport() *http.Transport {
 		// Icecast and SHOUTcast servers only support HTTP/1.x.
 		config.NextProtos = nil
 
-		rawConn, err := dialWithDecision(ctx, network, addr)
+		tlsConn, err := dialStreamTLS(ctx, network, addr, config, &legacy)
 		if err != nil {
-			return nil, fmt.Errorf("dial TLS %s: %w", addr, err)
-		}
-		tlsConn := tls.Client(rawConn, config)
-		if err := tlsConn.HandshakeContext(ctx); err != nil {
-			_ = rawConn.Close()
-			return nil, fmt.Errorf("dial TLS %s: %w", addr, err)
+			return nil, err
 		}
 		return newICYConn(tlsConn), nil
 	}
 	return tr
+}
+
+// dialStreamTLS dials addr with config. When the server rejects config with
+// a handshake_failure alert, it dials again with legacyTLSConfig and records
+// addr in legacy. The next dial of addr then uses legacyTLSConfig at once.
+func dialStreamTLS(ctx context.Context, network, addr string, config *tls.Config, legacy *legacyTLSAddrs) (*tls.Conn, error) {
+	if legacy.has(addr) {
+		return dialTLS(ctx, network, addr, legacyTLSConfig(config))
+	}
+	conn, err := dialTLS(ctx, network, addr, config)
+	if err == nil || !isHandshakeFailure(err) {
+		return conn, err
+	}
+	conn, fbErr := dialTLS(ctx, network, addr, legacyTLSConfig(config))
+	if fbErr != nil {
+		return nil, fmt.Errorf("%w (legacy TLS retry: %w)", err, fbErr)
+	}
+	if legacy.add(addr) {
+		suite := tls.CipherSuiteName(conn.ConnectionState().CipherSuite)
+		applog.Warn("httpclient: %s rejects the default TLS config. Using TLS 1.2 with %s", addr, suite)
+	}
+	return conn, nil
+}
+
+// dialTLS dials addr and runs the TLS handshake with config.
+func dialTLS(ctx context.Context, network, addr string, config *tls.Config) (*tls.Conn, error) {
+	rawConn, err := dialWithDecision(ctx, network, addr)
+	if err != nil {
+		return nil, fmt.Errorf("dial TLS %s: %w", addr, err)
+	}
+	hsCtx, cancel := context.WithTimeout(ctx, streamTLSHandshakeLimit)
+	defer cancel()
+	tlsConn := tls.Client(rawConn, config)
+	if err := tlsConn.HandshakeContext(hsCtx); err != nil {
+		_ = rawConn.Close()
+		return nil, fmt.Errorf("dial TLS %s: %w", addr, err)
+	}
+	return tlsConn, nil
+}
+
+// isHandshakeFailure reports whether err holds a handshake_failure alert
+// from the server. crypto/tls returns a received alert as an unexported type
+// inside a "remote error" *net.OpError, not as tls.AlertError. The check
+// therefore compares the alert text with the text of tls.AlertError.
+func isHandshakeFailure(err error) bool {
+	const alertHandshakeFailure = tls.AlertError(40)
+	opErr, ok := errors.AsType[*net.OpError](err)
+	return ok && opErr.Op == "remote error" && opErr.Err != nil &&
+		opErr.Err.Error() == alertHandshakeFailure.Error()
+}
+
+// legacyCipherSuites holds the secure TLS 1.2 suites of crypto/tls and the
+// 2 RSA key exchange suites that legacy Icecast servers accept. Go 1.22
+// removed RSA key exchange from the default suites, because RSA key exchange
+// has no forward secrecy. Only the streaming fallback uses these suites.
+var legacyCipherSuites = func() []uint16 {
+	var ids []uint16
+	for _, s := range tls.CipherSuites() {
+		if slices.Contains(s.SupportedVersions, tls.VersionTLS12) {
+			ids = append(ids, s.ID)
+		}
+	}
+	return append(ids, tls.TLS_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_RSA_WITH_AES_256_GCM_SHA384)
+}()
+
+// legacyTLSConfig returns a copy of config for servers that reject the
+// default TLS config. Certificate verification stays on.
+func legacyTLSConfig(config *tls.Config) *tls.Config {
+	legacy := config.Clone()
+	legacy.MaxVersion = tls.VersionTLS12
+	legacy.CipherSuites = legacyCipherSuites
+	return legacy
+}
+
+// maxLegacyTLSAddrs limits legacyTLSAddrs. An address that drops out costs
+// 1 failed handshake on its next dial.
+const maxLegacyTLSAddrs = 64
+
+// legacyTLSAddrs holds the "host:port" addresses that need the legacy TLS
+// config. It is safe for concurrent use.
+type legacyTLSAddrs struct {
+	mu    sync.Mutex
+	addrs map[string]struct{}
+}
+
+func (l *legacyTLSAddrs) has(addr string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	_, ok := l.addrs[addr]
+	return ok
+}
+
+// add records addr and reports whether addr is new.
+func (l *legacyTLSAddrs) add(addr string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if _, ok := l.addrs[addr]; ok {
+		return false
+	}
+	if l.addrs == nil {
+		l.addrs = make(map[string]struct{})
+	}
+	if len(l.addrs) >= maxLegacyTLSAddrs {
+		for k := range l.addrs {
+			delete(l.addrs, k)
+			break
+		}
+	}
+	l.addrs[addr] = struct{}{}
+	return true
 }
 
 // dialWithDecision dials addr directly, unless ctx carries a *dialDecision
@@ -278,7 +493,7 @@ func dialWithDecision(ctx context.Context, network, addr string) (net.Conn, erro
 		d = decision.socks5
 	}
 	if d == nil {
-		conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+		conn, err := streamDialer.DialContext(ctx, network, addr)
 		if err != nil {
 			return nil, fmt.Errorf("dial %s directly: %w", addr, err)
 		}

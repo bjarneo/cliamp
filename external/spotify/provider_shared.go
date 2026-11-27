@@ -140,6 +140,7 @@ type spotifyAlbumItem struct {
 	TotalTracks int             `json:"total_tracks"`
 	ReleaseDate string          `json:"release_date"`
 	Artists     []spotifyArtist `json:"artists"`
+	Images      []spotifyImage  `json:"images"`
 }
 
 // albumFromItem converts an album search hit into an album placeholder Track.
@@ -155,11 +156,12 @@ func albumFromItem(a *spotifyAlbumItem) playlist.Track {
 	}
 
 	return playlist.Track{
-		Path:   uri,
-		Title:  a.Name,
-		Artist: artistNames(a.Artists),
-		Album:  a.Name,
-		Year:   provider.YearFromDate(a.ReleaseDate),
+		Path:        uri,
+		Title:       a.Name,
+		Artist:      artistNames(a.Artists),
+		Album:       a.Name,
+		AlbumArtURL: pickCoverImage(a.Images),
+		Year:        provider.YearFromDate(a.ReleaseDate),
 		ProviderMeta: map[string]string{
 			playlist.MetaKind:    playlist.MetaKindAlbum,
 			playlist.MetaAlbumID: a.ID,

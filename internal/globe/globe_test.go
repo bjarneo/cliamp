@@ -82,6 +82,47 @@ func TestRenderEmpty(t *testing.T) {
 	}
 }
 
+func TestResizeClampsNonPositiveAndRenderSkipsPrepare(t *testing.T) {
+	tests := []struct {
+		name     string
+		cols     int
+		rows     int
+		wantCols int
+		wantRows int
+	}{
+		{name: "negative cols", cols: -5, rows: 10, wantCols: 0, wantRows: 10},
+		{name: "negative rows", cols: 10, rows: -5, wantCols: 10, wantRows: 0},
+		{name: "both negative", cols: -5, rows: -5, wantCols: 0, wantRows: 0},
+		{name: "zero cols", cols: 0, rows: 10, wantCols: 0, wantRows: 10},
+		{name: "zero rows", cols: 10, rows: 0, wantCols: 10, wantRows: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := New(sea{})
+			g.Resize(tt.cols, tt.rows)
+			if g.cols != tt.wantCols || g.rows != tt.wantRows {
+				t.Fatalf("size = (%d, %d), want (%d, %d)", g.cols, g.rows, tt.wantCols, tt.wantRows)
+			}
+			if got := g.Render(nil, Palette{}); got != "" {
+				t.Fatalf("Render() = %q, want empty", got)
+			}
+			if g.dots != nil || g.cells != nil {
+				t.Errorf("Render() ran prepare() for empty size (%d, %d)", g.cols, g.rows)
+			}
+			g.Resize(10, 5)
+			if got := g.Render(nil, Palette{}); got == "" {
+				t.Error("Render() after resizing to positive dimensions returned empty")
+			}
+		})
+	}
+
+	g := New(sea{})
+	g.cols, g.rows = -3, 4
+	if got := g.Render(nil, Palette{}); got != "" {
+		t.Fatalf("Render() with negative cols = %q, want empty", got)
+	}
+}
+
 func TestProjectUnprojectAgree(t *testing.T) {
 	g := New(sea{})
 	g.Resize(60, 30)

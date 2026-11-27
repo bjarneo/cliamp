@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/internal/appdir"
 	"github.com/bjarneo/cliamp/internal/tomlutil"
 	"github.com/bjarneo/cliamp/playlist"
@@ -440,16 +441,21 @@ func (p *Provider) SetSearchResults(stations []CatalogStation) {
 func streamableStations(stations []CatalogStation) []CatalogStation {
 	filtered := make([]CatalogStation, 0, len(stations))
 	for _, station := range stations {
-		u, err := url.Parse(strings.TrimSpace(station.URL))
-		if err != nil {
+		raw := strings.TrimSpace(station.URL)
+		u, err := url.Parse(raw)
+		if err != nil || u.Host == "" {
 			continue
 		}
-		switch strings.ToLower(u.Scheme) {
-		case "http", "https":
-			if u.Host != "" {
-				filtered = append(filtered, station)
-			}
+		scheme := strings.ToLower(u.Scheme)
+		if scheme != "http" && scheme != "https" {
+			continue
 		}
+		if colon := strings.IndexByte(raw, ':'); colon >= 0 {
+			station.URL = scheme + raw[colon:]
+		} else {
+			station.URL = raw
+		}
+		filtered = append(filtered, station)
 	}
 	return filtered
 }
@@ -503,7 +509,7 @@ func (p *Provider) SearchCatalog(query string) (int, error) {
 		return 0, nil
 	}
 	p.searchResults = filtered
-	return len(stations), nil
+	return len(filtered), nil
 }
 
 // searchLimit caps how many results one catalog search returns.
@@ -607,7 +613,9 @@ func formatCatalogName(s CatalogStation) string {
 	return name
 }
 
-// loadStations parses a TOML file with [[station]] sections.
+// loadStations parses a TOML file with [[station]] sections. Other section
+// headers are skipped with a warning, so a typo like [[stations]] doesn't
+// silently drop the stations under it.
 func loadStations(path string) ([]station, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -615,6 +623,10 @@ func loadStations(path string) ([]station, error) {
 			return nil, nil
 		}
 		return nil, err
+	}
+
+	for _, h := range tomlutil.UnknownHeaders(data, "station") {
+		applog.UserWarn("%s: ignoring unknown section %s, stations go under [[station]]", filepath.Base(path), h)
 	}
 
 	var stations []station

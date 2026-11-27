@@ -19,7 +19,10 @@ type Track struct {
 	Realtime     bool // true for real-time/live streams (e.g. radio)
 	Feed         bool // true for RSS/podcast feed URLs (resolved before playback)
 	DurationSecs int  // known duration in seconds (0 = unknown)
-	Bookmark     bool // user-bookmarked track
+	// UserRating is the provider-owned numeric rating. Zero means unrated;
+	// server ratings use the inclusive range 1 through 5.
+	UserRating int
+	Bookmark   bool // user-bookmarked track
 	// Restricted marks a track that its provider may refuse to play, such as
 	// an exclusive Mixcloud show. The UI marks it, and playback still tries.
 	Restricted bool

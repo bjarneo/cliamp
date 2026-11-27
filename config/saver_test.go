@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -445,6 +446,63 @@ func TestSaveRejectsLineBreaks(t *testing.T) {
 			writeConfig(t, home, initial)
 			if err := tt.save(); err == nil {
 				t.Fatal("save accepted a line break")
+			}
+			if got := readConfig(t, home); got != initial {
+				t.Errorf("config changed to %q", got)
+			}
+		})
+	}
+}
+
+func TestSaveRejectsInvalidKeys(t *testing.T) {
+	tests := []struct {
+		name string
+		key  string
+	}{
+		{name: "empty key", key: ""},
+		{name: "whitespace key", key: "   "},
+		{name: "carriage return in key", key: "volume\r"},
+		{name: "newline in key", key: "volume\nshuffle"},
+		{name: "equals in key", key: "a=b"},
+		{name: "hash in key", key: "#volume"},
+		{name: "open bracket in key", key: "[plex]"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := withHome(t)
+			const initial = "volume = -6\n"
+			writeConfig(t, home, initial)
+			if err := save(tt.key, "0"); err == nil {
+				t.Fatalf("save(%q) returned nil error", tt.key)
+			}
+			if got := readConfig(t, home); got != initial {
+				t.Errorf("config changed to %q", got)
+			}
+		})
+	}
+}
+
+func TestSaveFloatAndFloatsRejectNonFinite(t *testing.T) {
+	tests := []struct {
+		name string
+		save func() error
+	}{
+		{name: "SaveFloat NaN", save: func() error { return SaveFloat("volume", math.NaN(), -1) }},
+		{name: "SaveFloat +Inf", save: func() error { return SaveFloat("volume", math.Inf(1), 2) }},
+		{name: "SaveFloat -Inf", save: func() error { return SaveFloat("volume", math.Inf(-1), 2) }},
+		{name: "SaveFunc SaveFloat NaN", save: func() error { return SaveFunc{}.SaveFloat("speed", math.NaN(), 2) }},
+		{name: "SaveFloats NaN", save: func() error { return SaveFloats("eq", []float64{0, math.NaN(), 1}) }},
+		{name: "SaveFloats +Inf", save: func() error { return SaveFloats("eq", []float64{math.Inf(1)}) }},
+		{name: "SaveFloats -Inf", save: func() error { return SaveFloats("eq", []float64{1, math.Inf(-1)}) }},
+		{name: "SaveFunc SaveFloats +Inf", save: func() error { return SaveFunc{}.SaveFloats("eq", []float64{0, math.Inf(1)}) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := withHome(t)
+			const initial = "volume = -6\n"
+			writeConfig(t, home, initial)
+			if err := tt.save(); err == nil {
+				t.Fatal("expected error for non-finite float, got nil")
 			}
 			if got := readConfig(t, home); got != initial {
 				t.Errorf("config changed to %q", got)

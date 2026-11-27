@@ -16,42 +16,12 @@ func SendV2(sockPath string, request V2Request) (V2Response, error) {
 
 // SendV2WithDeadline is SendV2 with a caller-selected exchange deadline.
 func SendV2WithDeadline(sockPath string, request V2Request, deadline time.Duration) (V2Response, error) {
-	conn, err := dialSocket(sockPath, 3*time.Second)
+	client, err := DialV2(sockPath)
 	if err != nil {
-		if isSocketUnavailable(err) {
-			return V2Response{}, fmt.Errorf("no socket at %s: %w", sockPath, ErrNotRunning)
-		}
-		return V2Response{}, fmt.Errorf("connect: %w", err)
+		return V2Response{}, err
 	}
-	defer conn.Close()
-	if err := conn.SetDeadline(time.Now().Add(deadline)); err != nil {
-		return V2Response{}, fmt.Errorf("set deadline: %w", err)
-	}
-	data, err := json.Marshal(request)
-	if err != nil {
-		return V2Response{}, fmt.Errorf("marshal request: %w", err)
-	}
-	if _, err := conn.Write(append(data, '\n')); err != nil {
-		return V2Response{}, fmt.Errorf("write: %w", err)
-	}
-	scanner := newFrameScanner(conn)
-	if !scanner.Scan() {
-		if err := scanner.Err(); err != nil {
-			return V2Response{}, fmt.Errorf("read response: %w", err)
-		}
-		return V2Response{}, fmt.Errorf("no response from server")
-	}
-	var response V2Response
-	if err := json.Unmarshal(scanner.Bytes(), &response); err != nil {
-		return V2Response{}, fmt.Errorf("unmarshal response: %w", err)
-	}
-	if response.Version != protocolVersion2 {
-		return V2Response{}, fmt.Errorf("unexpected protocol version %d", response.Version)
-	}
-	if !bytes.Equal(bytes.TrimSpace(request.ID), bytes.TrimSpace(response.ID)) {
-		return V2Response{}, fmt.Errorf("response ID does not match request")
-	}
-	return response, nil
+	defer client.Close()
+	return client.SendWithDeadline(request, deadline)
 }
 
 // V2EventStream is a version 2 subscription. Events retain the existing

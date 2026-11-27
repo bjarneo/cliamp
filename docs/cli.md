@@ -37,10 +37,9 @@ cliamp --simplified ~/Music                  # no visualizer or playlist
 cliamp --expanded ~/Music                    # start with the playlist expanded (Ctrl+X state)
 cliamp --eq-preset "Bass Boost" ~/Music
 cliamp --visualizer Wave ~/Music             # start with one visualizer mode
-cliamp --visualizer-60fps ~/Music            # smoother visualizer animation (higher CPU use)
 ```
 
-`--visualizer-60fps` renders a visible visualizer at about 60 FPS during playback. `Wave`, `Scope`, `Heartbeat`, and `Stereo` already use this rate because they draw from audio samples. The flag does not affect overlays or low-power mode.
+The visualizer redraws at a maximum of 20 FPS on the screen.
 
 ## Diagnostics
 
@@ -143,9 +142,8 @@ cliamp track.mp3 --repeat all --mono ~/Music
 | `--simplified` / `--no-simplified` | bool | false | artist/title and time strip; no visualizer or playlist |
 | `--help-bar` / `--no-help-bar` | bool | true | show or hide the key-binding hint bar; `?` still opens the full keymap |
 | `--expanded` / `--no-expanded` | bool | false | start with the playlist expanded (the `Ctrl+X` state) |
-| `--provider` | string | cliamp | provider to open at start: cliamp, radio, podcast, navidrome, lyrion, plex, jellyfin, emby, spotify, qobuz, tidal, soundcloud, mixcloud, netease, yandex, audiobookshelf (or abs), yt, youtube, ytmusic |
+| `--provider` | string | cliamp | provider to open at start: cliamp, radio, podcast, navidrome, lyrion, plex, jellyfin, emby, spotify, qobuz, tidal, bandcamp, soundcloud, mixcloud, netease, yandex, audiobookshelf (or abs), telegram, yt, youtube, ytmusic |
 | `--visualizer` | string | Bars | visualizer mode, such as Bars, Wave or None. See [configuration.md](configuration.md#options) for all modes. |
-| `--visualizer-60fps` | bool | false | render a visible visualizer at about 60 FPS |
 | `--start-theme` | string | | theme name |
 | `--eq-preset` | string | | preset name |
 | `--sample-rate` | int | 0 | 0, 22050, 44100, 48000, 96000, 192000. 0 reads the rate of the default output device on macOS and uses 44100 on other platforms. |
@@ -163,7 +161,7 @@ CLI flags override config file values for the current session only. Persisted bo
 
 ## Setup wizard
 
-Configure remote providers through a small TUI. Supported providers are Navidrome, Lyrion, Plex, Jellyfin, Emby, Spotify, Qobuz, Tidal, Mixcloud, NetEase, Audiobookshelf, and YouTube Music. Each provider page links to its required credentials. The wizard writes the provider keys into the `[provider]` section of `~/.config/cliamp/config.toml` and leaves the rest of the file unchanged. For YouTube Music, it edits an existing `[youtube]` or `[yt]` section. It checks the server connection during setup for Navidrome, Lyrion, Plex, Jellyfin, Emby, and Audiobookshelf, and the browser session for NetEase. OAuth providers (Spotify, Qobuz, Tidal) authenticate later in the player. Setup does not check Mixcloud credentials.
+Configure remote providers through a small TUI. Supported providers are Navidrome, Lyrion, Plex, Jellyfin, Emby, Spotify, Qobuz, Tidal, Bandcamp, Mixcloud, NetEase, Audiobookshelf, YouTube Music, and Telegram. Each provider page links to its required credentials. The wizard writes the provider keys into the `[provider]` section of `~/.config/cliamp/config.toml` and leaves the rest of the file unchanged. For YouTube Music, it edits an existing `[youtube]` or `[yt]` section. It checks the server connection during setup for Navidrome, Lyrion, Plex, Jellyfin, Emby, and Audiobookshelf, the Subsonic credentials for Bandcamp, and the browser session for NetEase. OAuth providers (Spotify, Qobuz, Tidal) authenticate later in the player. Setup does not check Mixcloud credentials. Telegram asks for the login code in the pane when the session is missing, or right after saving in setup.
 
 ```sh
 cliamp setup
@@ -230,6 +228,8 @@ Playlists provider shows this data in the virtual "Recently Played" entry. See
 cliamp spotify reset                          # clear stored Spotify credentials
 cliamp qobuz reset                            # clear stored Qobuz credentials
 cliamp tidal reset                            # clear stored Tidal credentials
+cliamp tidal probe [query]                    # inspect Tidal stream quality for a track
+cliamp bandcamp probe                         # test Bandcamp Subsonic endpoints and audio fetch
 cliamp ytmusic reset                          # clear stored YouTube Music credentials
 ```
 

@@ -487,4 +487,13 @@ func TestRecordCreatesMissingConfigDir(t *testing.T) {
 	if got, err := s.Recent(0); err != nil || len(got) != 1 {
 		t.Fatalf("Recent = %d entries, %v; want 1 entry", len(got), err)
 	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0o600 {
+			t.Errorf("history.toml mode = %o, want 600", got)
+		}
+	}
 }

@@ -125,12 +125,17 @@ func (d *flameDriver) Render(v *Visualizer) string {
 		d.ensure(dotRows, dotCols)
 	}
 
-	lines := make([]string, height)
+	var sb strings.Builder
+	sb.Grow(height * (cols*5 + 16))
+	w := styleRunWriter{sb: &sb}
 	for row := 0; row < height; row++ {
-		var sb, run strings.Builder
+		if row > 0 {
+			sb.WriteByte('\n')
+		}
 		tag := -1
+		w.setTag(-1)
 		for col := 0; col < cols; col++ {
-			var braille rune = '⠀'
+			var mask byte
 			cellTag := -1
 			for dr := 0; dr < 4; dr++ {
 				for dc := 0; dc < 2; dc++ {
@@ -161,7 +166,7 @@ func (d *flameDriver) Render(v *Visualizer) string {
 					default:
 						t = 2 // red body / tips
 					}
-					braille |= brailleBit[dr][dc]
+					mask |= brailleBit[dr][dc]
 					if t > cellTag {
 						cellTag = t
 					}
@@ -171,13 +176,12 @@ func (d *flameDriver) Render(v *Visualizer) string {
 				cellTag = 0
 			}
 			if cellTag != tag {
-				flushStyleRun(&sb, &run, tag)
 				tag = cellTag
+				w.setTag(tag)
 			}
-			run.WriteRune(braille)
+			w.writeBraille(mask)
 		}
-		flushStyleRun(&sb, &run, tag)
-		lines[row] = sb.String()
+		w.flush()
 	}
-	return strings.Join(lines, "\n")
+	return sb.String()
 }

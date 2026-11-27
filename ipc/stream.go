@@ -1,12 +1,20 @@
 package ipc
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"time"
 )
+
+type spectrumResponse struct {
+	Version int             `json:"version"`
+	OK      bool            `json:"ok"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *V2Error        `json:"error,omitempty"`
+}
 
 // StreamBands holds one IPC connection open and writes one NDJSON line per
 // tick containing the current visualizer bands and mode. It exits cleanly
@@ -32,6 +40,7 @@ func StreamBands(ctx context.Context, sockPath string, interval time.Duration, o
 	reqLine = append(reqLine, '\n')
 
 	scanner := newFrameScanner(conn)
+	var frameBuf bytes.Buffer
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -55,9 +64,12 @@ func StreamBands(ctx context.Context, sockPath string, interval time.Duration, o
 			return nil
 		}
 
-		var response V2Response
+		var response spectrumResponse
 		if err := json.Unmarshal(scanner.Bytes(), &response); err != nil {
 			return fmt.Errorf("decode response: %w", err)
+		}
+		if response.Version != protocolVersion2 {
+			return fmt.Errorf("unexpected protocol version %d", response.Version)
 		}
 		if !response.OK {
 			if response.Error == nil {
@@ -65,16 +77,20 @@ func StreamBands(ctx context.Context, sockPath string, interval time.Duration, o
 			}
 			return response.Error
 		}
-		var bands Response
-		if err := json.Unmarshal(response.Result, &bands); err != nil {
-			return fmt.Errorf("decode spectrum: %w", err)
+		result := bytes.TrimSpace(response.Result)
+		if len(result) < 2 || result[0] != '{' || result[len(result)-1] != '}' {
+			return fmt.Errorf("decode spectrum: invalid spectrum payload")
 		}
-		frame, err := json.Marshal(bands)
-		if err != nil {
-			return fmt.Errorf("marshal spectrum: %w", err)
+		frameBuf.Reset()
+		if bytes.IndexByte(result, '\r') >= 0 {
+			if err := json.Compact(&frameBuf, result); err != nil {
+				return fmt.Errorf("decode spectrum: %w", err)
+			}
+		} else {
+			frameBuf.Write(result)
 		}
-		frame = append(frame, '\n')
-		if _, err := out.Write(frame); err != nil {
+		frameBuf.WriteByte('\n')
+		if _, err := out.Write(frameBuf.Bytes()); err != nil {
 			return err
 		}
 	}

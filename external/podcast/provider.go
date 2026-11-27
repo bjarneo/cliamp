@@ -40,6 +40,7 @@ var (
 // Shows use their feed URL as identity, including across refreshes and restarts.
 type Provider struct {
 	mu               sync.Mutex
+	loadOnce         sync.Once
 	client           *client
 	country          string
 	shows            map[string]show
@@ -77,29 +78,45 @@ func New(country string) *Provider {
 		return p
 	}
 	p.subscriptionPath = filepath.Join(dir, "podcast_subscriptions.json")
-	data, err := os.ReadFile(p.subscriptionPath)
-	if os.IsNotExist(err) {
-		return p
-	}
-	if err == nil {
-		err = json.Unmarshal(data, &p.subscriptions)
-	}
-	if err != nil {
-		p.subscriptions = nil
-		p.storeErr = fmt.Errorf("load podcast subscriptions: %w", err)
-		return p
-	}
-	p.subscriptions = slices.DeleteFunc(p.subscriptions, func(s show) bool { return !validHTTPURL(s.FeedURL) })
-	p.subscriptions = uniqueShows(p.subscriptions)
-	for _, s := range p.subscriptions {
-		p.shows[s.FeedURL] = s
-	}
 	return p
+}
+
+// ensureLoaded reads podcast_subscriptions.json once on first use.
+func (p *Provider) ensureLoaded() {
+	p.loadOnce.Do(func() {
+		if p.subscriptionPath == "" {
+			return
+		}
+		data, err := os.ReadFile(p.subscriptionPath)
+		if os.IsNotExist(err) {
+			return
+		}
+		var loaded []show
+		if err == nil {
+			err = json.Unmarshal(data, &loaded)
+		}
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if err != nil {
+			p.subscriptions = nil
+			p.storeErr = fmt.Errorf("load podcast subscriptions: %w", err)
+			return
+		}
+		loaded = slices.DeleteFunc(loaded, func(s show) bool { return !validHTTPURL(s.FeedURL) })
+		loaded = uniqueShows(loaded)
+		p.subscriptions = loaded
+		for _, s := range p.subscriptions {
+			if _, exists := p.shows[s.FeedURL]; !exists {
+				p.shows[s.FeedURL] = s
+			}
+		}
+	})
 }
 
 func (*Provider) Name() string { return "Podcasts" }
 
 func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
+	p.ensureLoaded()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	var lists []playlist.PlaylistInfo
@@ -128,6 +145,7 @@ func (p *Provider) LoadCatalogPage(offset, limit int) (int, error) {
 	if offset < 0 || limit <= 0 {
 		return 0, nil
 	}
+	p.ensureLoaded()
 	p.mu.Lock()
 	catalog, generation := p.catalog, p.generation
 	p.mu.Unlock()
@@ -161,6 +179,7 @@ func (p *Provider) LoadCatalogPage(offset, limit int) (int, error) {
 // SearchCatalog searches shows, not episodes. Enter on a result loads its feed
 // into the playlist; it never fetches one episode from every matching show.
 func (p *Provider) SearchCatalog(query string) (int, error) {
+	p.ensureLoaded()
 	p.mu.Lock()
 	p.searchGeneration++
 	generation := p.searchGeneration
@@ -238,6 +257,7 @@ func (p *Provider) SearchTracks(ctx context.Context, query string, limit int) ([
 	if limit > 0 && len(shows) > limit {
 		shows = shows[:limit]
 	}
+	p.ensureLoaded()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	tracks := make([]playlist.Track, 0, len(shows))
@@ -279,6 +299,7 @@ func (p *Provider) ArtistAlbums(id string) ([]provider.AlbumInfo, error) {
 	if idx < 0 {
 		return nil, fmt.Errorf("unknown podcast category %q", id)
 	}
+	p.ensureLoaded()
 	p.mu.Lock()
 	shows, cached := p.categoryCache[id]
 	generation := p.generation
@@ -321,6 +342,7 @@ func (p *Provider) AlbumTracksContext(ctx context.Context, id string) ([]playlis
 	if err != nil {
 		return nil, fmt.Errorf("podcast episodes: %w", err)
 	}
+	p.ensureLoaded()
 	p.mu.Lock()
 	s := p.shows[feedURL]
 	p.mu.Unlock()
@@ -350,6 +372,7 @@ func showFeedURL(id string) string {
 // Subscriptions returns the subscribed shows in stored order, without a
 // network call. The ID is the feed URL, which AlbumTracks accepts.
 func (p *Provider) Subscriptions() []provider.SubscriptionInfo {
+	p.ensureLoaded()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	subs := make([]provider.SubscriptionInfo, 0, len(p.subscriptions))
@@ -366,6 +389,7 @@ func (p *Provider) subscribedLocked(feedURL string) bool {
 // ToggleFavorite subscribes/unsubscribes using the existing provider favorite
 // action. Failed writes leave the in-memory subscriptions unchanged.
 func (p *Provider) ToggleFavorite(id string) (bool, string, error) {
+	p.ensureLoaded()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.storeErr != nil {
@@ -419,6 +443,7 @@ func (p *Provider) SectionTitle(prefix string) string {
 }
 
 func (p *Provider) Refresh() {
+	p.ensureLoaded()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.generation++
@@ -427,6 +452,10 @@ func (p *Provider) Refresh() {
 	p.catalogVisible = 0
 	p.categoryCache = make(map[string][]show)
 	p.searchResults = nil
+	p.shows = make(map[string]show, len(p.subscriptions))
+	for _, s := range p.subscriptions {
+		p.shows[s.FeedURL] = s
+	}
 }
 
 func (*Provider) CanRefreshPlaylist(id string) bool { return showFeedURL(id) != "" }

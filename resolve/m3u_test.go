@@ -119,6 +119,29 @@ func TestParseM3UAbsolutePaths(t *testing.T) {
 	}
 }
 
+func TestParseM3UFileURIs(t *testing.T) {
+	input := `#EXTM3U
+#EXTINF:60,Song
+file:///home/user/My%20Music/song.mp3
+file://localhost/home/user/other.flac
+file:///C:/Music/track.mp3
+file:///home/user/Mixes/a%23b%3F%20#1?.mp3
+`
+	entries, err := parseM3U(strings.NewReader(input), "/home/user/playlists")
+	if err != nil {
+		t.Fatalf("parseM3U error: %v", err)
+	}
+	want := []string{"/home/user/My Music/song.mp3", "/home/user/other.flac", filepath.FromSlash("C:/Music/track.mp3"), "/home/user/Mixes/a#b? #1?.mp3"}
+	if len(entries) != len(want) {
+		t.Fatalf("got %d entries, want %d", len(entries), len(want))
+	}
+	for i, w := range want {
+		if entries[i].Path != w {
+			t.Errorf("entries[%d].Path = %q, want %q", i, entries[i].Path, w)
+		}
+	}
+}
+
 func TestParseM3UEmpty(t *testing.T) {
 	entries, err := parseM3U(strings.NewReader(""), "")
 	if err != nil {
@@ -147,6 +170,30 @@ http://radio.example.com/stream
 	}
 	if entries[0].Title != "Radio Station" {
 		t.Errorf("Title = %q, want Radio Station", entries[0].Title)
+	}
+}
+
+func TestParseEXTINF(t *testing.T) {
+	tests := []struct {
+		info  string
+		dur   int
+		title string
+	}{
+		{`123,Artist - Song`, 123, "Artist - Song"},
+		{`-1,Radio Station`, -1, "Radio Station"},
+		{`245.7,Decimal Duration`, 245, "Decimal Duration"},
+		{`-1 tvg-id="smooth" group-title="Jazz, Blues",Smooth FM`, -1, "Smooth FM"},
+		{`180 tvg-logo="http://x/a.png",Song, Part 2`, 180, "Song, Part 2"},
+		{`60 tvg-name="unclosed,Title`, 60, "Title"},
+		{`2147483647,Longest`, 2147483647, "Longest"},
+		{`1e300,Huge`, -1, "Huge"},
+		{`no comma`, -1, ""},
+	}
+	for _, tt := range tests {
+		dur, title := parseEXTINF(tt.info)
+		if dur != tt.dur || title != tt.title {
+			t.Errorf("parseEXTINF(%q) = %d, %q, want %d, %q", tt.info, dur, title, tt.dur, tt.title)
+		}
 	}
 }
 
