@@ -487,11 +487,13 @@ playlist that you cannot rename, delete, or change in the playlist. Use
 Favorite tracks show a small red `♥` marker in the track list. The marker
 column is always reserved, so a toggle does not move the titles.
 
-When the track comes from Spotify or Navidrome, cliamp also saves the favorite
-on that service. Spotify adds the track to Liked Songs. Navidrome stars the
-song. The local file stays the source of truth. If the service call fails, the
-local favorite stays and the status bar shows a warning with the provider
-name. See [spotify.md](spotify.md) and [navidrome.md](navidrome.md).
+When the track comes from Spotify, Navidrome, or Yandex Music, cliamp also saves
+the favorite on that service. Spotify adds the track to Liked Songs. Navidrome
+stars the song. Yandex Music adds the track to Liked Tracks. The local file
+stays the source of truth. If the service call fails, the local favorite stays
+and the status bar shows a warning with the provider name. See
+[spotify.md](spotify.md), [navidrome.md](navidrome.md), and
+[yandex.md](yandex.md).
 
 On a radio station, `f` toggles the station favorite. On a podcast show, `f`
 subscribes or unsubscribes. In the country browser, `f` pins a country.
@@ -510,8 +512,8 @@ contain `bookmark = true` still load.
 
 `cliamp playlist bookmark` and `cliamp playlist bookmarks` still work. They
 are aliases of `cliamp playlist favorite` and `cliamp playlist favorites`.
-These CLI commands change only the local favorites. They do not call Spotify
-or Navidrome:
+These CLI commands change only the local favorites. They do not call Spotify,
+Navidrome, or Yandex Music:
 
 ```sh
 cliamp playlist favorite "gym" --index 3
