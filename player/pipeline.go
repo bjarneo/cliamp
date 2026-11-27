@@ -98,6 +98,12 @@ func (cr *countingReader) Close() error {
 	return cr.inner.Close()
 }
 
+func (cr *countingReader) interrupt() {
+	if intr, ok := cr.inner.(interface{ interrupt() }); ok {
+		intr.interrupt()
+	}
+}
+
 // close releases the pipeline's resources.
 func (tp *trackPipeline) close() {
 	if tp.livePrefetch != nil {
@@ -421,13 +427,28 @@ func (p *Player) buildPipeline(path string, knownDuration time.Duration, stale f
 		return p.prefetchNetworkPipeline(tp, src.prefetch), nil
 	}
 
-	// For HTTP streams that need ffmpeg (e.g. AAC+), use the streaming
-	// pipe decoder so playback starts immediately instead of buffering
-	// the entire (potentially infinite) stream. Feed ffmpeg from the existing
-	// reader chain via stdin rather than handing it the URL: this keeps the
-	// ICY metadata reader attached so live radio StreamTitle parsing works for
-	// ffmpeg-only codecs (AAC, AAC+, Opus, ...).
-	if remote && needsFFmpeg(ext) {
+	// Probe MP3 streams once for gapless metadata and low-rate MPEG-2/2.5
+	// frames. go-mp3 miscomputes padded MPEG-2 frame sizes and outputs garbled
+	// audio without erroring, so route low-rate MP3s through ffmpeg when
+	// available while keeping go-mp3 as fallback when ffmpeg is absent.
+	var probedMP3 *mp3Probe
+	useFFmpeg := needsFFmpeg(ext)
+	if !useFFmpeg && ext == ".mp3" {
+		var probe mp3Probe
+		rc, probe = probeMP3(rc)
+		probedMP3 = &probe
+		if probe.lowRate && ffmpegAvailable() {
+			useFFmpeg = true
+		}
+	}
+
+	// For HTTP streams that need ffmpeg (e.g. AAC+ or MPEG-2 MP3), use the
+	// streaming pipe decoder so playback starts immediately instead of
+	// buffering the entire (potentially infinite) stream. Feed ffmpeg from the
+	// existing reader chain via stdin rather than handing it the URL: this
+	// keeps the ICY metadata reader attached so live radio StreamTitle parsing
+	// works for ffmpeg-decoded streams.
+	if remote && useFFmpeg {
 		// A duration identifies a finite HTTP source even when the server also
 		// sends ICY headers. Its clean EOF must remain an ordinary track end.
 		// The decoder gets this before the prefetch starts to read it.
@@ -440,28 +461,55 @@ func (p *Player) buildPipeline(path string, knownDuration time.Duration, stale f
 			return nil, fmt.Errorf("decode: %w", err)
 		}
 		return p.prefetchNetworkPipeline(&trackPipeline{
-			decoder:       decoder,
-			stream:        decoder,
-			format:        format,
-			path:          path,
-			bytesRead:     byteCounter,
-			contentLength: src.contentLength,
-			live:          src.live,
-			meta:          meta,
+			decoder:         decoder,
+			stream:          decoder,
+			format:          format,
+			path:            path,
+			bytesRead:       byteCounter,
+			contentLength:   src.contentLength,
+			live:            src.live,
+			meta:            meta,
+			sourceInterrupt: sourceInterrupt,
 		}, src.prefetch), nil
 	}
 
-	if needsFFmpeg(ext) {
-		rc.Close()
-		// SSH streams with ffmpeg-required formats cannot be decoded: ffmpeg
-		// expects a local file path or HTTP URL, not ssh:// pipes.
+	if useFFmpeg {
 		if isSSH(path) {
+			if probedMP3 != nil {
+				decoder, format, err := decodeFFmpegPipeStream(rc, p.sr, p.bitDepth, false)
+				if err != nil {
+					rc.Close()
+					return nil, fmt.Errorf("decode ssh: %w", err)
+				}
+				if err := decoder.waitForInitialAudio(ffmpegPipeTimeout); err != nil {
+					return nil, fmt.Errorf("decode ssh: %w", err)
+				}
+				return p.prefetchNetworkPipeline(&trackPipeline{
+					decoder:         decoder,
+					stream:          decoder,
+					format:          format,
+					path:            path,
+					sourceInterrupt: sourceInterrupt,
+				}, src.prefetch), nil
+			}
+			rc.Close()
+			// SSH streams with ffmpeg-required formats cannot be decoded: ffmpeg
+			// expects a local file path or HTTP URL, not ssh:// pipes.
 			return nil, fmt.Errorf("SSH streaming does not support %s format (requires ffmpeg)", ext)
 		}
+		rc.Close()
 		return p.localFFmpegPipeline(path)
 	}
 
-	decoder, format, err := decodeWithExt(rc, ext)
+	var (
+		decoder beep.StreamSeekCloser
+		format  beep.Format
+	)
+	if probedMP3 != nil {
+		decoder, format, err = decodeMP3WithGapless(rc, probedMP3.gapless)
+	} else {
+		decoder, format, err = decodeWithExt(rc, ext)
+	}
 	if err != nil {
 		rc.Close()
 		if remote {

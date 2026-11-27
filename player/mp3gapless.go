@@ -35,10 +35,20 @@ type mp3Gapless struct {
 	padding int // at the end
 }
 
+// mp3Probe holds the header metadata found at the start of an MP3 stream.
+type mp3Probe struct {
+	gapless mp3Gapless
+	lowRate bool // MPEG-2 or MPEG-2.5 Layer III; go-mp3 miscomputes padded frame sizes
+}
+
 // decodeMP3 decodes MP3 with go-mp3 and trims the samples that the gapless
 // metadata of the file marks as not part of the track.
 func decodeMP3(rc io.ReadCloser) (beep.StreamSeekCloser, beep.Format, error) {
-	rc, g := readMP3Gapless(rc)
+	rc, p := probeMP3(rc)
+	return decodeMP3WithGapless(rc, p.gapless)
+}
+
+func decodeMP3WithGapless(rc io.ReadCloser, g mp3Gapless) (beep.StreamSeekCloser, beep.Format, error) {
 	d, format, err := mp3.Decode(rc)
 	if err != nil {
 		return nil, beep.Format{}, err
@@ -47,29 +57,42 @@ func decodeMP3(rc io.ReadCloser) (beep.StreamSeekCloser, beep.Format, error) {
 }
 
 // readMP3Gapless reads the gapless metadata at the start of rc and returns a
-// reader that starts where rc started. A seekable rc is seeked back, so
-// go-mp3 can still seek it. Otherwise the bytes read are replayed.
+// reader that starts where rc started.
 func readMP3Gapless(rc io.ReadCloser) (io.ReadCloser, mp3Gapless) {
+	rc, p := probeMP3(rc)
+	return rc, p.gapless
+}
+
+// probeMP3 reads the leading MP3 frame metadata at the start of rc and returns
+// a reader that starts where rc started. A seekable rc is seeked back, so
+// go-mp3 can still seek it. Otherwise the bytes read are replayed.
+func probeMP3(rc io.ReadCloser) (io.ReadCloser, mp3Probe) {
 	if s, ok := rc.(io.ReadSeeker); ok {
 		start, err := s.Seek(0, io.SeekCurrent)
 		if err != nil {
-			return rc, mp3Gapless{}
+			return rc, mp3Probe{}
 		}
-		g := parseMP3Gapless(s)
+		p := parseMP3Probe(s)
 		if _, err := s.Seek(start, io.SeekStart); err != nil {
-			return rc, mp3Gapless{}
+			return rc, mp3Probe{}
 		}
-		return rc, g
+		return rc, p
 	}
 	var prefix bytes.Buffer
-	g := parseMP3Gapless(io.TeeReader(rc, &prefix))
-	return replayReadCloser{Reader: io.MultiReader(&prefix, rc), Closer: rc}, g
+	p := parseMP3Probe(io.TeeReader(rc, &prefix))
+	return replayReadCloser{Reader: io.MultiReader(&prefix, rc), Closer: rc}, p
 }
 
 // replayReadCloser reads a replayed prefix and then the rest of the source.
 type replayReadCloser struct {
 	io.Reader
 	io.Closer
+}
+
+func (r replayReadCloser) interrupt() {
+	if intr, ok := r.Closer.(interface{ interrupt() }); ok {
+		intr.interrupt()
+	}
 }
 
 func id3v2TagSize(hdr []byte) int {
@@ -83,28 +106,34 @@ func id3v2TagSize(hdr []byte) int {
 
 // parseMP3Gapless skips an ID3v2 tag, finds the first MPEG audio frame, and
 // parses its gapless metadata. It returns the zero value when there is none.
-// Seekable readers jump over ID3v2 tags with Seek. Non-seekable readers skip
-// gapless parsing when the ID3v2 tag exceeds mp3SyncScan.
 func parseMP3Gapless(r io.Reader) mp3Gapless {
+	return parseMP3Probe(r).gapless
+}
+
+// parseMP3Probe skips an ID3v2 tag, finds the first MPEG Layer III frame, and
+// returns its gapless metadata and whether it is a low-rate MPEG-2 or MPEG-2.5
+// stream. Seekable readers jump over ID3v2 tags with Seek. Non-seekable readers
+// skip probing when the ID3v2 tag exceeds mp3SyncScan.
+func parseMP3Probe(r io.Reader) mp3Probe {
 	var hdr [10]byte
 	n, err := io.ReadFull(r, hdr[:])
 	if n == 0 || (err != nil && err != io.ErrUnexpectedEOF) {
-		return mp3Gapless{}
+		return mp3Probe{}
 	}
 	var src io.Reader
 	if n == len(hdr) && string(hdr[:3]) == "ID3" {
 		size := id3v2TagSize(hdr[:])
 		if s, ok := r.(io.ReadSeeker); ok {
 			if _, err := s.Seek(int64(size-len(hdr)), io.SeekCurrent); err != nil {
-				return mp3Gapless{}
+				return mp3Probe{}
 			}
 			src = s
 		} else {
 			if size > mp3SyncScan {
-				return mp3Gapless{}
+				return mp3Probe{}
 			}
 			if _, err := io.CopyN(io.Discard, r, int64(size-len(hdr))); err != nil {
-				return mp3Gapless{}
+				return mp3Probe{}
 			}
 			src = r
 		}
@@ -112,20 +141,83 @@ func parseMP3Gapless(r io.Reader) mp3Gapless {
 		src = io.MultiReader(bytes.NewReader(hdr[:n]), r)
 	}
 	br := bufio.NewReaderSize(src, 4096)
+	var fallback mp3Probe
+	hasFallback := false
 	for range mp3SyncScan {
 		fh, err := br.Peek(4)
 		if err != nil {
-			return mp3Gapless{}
+			break
 		}
 		if mp3FrameHeaderValid(fh) {
+			version := (fh[1] >> 3) & 3
 			frame, _ := br.Peek(mp3FrameProbe)
-			return parseMP3Frame(frame)
+			candidate := mp3Probe{
+				gapless: parseMP3Frame(frame),
+				lowRate: version != 3,
+			}
+			if !hasFallback {
+				fallback = candidate
+				hasFallback = true
+			}
+			if mp3FrameConfirmed(br, fh) {
+				return candidate
+			}
 		}
 		if _, err := br.Discard(1); err != nil {
-			return mp3Gapless{}
+			break
 		}
 	}
-	return mp3Gapless{}
+	return fallback
+}
+
+// mp3FrameConfirmed checks whether a second Layer III frame of the same MPEG
+// version begins immediately after the frame starting with fh.
+func mp3FrameConfirmed(br *bufio.Reader, fh []byte) bool {
+	fsize := mp3FrameSize(fh)
+	if fsize < 4 || fsize+4 > br.Size() {
+		return false
+	}
+	buf, _ := br.Peek(fsize + 4)
+	if len(buf) < fsize+4 {
+		return false
+	}
+	next := buf[fsize : fsize+4]
+	return mp3FrameHeaderValid(next) && ((next[1]>>3)&3) == ((fh[1]>>3)&3)
+}
+
+var (
+	mp3BitratesMPEG1 = [16]int{0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0}
+	mp3BitratesMPEG2 = [16]int{0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0}
+)
+
+// mp3FrameSize returns the byte length of the Layer III frame starting with h,
+// or 0 if h is not a valid Layer III frame header.
+func mp3FrameSize(h []byte) int {
+	if !mp3FrameHeaderValid(h) {
+		return 0
+	}
+	version := (h[1] >> 3) & 3
+	bitrateIdx := h[2] >> 4
+	rateIdx := (h[2] >> 2) & 3
+	padding := int((h[2] >> 1) & 1)
+
+	var sampleRate int
+	switch version {
+	case 3: // MPEG-1
+		rates := [3]int{44100, 48000, 32000}
+		sampleRate = rates[rateIdx]
+		return 144000*mp3BitratesMPEG1[bitrateIdx]/sampleRate + padding
+	case 2: // MPEG-2
+		rates := [3]int{22050, 24000, 16000}
+		sampleRate = rates[rateIdx]
+		return 72000*mp3BitratesMPEG2[bitrateIdx]/sampleRate + padding
+	case 0: // MPEG-2.5
+		rates := [3]int{11025, 12000, 8000}
+		sampleRate = rates[rateIdx]
+		return 72000*mp3BitratesMPEG2[bitrateIdx]/sampleRate + padding
+	default:
+		return 0
+	}
 }
 
 // mp3FrameHeaderValid reports whether h starts a Layer III frame header.
