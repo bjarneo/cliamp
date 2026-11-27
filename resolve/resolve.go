@@ -829,40 +829,76 @@ func ResolveYTDLBatchContext(ctx context.Context, pageURL string, start, count i
 	return tracks, err
 }
 
-// ResolveYTDLBatchPageContext uses yt-dlp --flat-playlist to list the entries
-// of pageURL from offset start. It fetches at most count entries, or all the
-// remaining entries when count is 0. The tracks keep their page URLs as Path,
-// not direct audio URLs. It also returns the number of source entries that
-// yt-dlp emitted, which includes entries that give no track. A non-empty
-// browser supplies the cookies. Otherwise the cookie source configured for the
-// host of pageURL applies.
+// ResolveYTDLBatchPageContext lists the entries of pageURL from offset start
+// using yt-dlp. Most URLs use --flat-playlist; Bilibili medialists use full
+// extraction so each favorite keeps its own video title and uploader. It
+// fetches at most count entries, or all remaining entries when count is 0.
+// The tracks keep their page URLs as Path, not direct audio URLs. It also
+// returns the number of source entries that yt-dlp emitted, which includes
+// entries that give no track. A non-empty browser supplies the cookies.
+// Otherwise the cookie source configured for the host of pageURL applies.
 func ResolveYTDLBatchPageContext(ctx context.Context, pageURL string, start, count int, browser string) ([]playlist.Track, int, error) {
 	if _, err := exec.LookPath("yt-dlp"); err != nil {
 		return nil, 0, fmt.Errorf("yt-dlp not found in PATH — see https://github.com/yt-dlp/yt-dlp#installation")
 	}
 
-	args := []string{"--flat-playlist", "-j", "--socket-timeout", "15"}
+	var cookieArgs []string
 	if b := strings.TrimSpace(browser); b != "" {
-		args = append(args, "--cookies-from-browser", b)
+		cookieArgs = []string{"--cookies-from-browser", b}
 	} else {
-		cookieArgs, cleanup, err := ytdlcookies.Args(pageURL)
+		var cleanup func()
+		var err error
+		cookieArgs, cleanup, err = ytdlcookies.Args(pageURL)
 		defer cleanup()
 		if err != nil {
 			return nil, 0, fmt.Errorf("yt-dlp: %w", err)
 		}
-		args = append(args, cookieArgs...)
 	}
+
+	rangeArgs := ytdlRangeArgs(start, count)
+	if isBilibiliMedialist(pageURL) {
+		if len(rangeArgs) > 0 {
+			// Slice the outer medialist with --flat-playlist first, then expand
+			// only the selected video URLs without range flags so nested
+			// multipart Bilibili videos are not filtered out by start/end.
+			flatArgs := append([]string{"--flat-playlist", "-j", "--socket-timeout", "15"}, cookieArgs...)
+			flatArgs = append(flatArgs, rangeArgs...)
+			flatArgs = append(flatArgs, "--", pageURL)
+			flatTracks, flatEntries, err := runYTDLTracks(ctx, flatArgs, pageURL, false)
+			if err != nil || len(flatTracks) == 0 {
+				return flatTracks, flatEntries, err
+			}
+			expandArgs := append([]string{"-j", "--ignore-errors", "--socket-timeout", "15"}, cookieArgs...)
+			expandArgs = append(expandArgs, "--")
+			for _, tr := range flatTracks {
+				expandArgs = append(expandArgs, tr.Path)
+			}
+			tracks, _, err := runYTDLTracks(ctx, expandArgs, pageURL, true)
+			return tracks, flatEntries, err
+		}
+		args := append([]string{"-j", "--ignore-errors", "--socket-timeout", "15"}, cookieArgs...)
+		args = append(args, "--", pageURL)
+		return runYTDLTracks(ctx, args, pageURL, true)
+	}
+
+	args := append([]string{"--flat-playlist", "-j", "--socket-timeout", "15"}, cookieArgs...)
+	args = append(args, rangeArgs...)
+	args = append(args, "--", pageURL)
+	return runYTDLTracks(ctx, args, pageURL, false)
+}
+
+func ytdlRangeArgs(start, count int) []string {
+	var args []string
 	if start > 0 {
 		args = append(args, "--playlist-start", strconv.Itoa(start+1)) // yt-dlp is 1-based
 	}
-	end := 0
 	if count > 0 {
-		end = start + count
+		args = append(args, "--playlist-end", strconv.Itoa(start+count))
 	}
-	if end > 0 {
-		args = append(args, "--playlist-end", strconv.Itoa(end))
-	}
-	args = append(args, "--", pageURL)
+	return args
+}
+
+func runYTDLTracks(ctx context.Context, args []string, pageURL string, allowPartial bool) ([]playlist.Track, int, error) {
 	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
 	cmd.WaitDelay = 3 * time.Second
 	stderr := cappedBuffer{limit: maxYTDLStderrBytes}
@@ -880,6 +916,9 @@ func ResolveYTDLBatchPageContext(ctx context.Context, pageURL string, start, cou
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, 0, fmt.Errorf("yt-dlp: resolve %s: %w", pageURL, ctxErr)
 		}
+		if allowPartial && parseErr == nil && len(tracks) > 0 {
+			return tracks, entries, nil
+		}
 		msg := strings.TrimSpace(stderr.String())
 		if msg != "" {
 			return nil, 0, fmt.Errorf("yt-dlp: %s", msg)
@@ -887,6 +926,23 @@ func ResolveYTDLBatchPageContext(ctx context.Context, pageURL string, start, cou
 		return nil, 0, fmt.Errorf("yt-dlp: %w", err)
 	}
 	return tracks, entries, parseErr
+}
+
+// isBilibiliMedialist reports whether pageURL is a Bilibili favorite list.
+// yt-dlp's flat extraction for those lists exposes only the BV id and the
+// playlist owner, so these entries need full extraction for their own metadata.
+func isBilibiliMedialist(pageURL string) bool {
+	u, err := url.Parse(strings.TrimSpace(pageURL))
+	if err != nil {
+		return false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return (host == "bilibili.com" || strings.HasSuffix(host, ".bilibili.com")) &&
+		strings.HasPrefix(strings.ToLower(u.Path), "/medialist/detail/")
 }
 
 // resolveYTDL lists the first maxItems entries of pageURL, or all entries when
